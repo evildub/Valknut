@@ -1,0 +1,34 @@
+PROPRIETARY & INTELLECTUAL PROPERTY NOTICE
+================================================================================
+Software: eBay Enforcement Harvester
+Version: 2.4
+Copyright (c) 2026 Jerry Seidenstucker. All Rights Reserved.
+AI Pair Programming: Antigravity (Google DeepMind)
+================================================================================
+
+1. OWNERSHIP & PROPRIETARY RIGHTS
+This software application, including all source code, architecture, design systems, 
+algorithms, workflows, and documentation, was conceived and developed independently 
+by Jerry Seidenstucker ("Author") as an independent personal intellectual creation.
+
+2. AUTHORIZED USE & EVALUATION LICENSE
+Permission is hereby granted to authorized internal users to execute and evaluate 
+this application solely for the purpose of brand monitoring, trademark compliance, 
+and listing verification. 
+
+3. RESTRICTIONS
+Unless expressly agreed upon in writing by the Author:
+  a. No party may claim authorship, trademark ownership, or copyright over this 
+     source code or compiled binaries.
+  b. This software may not be repackaged, rebranded, distributed, or commercialized 
+     as an original work of any corporate entity or third party without prominent 
+     attribution and prior written consent of the Author.
+  c. Any internal company deployments must preserve all copyright headers, author 
+     credits, and licensing notices intact.
+
+4. DISCLAIMER OF WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE 
+USE OR PERFORMANCE OF THIS SOFTWARE.
