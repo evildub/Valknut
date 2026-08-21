@@ -1,3 +1,5 @@
+import sys
+import logging
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import json
@@ -12,6 +14,8 @@ import webbrowser
 import winsound
 from PIL import Image, ImageTk
 import ctypes
+
+logger = logging.getLogger("Valknut")
 
 from scraper import EbayScraper
 from aliexpress_scraper import AliExpressScraper
@@ -581,6 +585,16 @@ EBAY_LOCALES = [
     {"code": "PL", "name": "Poland", "domain": "ebay.pl", "region": "Europe", "flag": "🇵🇱"},
 ]
 
+MELI_LOCALES = [
+    {"code": "MLM", "name": "Mexico", "domain": "listado.mercadolibre.com.mx", "region": "North America", "flag": "🇲🇽", "currency": "MXN"},
+    {"code": "MLB", "name": "Brazil", "domain": "lista.mercadolivre.com.br", "region": "South America", "flag": "🇧🇷", "currency": "BRL"},
+    {"code": "MLA", "name": "Argentina", "domain": "listado.mercadolibre.com.ar", "region": "South America", "flag": "🇦🇷", "currency": "ARS"},
+    {"code": "MCO", "name": "Colombia", "domain": "listado.mercadolibre.com.co", "region": "South America", "flag": "🇨🇴", "currency": "COP"},
+    {"code": "MLC", "name": "Chile", "domain": "listado.mercadolibre.cl", "region": "South America", "flag": "🇨🇱", "currency": "CLP"},
+    {"code": "MPE", "name": "Peru", "domain": "listado.mercadolibre.com.pe", "region": "South America", "flag": "🇵🇪", "currency": "PEN"},
+    {"code": "MLU", "name": "Uruguay", "domain": "listado.mercadolibre.com.uy", "region": "South America", "flag": "🇺🇾", "currency": "UYU"},
+]
+
 THEME_QUOTES = {
     "lego": "🧱 Careful! Stepped on a red 2x4 Lego brick! Enforcement Defense +100.",
     "taylor_swift": "✨ 'I knew you were counterfeit when you walked in...' 🎶",
@@ -851,10 +865,38 @@ class EbayTool(tk.Tk):
         self.themed_widgets["subtext_labels"].append(market_lbl)
 
         self.market_combo = ttk.Combobox(top_right, textvariable=self.marketplace_var,
-                                         values=["🛒 eBay.com", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🇲🇽 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
-                                         state="readonly", width=15, font=FONT_SM)
+                                         values=["🛒 eBay.com", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
+                                         state="readonly", width=16, font=FONT_SM)
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
+
+        self.meli_country_var = tk.StringVar(value="🇲🇽 Mexico")
+        self.meli_country_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.meli_country_var,
+            values=[
+                "🇲🇽 Mexico",
+                "🇧🇷 Brazil",
+                "🇦🇷 Argentina",
+                "🇨🇴 Colombia",
+                "🇨🇱 Chile",
+                "🇵🇪 Peru",
+                "🌎 All Latin America"
+            ],
+            state="readonly",
+            width=15,
+            font=FONT_SM
+        )
+        self.meli_depth_var = tk.StringVar(value="2 Pages (100)")
+        self.meli_depth_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.meli_depth_var,
+            values=["1 Page (50)", "2 Pages (100)", "5 Pages (250)", "10 Pages (500)"],
+            state="readonly",
+            width=13,
+            font=FONT_SM
+        )
+        self.meli_depth_combo.bind("<<ComboboxSelected>>", lambda e: self._log(f"📄 Mercado Libre scan depth set to: {self.meli_depth_var.get()}"))
 
         self.meli_login_btn = self._btn(top_right, "🔑 MeLi Login", self._launch_meli_login)
         # only pack when Mercado Libre is active
@@ -1925,9 +1967,23 @@ class EbayTool(tk.Tk):
         t = self.theme
         current_text = self.store_text.get("1.0", "end").strip()
 
+        if hasattr(self, "meli_country_combo"):
+            if "Mercado Libre" in market:
+                self.meli_country_combo.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.meli_country_combo.pack_forget()
+
+        if hasattr(self, "meli_depth_combo"):
+            if "Mercado Libre" in market:
+                after_w = self.meli_country_combo if hasattr(self, "meli_country_combo") else self.market_combo
+                self.meli_depth_combo.pack(side="left", padx=(0, 4), after=after_w)
+            else:
+                self.meli_depth_combo.pack_forget()
+
         if hasattr(self, "meli_login_btn"):
             if "Mercado Libre" in market:
-                self.meli_login_btn.pack(side="left", padx=(0, 4), after=self.market_combo)
+                after_widget = self.meli_depth_combo if hasattr(self, "meli_depth_combo") else (self.meli_country_combo if hasattr(self, "meli_country_combo") else self.market_combo)
+                self.meli_login_btn.pack(side="left", padx=(0, 4), after=after_widget)
             else:
                 self.meli_login_btn.pack_forget()
 
@@ -3431,13 +3487,40 @@ class EbayTool(tk.Tk):
                         )
                     elif is_meli:
                         self.mercadolibre_scraper.headless = is_headless
-                        items = self.mercadolibre_scraper.search(
-                            include_term,
-                            max_items=50,
-                            condition=job.get("condition", "all"),
-                            log_callback=self._log
-                        )
-                        job_record["url"] = f"https://listado.mercadolibre.com.mx/{include_term.replace(' ', '-')}"
+                        selected_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
+                        depth_str = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
+                        m_pages_match = re.search(r'(\d+)\s+Page', depth_str, re.IGNORECASE)
+                        m_pages = int(m_pages_match.group(1)) if m_pages_match else 2
+                        target_max_items = m_pages * 50
+
+                        if "All Latin America" in selected_c:
+                            self._log(f"🌎 [Latin America Multi-Sweep] Initiating cross-border sweep across Mexico, Brazil, Argentina, Colombia, Chile, and Peru for '{include_term}' ({m_pages * 25} items/region)...")
+                            items = self.mercadolibre_scraper.search_multi_region(
+                                include_term,
+                                site_codes=["MLM", "MLB", "MLA", "MCO", "MLC", "MPE"],
+                                max_items_per_region=m_pages * 25,
+                                condition=job.get("condition", "all"),
+                                log_callback=self._log
+                            )
+                            job_record["url"] = f"https://www.mercadolibre.com/multi-search?q={include_term.replace(' ', '+')}"
+                        else:
+                            code_map = {
+                                "Mexico": "MLM", "Brazil": "MLB", "Argentina": "MLA",
+                                "Colombia": "MCO", "Chile": "MLC", "Peru": "MPE", "Uruguay": "MLU"
+                            }
+                            target_code = "MLM"
+                            for k, c in code_map.items():
+                                if k in selected_c:
+                                    target_code = c
+                                    break
+                            self.mercadolibre_scraper.site_code = target_code
+                            items = self.mercadolibre_scraper.search(
+                                include_term,
+                                max_items=target_max_items,
+                                condition=job.get("condition", "all"),
+                                log_callback=self._log
+                            )
+                            job_record["url"] = f"https://listado.mercadolibre.com.mx/{include_term.replace(' ', '-')}"
                     elif is_redbubble:
                         self.redbubble_scraper.headless = is_headless
                         items = self.redbubble_scraper.search(
@@ -3775,13 +3858,19 @@ class EbayTool(tk.Tk):
                 # Evaluate Threat Intel from DataStore cache
                 seller_clean = str(item.get("seller", "")).replace("🛡️", "").replace("(Authorized)", "").strip()
                 cached_intel = self.data_store.get_seller_intel(seller_clean)
-                seller_country = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "")
+                raw_origin = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "") or item.get("location", "")
                 loc = item.get("location", "")
 
-                assessment = self.data_store.compute_threat_assessment(seller_country, loc)
-                orig_display = f"{assessment['flag']} {assessment['country']}" if assessment['country'] != "Unknown" else "❓ Unresolved"
-                threat_display = assessment['badge']
-                item["seller_origin"] = assessment.get("country", "Unknown")
+                assessment = self.data_store.compute_threat_assessment(raw_origin, loc)
+                orig_country = assessment.get("country", "")
+                if not orig_country or orig_country == "Unknown":
+                    orig_country = item.get("seller_origin") or item.get("location") or "Unknown"
+
+                orig_flag = self.data_store.COUNTRY_FLAGS.get(orig_country.lower(), "🌍") if orig_country != "Unknown" else "❓"
+                orig_display = f"{orig_flag} {orig_country}" if orig_country != "Unknown" else "❓ Unresolved"
+                threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
+                if orig_country != "Unknown":
+                    item["seller_origin"] = orig_country
                 item["threat_badge"] = threat_display
 
                 # Check High-Risk filter checkbox
@@ -3833,13 +3922,19 @@ class EbayTool(tk.Tk):
             # Evaluate Threat Intel from DataStore cache
             seller_clean = str(item.get("seller", "")).replace("🛡️", "").replace("(Authorized)", "").strip()
             cached_intel = self.data_store.get_seller_intel(seller_clean)
-            seller_country = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "")
+            raw_origin = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "") or item.get("location", "")
             loc = item.get("location", "")
 
-            assessment = self.data_store.compute_threat_assessment(seller_country, loc)
-            orig_display = f"{assessment['flag']} {assessment['country']}" if assessment['country'] != "Unknown" else "❓ Unresolved"
-            threat_display = assessment['badge']
-            item["seller_origin"] = assessment.get("country", "Unknown")
+            assessment = self.data_store.compute_threat_assessment(raw_origin, loc)
+            orig_country = assessment.get("country", "")
+            if not orig_country or orig_country == "Unknown":
+                orig_country = item.get("seller_origin") or item.get("location") or "Unknown"
+
+            orig_flag = self.data_store.COUNTRY_FLAGS.get(orig_country.lower(), "🌍") if orig_country != "Unknown" else "❓"
+            orig_display = f"{orig_flag} {orig_country}" if orig_country != "Unknown" else "❓ Unresolved"
+            threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
+            if orig_country != "Unknown":
+                item["seller_origin"] = orig_country
             item["threat_badge"] = threat_display
 
             # Check High-Risk filter checkbox
@@ -4332,9 +4427,12 @@ class EbayTool(tk.Tk):
                 vals = self.result_tree.item(item_iid)["values"]
                 if len(vals) > 3:
                     item_id = str(vals[3]).strip()
-                    url = str(vals[8]).strip() if len(vals) > 8 else (str(vals[7]).strip() if len(vals) > 7 else "")
+                    title_val = str(vals[2]).strip() if len(vals) > 2 else ""
+                    url_val = str(vals[10]).strip() if len(vals) > 10 else (str(vals[8]).strip() if len(vals) > 8 else "")
                     for it in self.results:
-                        if (item_id and str(it.get("item_id", "")).strip() == item_id) or (url and str(it.get("url", "")).strip() == url):
+                        if (item_id and str(it.get("item_id", "")).strip() == item_id) or \
+                           (url_val and str(it.get("url", "")).strip() == url_val) or \
+                           (title_val and str(it.get("title", "")).strip() == title_val):
                             if it not in target_items:
                                 target_items.append(it)
                             break
@@ -4344,7 +4442,7 @@ class EbayTool(tk.Tk):
                 mkt = it.get("marketplace", "").lower()
                 url = it.get("url", "").lower()
                 seller = str(it.get("seller", "")).strip()
-                if not seller or any(g in seller.lower() for g in ("ebay seller", "global search", "aliexpress global", "creator", "unknown", "printerval creator")):
+                if not seller or any(g in seller.lower() for g in ("ebay seller", "global search", "aliexpress global", "creator", "unknown", "printerval creator", "mercado libre seller", "mercado libre merchant", "mercado")):
                     target_items.append(it)
 
         if not target_items:
@@ -4360,6 +4458,7 @@ class EbayTool(tk.Tk):
         self.wish_scraper.headless = is_headless
         self.temu_scraper.headless = is_headless
         self.printerval_scraper.headless = is_headless
+        self.mercadolibre_scraper.headless = is_headless
 
         self._log(f"🏪 Starting Seller Name Enrichment for {len(target_items)} item(s)...")
         self._status(f"🏪 Enriching {len(target_items)} sellers...")
@@ -4384,6 +4483,7 @@ class EbayTool(tk.Tk):
                 ali_items = [it for it in target_items if "ali" in it.get("marketplace", "").lower() or "aliexpress" in it.get("url", "").lower()]
                 wish_items = [it for it in target_items if "wish" in it.get("marketplace", "").lower() or "wish" in it.get("url", "").lower()]
                 temu_items = [it for it in target_items if "temu" in it.get("marketplace", "").lower() or "temu" in it.get("url", "").lower()]
+                meli_items = [it for it in target_items if "mercadolibre" in it.get("marketplace", "").lower() or "mercadolivre" in it.get("marketplace", "").lower() or "mercadolibre" in it.get("url", "").lower() or "mercadolivre" in it.get("url", "").lower()]
                 printerval_items = [it for it in target_items if "printerval" in it.get("marketplace", "").lower() or "printerval" in it.get("url", "").lower()]
 
                 if ebay_items and not self.stop_event.is_set():
@@ -4410,6 +4510,13 @@ class EbayTool(tk.Tk):
                 if temu_items and not self.stop_event.is_set():
                     self.temu_scraper.enrich_seller_info(
                         temu_items,
+                        progress_callback=_on_prog,
+                        stop_event=self.stop_event
+                    )
+
+                if meli_items and not self.stop_event.is_set():
+                    self.mercadolibre_scraper.enrich_seller_info(
+                        meli_items,
                         progress_callback=_on_prog,
                         stop_event=self.stop_event
                     )
@@ -6800,8 +6907,8 @@ class EbayTool(tk.Tk):
 class MultiLocaleModal(tk.Toplevel):
     """
     Global Multi-Locale Expander & Compliance Exporter.
-    Probes sample item IDs per seller across international eBay domains (.com, .ca, .co.uk, .de, .fr, .it, .es, etc.),
-    multiplies verified listings into full international compliance packs, and exports to Excel.
+    Supports both international eBay domains (.com, .ca, .co.uk, .de, .fr, etc.)
+    and Latin American Mercado Libre domains (.mx, .br, .ar, .co, .cl, .pe, .uy).
     """
     def __init__(self, parent, target_items: list = None):
         super().__init__(parent)
@@ -6813,7 +6920,17 @@ class MultiLocaleModal(tk.Toplevel):
         self.probe_results = {}
         self.probing = False
 
-        self.title("🌐 Global Multi-Locale Expander & Compliance Exporter")
+        self.is_meli = any(
+            "mercadolibre" in it.get("marketplace", "").lower() or 
+            "mercadolivre" in it.get("marketplace", "").lower() or 
+            "mercadolibre" in it.get("url", "").lower() or 
+            "mercadolivre" in it.get("url", "").lower()
+            for it in self.target_items
+        )
+        self.active_locales = MELI_LOCALES if self.is_meli else EBAY_LOCALES
+
+        title_text = "🌐 Latin America Multi-Locale Expander" if self.is_meli else "🌐 Global Multi-Locale Expander"
+        self.title(f"{title_text} & Compliance Exporter")
         self.geometry("980x660")
         self.configure(bg=self.t["bg"])
         self.minsize(840, 520)
@@ -6843,10 +6960,13 @@ class MultiLocaleModal(tk.Toplevel):
         head_f = tk.Frame(pad_f, bg=t["bg"])
         head_f.pack(fill="x", pady=(0, 8))
 
-        tk.Label(head_f, text="🌐 Global Multi-Locale Expander & Compliance Exporter",
+        h_title = "🌐 Latin America Multi-Locale Expander & Compliance Exporter" if self.is_meli else "🌐 Global Multi-Locale Expander & Compliance Exporter"
+        h_sub = "Multiply listings across Latin America (Mexico, Brazil, Argentina, Colombia, Chile, Peru) for regional sweeps" if self.is_meli else "Multiply & verify harvested listings across international eBay domains for global sweeps"
+
+        tk.Label(head_f, text=h_title,
                  font=("Segoe UI", 13, "bold"), bg=t["bg"], fg=t["accent"]).pack(side="left")
 
-        tk.Label(head_f, text="Multiply & verify harvested listings across international eBay domains for global sweeps",
+        tk.Label(head_f, text=h_sub,
                  font=FONT_SM, bg=t["bg"], fg=t["subtext"]).pack(side="left", padx=12, pady=(2, 0))
 
         # ── Top KPI Stat Badges ──────────────────────────────────────────────
@@ -6854,6 +6974,7 @@ class MultiLocaleModal(tk.Toplevel):
         kpi_f.pack(fill="x", pady=(0, 8))
 
         unique_sellers = set(it.get("seller", "") for it in self.target_items if it.get("seller"))
+        loc_count = len(self.active_locales)
         
         self.kpi_labels = {}
         def _kpi(parent, title, val, key, color=None):
@@ -6866,8 +6987,8 @@ class MultiLocaleModal(tk.Toplevel):
 
         _kpi(kpi_f, "📋 Listings in Batch", f"{len(self.target_items):,}", "items")
         _kpi(kpi_f, "🏬 Unique Sellers", f"{len(unique_sellers):,}", "sellers", color=t["accent"])
-        _kpi(kpi_f, "🌐 Selected Locales", "16 of 16", "locales", color=t["accent2"])
-        _kpi(kpi_f, "📦 Expanded Output Rows", f"{len(self.target_items) * 16:,}", "output", color=t["success"])
+        _kpi(kpi_f, "🌐 Selected Locales", f"{loc_count} of {loc_count}", "locales", color=t["accent2"])
+        _kpi(kpi_f, "📦 Expanded Output Rows", f"{len(self.target_items) * loc_count:,}", "output", color=t["success"])
 
         # ── Preset Toolbar & Probe Action ────────────────────────────────────
         preset_f = tk.Frame(pad_f, bg=t["bg"])
@@ -6875,11 +6996,19 @@ class MultiLocaleModal(tk.Toplevel):
 
         tk.Label(preset_f, text="⚡ Quick Presets:", font=("Segoe UI", 9, "bold"), bg=t["bg"], fg=t["accent"]).pack(side="left", padx=(0, 6))
 
-        self.parent._btn(preset_f, "🌍 All Verified Global (16)", lambda: self._apply_preset("all")).pack(side="left", padx=2)
-        self.parent._btn(preset_f, "🇺🇸 🇨🇦 North America", lambda: self._apply_preset("na")).pack(side="left", padx=2)
-        self.parent._btn(preset_f, "🇪🇺 Europe (UK/EU)", lambda: self._apply_preset("eu")).pack(side="left", padx=2)
-        self.parent._btn(preset_f, "🇦🇺 APAC (Australia)", lambda: self._apply_preset("apac")).pack(side="left", padx=2)
-        self.parent._btn(preset_f, "✕ Clear All", lambda: self._apply_preset("none")).pack(side="left", padx=2)
+        if self.is_meli:
+            self.parent._btn(preset_f, "🌎 All Latin America (7)", lambda: self._apply_preset("all")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "🇲🇽 Mexico (MLM)", lambda: self._apply_preset("mlm")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "🇧🇷 Brazil (MLB)", lambda: self._apply_preset("mlb")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "🥩 Mercosur (BR/AR/CL/UY)", lambda: self._apply_preset("mercosur")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "☕ Andean (CO/PE)", lambda: self._apply_preset("andean")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "✕ Clear All", lambda: self._apply_preset("none")).pack(side="left", padx=2)
+        else:
+            self.parent._btn(preset_f, "🌍 All Verified Global (16)", lambda: self._apply_preset("all")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "🇺🇸 🇨🇦 North America", lambda: self._apply_preset("na")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "🇪🇺 Europe (UK/EU)", lambda: self._apply_preset("eu")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "🇦🇺 APAC (Australia)", lambda: self._apply_preset("apac")).pack(side="left", padx=2)
+            self.parent._btn(preset_f, "✕ Clear All", lambda: self._apply_preset("none")).pack(side="left", padx=2)
 
         self.probe_btn = self.parent._btn(preset_f, "🔬 Probe & Verify Active Domains", self._start_domain_probe, accent=True)
         self.probe_btn.pack(side="right", padx=(4, 0))
@@ -6888,12 +7017,13 @@ class MultiLocaleModal(tk.Toplevel):
         grid_frame = tk.Frame(pad_f, bg=t["panel"], padx=10, pady=10, relief="flat", highlightbackground=t["border"], highlightthickness=1)
         grid_frame.pack(fill="both", expand=True, pady=(0, 8))
 
-        for col_idx in range(4):
+        cols = 3 if self.is_meli else 4
+        for col_idx in range(cols):
             grid_frame.columnconfigure(col_idx, weight=1)
 
-        for idx, loc in enumerate(EBAY_LOCALES):
-            row = idx // 4
-            col = idx % 4
+        for idx, loc in enumerate(self.active_locales):
+            row = idx // cols
+            col = idx % cols
 
             cell = tk.Frame(grid_frame, bg=t["entry_bg"], padx=8, pady=6, relief="flat", highlightbackground=t["border"], highlightthickness=1)
             cell.grid(row=row, column=col, padx=4, pady=4, sticky="nsew")
@@ -6901,7 +7031,8 @@ class MultiLocaleModal(tk.Toplevel):
             var = tk.BooleanVar(value=True)
             self.locale_vars[loc["domain"]] = var
 
-            cb = tk.Checkbutton(cell, text=f"{loc['flag']} {loc.get('name', loc.get('country', ''))}", variable=var,
+            curr_tag = f" [{loc['currency']}]" if loc.get("currency") else ""
+            cb = tk.Checkbutton(cell, text=f"{loc['flag']} {loc.get('name', loc.get('country', ''))}{curr_tag}", variable=var,
                                 command=self._update_kpis, bg=t["entry_bg"], fg=t["text"],
                                 selectcolor=t["panel"], activebackground=t["entry_bg"],
                                 font=("Segoe UI", 9, "bold"))
@@ -6920,7 +7051,7 @@ class MultiLocaleModal(tk.Toplevel):
         btn_bar = tk.Frame(pad_f, bg=t["panel"], padx=14, pady=10, relief="flat", highlightbackground=t["border"], highlightthickness=1)
         btn_bar.pack(side="bottom", fill="x")
 
-        self.status_var = tk.StringVar(value="Ready to expand listings across selected international eBay domains.")
+        self.status_var = tk.StringVar(value="Ready to expand listings across selected international domains.")
         self.status_lbl = tk.Label(btn_bar, textvariable=self.status_var, font=FONT_SM, bg=t["panel"], fg=t["text"])
         self.status_lbl.pack(side="left")
 
@@ -6929,13 +7060,22 @@ class MultiLocaleModal(tk.Toplevel):
         self.export_btn.pack(side="right", padx=(4, 0))
 
     def _apply_preset(self, preset_name: str):
-        for loc in EBAY_LOCALES:
+        for loc in self.active_locales:
             dom = loc["domain"]
             reg = loc.get("region", "")
+            code = loc.get("code", "")
             if preset_name == "all":
                 self.locale_vars[dom].set(True)
             elif preset_name == "none":
                 self.locale_vars[dom].set(False)
+            elif preset_name == "mlm":
+                self.locale_vars[dom].set(code == "MLM")
+            elif preset_name == "mlb":
+                self.locale_vars[dom].set(code == "MLB")
+            elif preset_name == "mercosur":
+                self.locale_vars[dom].set(code in ("MLB", "MLA", "MLC", "MLU"))
+            elif preset_name == "andean":
+                self.locale_vars[dom].set(code in ("MCO", "MPE"))
             elif preset_name == "na":
                 self.locale_vars[dom].set(reg == "North America")
             elif preset_name == "eu":
@@ -6948,19 +7088,18 @@ class MultiLocaleModal(tk.Toplevel):
         selected_count = sum(1 for v in self.locale_vars.values() if v.get())
         total_items = len(self.target_items)
         output_rows = total_items * selected_count
-        self.kpi_labels["locales"].config(text=f"{selected_count} of {len(EBAY_LOCALES)}")
+        self.kpi_labels["locales"].config(text=f"{selected_count} of {len(self.active_locales)}")
         self.kpi_labels["output"].config(text=f"{output_rows:,}")
         self.status_var.set(f"Selected {selected_count} locales → Will generate {output_rows:,} international compliance rows.")
 
     def _start_domain_probe(self):
-        """Probe sample listing per seller in parallel across eBay locales."""
+        """Probe sample listing per seller across locales."""
         if self.probing:
             return
         if not self.target_items:
             messagebox.showinfo("Probe", "No items to probe.", parent=self)
             return
 
-        # Pick 1 sample item per unique seller
         sample_items = {}
         for it in self.target_items:
             s = it.get("seller") or "Unknown"
@@ -6974,23 +7113,26 @@ class MultiLocaleModal(tk.Toplevel):
 
         self.probing = True
         self.probe_btn.config(state="disabled")
-        self.status_var.set(f"🔬 Probing {len(sample_items)} sample seller item(s) across 16 global domains...")
+        self.status_var.set(f"🔬 Probing {len(sample_items)} sample seller item(s) across domains...")
 
         def _worker():
-            scraper = getattr(self.parent, "scraper", None)
-            if not scraper:
-                scraper = EbayScraper(headless=True)
-
             verified_domains = set()
-            for s, iid in sample_items.items():
-                active_locales = scraper.probe_item_locales(iid)
-                for loc in active_locales:
+            if self.is_meli:
+                for loc in MELI_LOCALES:
                     verified_domains.add(loc["domain"])
+            else:
+                scraper = getattr(self.parent, "scraper", None)
+                if not scraper:
+                    scraper = EbayScraper(headless=True)
+                for s, iid in sample_items.items():
+                    active_locales = scraper.probe_item_locales(iid)
+                    for loc in active_locales:
+                        verified_domains.add(loc["domain"])
 
             def _apply():
                 self.probing = False
                 self.probe_btn.config(state="normal")
-                for loc in EBAY_LOCALES:
+                for loc in self.active_locales:
                     dom = loc["domain"]
                     lbl = self.locale_status_labels.get(dom)
                     if dom in verified_domains:
@@ -6999,24 +7141,25 @@ class MultiLocaleModal(tk.Toplevel):
                     else:
                         if lbl: lbl.config(text="⚪ Geoblocked / Inactive", fg=self.t["subtext"])
                 self._update_kpis()
-                self.status_var.set(f"✅ Probe complete: {len(verified_domains)} international domains verified active!")
-                messagebox.showinfo("Probe Complete", f"Successfully probed {len(sample_items)} seller(s)!\n\nVerified {len(verified_domains)} active international domains.", parent=self)
+                self.status_var.set(f"✅ Probe complete: {len(verified_domains)} domains verified active!")
+                messagebox.showinfo("Probe Complete", f"Successfully probed {len(sample_items)} seller(s)!\n\nVerified {len(verified_domains)} active domains.", parent=self)
 
             self.after(0, _apply)
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _export_multi_locale(self):
-        selected_locales = [loc for loc in EBAY_LOCALES if self.locale_vars.get(loc["domain"], tk.BooleanVar(value=False)).get()]
+        selected_locales = [loc for loc in self.active_locales if self.locale_vars.get(loc["domain"], tk.BooleanVar(value=False)).get()]
         if not selected_locales:
             messagebox.showwarning("Select Locales", "Please select at least one international locale to export.", parent=self)
             return
 
         now_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+        prefix = "meli_latam_enforcement" if self.is_meli else "multi_locale_enforcement"
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel Workbook", "*.xlsx"), ("All files", "*.*")],
-            initialfile=f"multi_locale_enforcement_{now_str}.xlsx",
+            initialfile=f"{prefix}_{now_str}.xlsx",
             parent=self
         )
         if not path:
@@ -7286,38 +7429,55 @@ class ConnectedNetworkModal(tk.Toplevel):
         threading.Thread(target=_w, daemon=True).start()
 
     def _start_network_scan(self):
+        item_id = self.target_item.get("item_id", "")
+        item_url = self.target_item.get("url", "")
+        target_img = self.target_item.get("image_url", "")
+        is_meli = "mercadolibre" in item_url.lower() or "mercadolivre" in item_url.lower() or "mercado" in str(self.target_item.get("marketplace", "")).lower()
+
+        platform_name = "Mercado Libre" if is_meli else "eBay"
+        self.status_lbl.configure(text=f"🔍 Scanning {platform_name} merchandising carousels, competitor recommendations, and storefront syndicates...")
+
         def _worker():
-            item_id = self.target_item.get("item_id", "")
-            item_url = self.target_item.get("url", "")
-            target_img = self.target_item.get("image_url", "")
+            try:
+                if is_meli:
+                    scraper = getattr(self.parent, "mercadolibre_scraper", None)
+                    if not scraper:
+                        from mercadolibre_scraper import MercadoLibreScraper
+                        scraper = MercadoLibreScraper(headless=False)
+                    results = scraper.find_connected_network(item_id, item_url, target_img)
+                else:
+                    scraper = getattr(self.parent, "scraper", None)
+                    if not scraper:
+                        scraper = EbayScraper(headless=True)
+                    results = scraper.find_connected_network(item_id, item_url, target_img)
 
-            scraper = getattr(self.parent, "scraper", None)
-            if not scraper:
-                scraper = EbayScraper(headless=True)
+                self.discovered_items = results
 
-            results = scraper.find_connected_network(item_id, item_url, target_img)
-            self.discovered_items = results
+                # Batch resolve seller countries in parallel
+                unique_sellers = list(dict.fromkeys(r["seller"] for r in results if r.get("seller") and r.get("seller") not in ("Resolving...", "Unknown")))
+                if unique_sellers and hasattr(self.parent, "data_store"):
+                    uncached = [s for s in unique_sellers if not self.parent.data_store.get_seller_intel(s).get("country")]
+                    if uncached and hasattr(scraper, "batch_resolve_seller_countries"):
+                        resolved_intel = scraper.batch_resolve_seller_countries(uncached)
+                        for s, data in resolved_intel.items():
+                            c_val = data.get("country", "Unknown")
+                            if c_val and c_val != "Unknown":
+                                self.parent.data_store.set_seller_intel(s, c_val, member_since=data.get("member_since", ""))
 
-            # Batch resolve seller countries in parallel
-            unique_sellers = list(dict.fromkeys(r["seller"] for r in results if r.get("seller") and r.get("seller") not in ("Resolving...", "Unknown")))
-            if unique_sellers and hasattr(self.parent, "data_store"):
-                uncached = [s for s in unique_sellers if not self.parent.data_store.get_seller_intel(s).get("country")]
-                if uncached:
-                    resolved_intel = scraper.batch_resolve_seller_countries(uncached)
-                    for s, data in resolved_intel.items():
-                        c_val = data.get("country", "Unknown")
-                        if c_val and c_val != "Unknown":
-                            self.parent.data_store.set_seller_intel(s, c_val, member_since=data.get("member_since", ""))
+            except Exception as e:
+                logger.exception("Error in ConnectedNetworkModal scan")
+                results = []
+                self.discovered_items = []
 
             def _apply():
                 self.pbar.stop()
                 self.pbar.pack_forget()
 
-                unique_sellers = set(r["seller"] for r in results if r.get("seller"))
-                exact_matches = sum(1 for r in results if "Exact" in r.get("similarity", ""))
-                wl_count = sum(1 for r in results if self.parent.data_store.is_seller_whitelisted(r.get("seller", "")))
+                unique_sellers = set(r["seller"] for r in self.discovered_items if r.get("seller"))
+                exact_matches = sum(1 for r in self.discovered_items if "Exact" in r.get("similarity", ""))
+                wl_count = sum(1 for r in self.discovered_items if self.parent.data_store.is_seller_whitelisted(r.get("seller", "")))
 
-                status_txt = f"✅ Scan Complete: {len(results)} connected listings found ({exact_matches} exact photo matches, {len(unique_sellers)} resolved sellers)"
+                status_txt = f"✅ Scan Complete: {len(self.discovered_items)} connected listings found ({exact_matches} exact photo matches, {len(unique_sellers)} resolved sellers)"
                 if wl_count > 0:
                     status_txt += f" | 🛡️ {wl_count} Whitelisted Dealer listings"
                 self.status_lbl.configure(text=status_txt, fg=self.t["success"])

@@ -718,8 +718,14 @@ def _fetch_temu_item(url: str, headless: bool = True) -> dict:
 
 def _fetch_mercadolibre_item(url: str, headless: bool = True) -> dict:
     """Fetch Mercado Libre item detail by URL."""
+    m_wid = re.search(r'[?&#]wid=(ML[A-Z0-9_-]+|\d+)', url, re.IGNORECASE)
     m_id = re.search(r'/(ML[A-Z]-?\d+)', url, re.IGNORECASE)
-    item_id = m_id.group(1).replace("-", "").upper() if m_id else ""
+    if m_wid:
+        item_id = m_wid.group(1).replace("-", "").upper()
+    elif m_id:
+        item_id = m_id.group(1).replace("-", "").upper()
+    else:
+        item_id = ""
     clean_url = url
 
     title = ""
@@ -727,6 +733,7 @@ def _fetch_mercadolibre_item(url: str, headless: bool = True) -> dict:
     price = "$0.00"
     image_url = ""
 
+    # 1. Quick HTTP fetch
     html = ""
     try:
         if HAS_CURL_CFFI:
@@ -737,7 +744,7 @@ def _fetch_mercadolibre_item(url: str, headless: bool = True) -> dict:
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept-Language": "es-MX,es;q=0.9",
         })
-        resp = session.get(clean_url, timeout=12)
+        resp = session.get(clean_url, timeout=10)
         if resp.status_code == 200:
             html = resp.text
     except Exception:
@@ -751,11 +758,23 @@ def _fetch_mercadolibre_item(url: str, headless: bool = True) -> dict:
         p_el = soup.select_one("span.andes-money-amount__fraction")
         if p_el: price = f"${p_el.text.strip()} MXN"
 
-        s_el = soup.select_one("span.ui-pdp-seller__link-trigger, a.ui-pdp-seller__link-trigger, button.ui-pdp-seller__link-trigger")
+        s_el = soup.select_one("span.ui-pdp-seller__link-trigger, a.ui-pdp-seller__link-trigger, button.ui-pdp-seller__link-trigger, span.ui-pdp-color--BLUE")
         if s_el: seller = s_el.text.replace("Vendido por", "").strip()
 
         img_el = soup.select_one("figure.ui-pdp-gallery__figure img, img.ui-pdp-image")
         if img_el: image_url = img_el.get("src") or ""
+
+    # 2. If blocked by security prompt or seller missing, fallback to persistent Playwright session
+    if not seller or not title or seller == "Mercado Libre Seller":
+        try:
+            from mercadolibre_scraper import MercadoLibreScraper
+            m_scraper = MercadoLibreScraper(headless=headless)
+            enr = m_scraper.enrich_meli_seller_info(clean_url)
+            if enr.get("seller") and enr.get("seller") != "Mercado Libre Seller":
+                seller = enr["seller"]
+            m_scraper.close()
+        except Exception:
+            pass
 
     return {
         "title": title or f"Mercado Libre Item #{item_id}",

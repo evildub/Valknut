@@ -344,7 +344,16 @@ class ExcelExporter:
                 country = loc.get("name", "United States")
                 flag = loc.get("flag", "🌍")
                 region = loc.get("region", "Global")
-                if domain in ("cafr.ebay.ca", "befr.ebay.be", "benl.ebay.be"):
+                
+                is_meli_item = "mercadolibre" in it.get("marketplace", "").lower() or "mercadolivre" in it.get("marketplace", "").lower() or item_id.startswith("ML")
+                if is_meli_item:
+                    if domain.startswith("http"):
+                        locale_url = f"{domain}/articulo/{item_id}"
+                    elif "listado" in domain or "lista" in domain:
+                        locale_url = f"https://{domain}/{item_id}"
+                    else:
+                        locale_url = f"https://www.{domain}/articulo/{item_id}"
+                elif domain in ("cafr.ebay.ca", "befr.ebay.be", "benl.ebay.be"):
                     locale_url = f"https://{domain}/itm/{item_id}"
                 else:
                     locale_url = f"https://www.{domain}/itm/{item_id}"

@@ -2,7 +2,21 @@
   "settings": {
     "theme": "midnight",
     "headless": true,
-    "unlocked_wick": false
+    "unlocked_wick": false,
+    "window_geometry": "1680x1060+880+170",
+    "column_widths": {
+      "brand": 48,
+      "product_type": 83,
+      "title": 233,
+      "item_id": 72,
+      "price": 45,
+      "seller": 125,
+      "seller_origin": 57,
+      "threat_badge": 147,
+      "location": 82,
+      "thumbnail": 72,
+      "url": 61
+    }
   },
   "brands": {
     "Toyota": {

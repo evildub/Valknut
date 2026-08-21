@@ -20,8 +20,18 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 TOOL_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR = os.path.join(TOOL_DIR, "dist", "ValknutBrandIntelligence")
 GH_PATH = r"C:\Program Files\GitHub CLI\gh.exe" if os.path.exists(r"C:\Program Files\GitHub CLI\gh.exe") else "gh"
+
+def get_dist_dir():
+    """Locate the compiled distribution directory."""
+    candidates = [
+        os.path.join(TOOL_DIR, "dist", "Valknut Brand Intelligence"),
+        os.path.join(TOOL_DIR, "dist", "ValknutBrandIntelligence")
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]
 
 def get_current_version():
     """Extract app version from main.py."""
@@ -36,8 +46,9 @@ def get_current_version():
 
 def zip_distribution(version_tag):
     """Create a zip archive of the compiled dist folder."""
-    if not os.path.exists(DIST_DIR):
-        print(f"❌ Distribution folder not found at: {DIST_DIR}")
+    dist_dir = get_dist_dir()
+    if not os.path.exists(dist_dir):
+        print(f"❌ Distribution folder not found at: {dist_dir}")
         print("Please run build_exe.bat first to compile the binary.")
         sys.exit(1)
 
@@ -45,14 +56,14 @@ def zip_distribution(version_tag):
     zip_path = os.path.join(TOOL_DIR, "dist", zip_filename)
 
     print(f"📦 Compressing distribution into: {zip_filename}...")
-    total_files = sum(len(files) for _, _, files in os.walk(DIST_DIR))
+    total_files = sum(len(files) for _, _, files in os.walk(dist_dir))
     processed = 0
 
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
-        for root, dirs, files in os.walk(DIST_DIR):
+        for root, dirs, files in os.walk(dist_dir):
             for file in files:
                 file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, os.path.dirname(DIST_DIR))
+                arcname = os.path.relpath(file_path, os.path.dirname(dist_dir))
                 zipf.write(file_path, arcname)
                 processed += 1
                 if processed % 50 == 0 or processed == total_files:
