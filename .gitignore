@@ -17,6 +17,8 @@ Valknut_*_Session/
 # Local logs & scratch files
 *.log
 .system_generated/
+STRATEGY_AND_CAREER_ROADMAP.md
+*ROADMAP*.md
 
 # OS metadata
 .DS_Store
