@@ -664,10 +664,13 @@ CONTINENTAL_QUOTES = [
 ]
 
 
+VERSION = "1.4.0"
+
+
 class EbayTool(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("🔺 Valknut Brand Intelligence — Multi-Marketplace Threat Harvester & Enforcement Suite")
+        self.title(f"🔺 Valknut Brand Intelligence v{VERSION} — Multi-Marketplace Threat Harvester & Enforcement Suite")
 
         self.data_store     = DataStore()
         # Scraper background/headless mode (Default: True / Silent Background)
