@@ -685,6 +685,7 @@ class EbayTool(tk.Tk):
         self.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
         self.minsize(980, 600)
         self.configure(bg=self.theme["bg"])
+        self._load_app_icon()
 
         self.use_api        = tk.BooleanVar(value=bool(self.data_store.get_setting("use_api", False)))
         self.api_app_id_var = tk.StringVar(value=self.data_store.get_setting("api_app_id", ""))
@@ -1707,9 +1708,35 @@ class EbayTool(tk.Tk):
         self._apply_dark_titlebar()
         self._log(f"Theme switched to: {t['name']}")
 
+    def _load_app_icon(self, window=None):
+        """Set application icon for main window or top-level dialog."""
+        target = window or self
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            ico_path = os.path.join(base_dir, "valknut.ico")
+            png_path = os.path.join(base_dir, "valknut.png")
+
+            # Try PyInstaller bundled _MEIPASS path first
+            if hasattr(sys, "_MEIPASS"):
+                m_ico = os.path.join(sys._MEIPASS, "valknut.ico")
+                m_png = os.path.join(sys._MEIPASS, "valknut.png")
+                if os.path.exists(m_ico): ico_path = m_ico
+                if os.path.exists(m_png): png_path = m_png
+
+            if os.path.exists(ico_path):
+                target.iconbitmap(ico_path)
+            elif os.path.exists(png_path) and HAS_PIL:
+                if not hasattr(self, "_cached_app_icon_photo"):
+                    img = Image.open(png_path)
+                    self._cached_app_icon_photo = ImageTk.PhotoImage(img)
+                target.iconphoto(True, self._cached_app_icon_photo)
+        except Exception as e:
+            logger.debug(f"Could not load app icon: {e}")
+
     def _apply_dark_titlebar(self, win=None):
-        """Enable immersive dark mode title bar and custom caption colors via Windows DWM API."""
+        """Enable immersive dark mode title bar, icon, and custom caption colors via Windows DWM API."""
         target = win if win is not None else self
+        self._load_app_icon(target)
         try:
             target.update_idletasks()
             hwnd = ctypes.windll.user32.GetParent(target.winfo_id())
