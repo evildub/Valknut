@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.class
+*.spec
+
+# PyInstaller Build & Dist artifacts
+# (Full binaries & zips are published to GitHub Releases)
+build/
+dist/
+*.zip
+
+# Session profiles & Browser state
+Valknut_*_Session/
+.playwright/
+
+# Local logs & scratch files
+*.log
+.system_generated/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
