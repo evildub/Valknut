@@ -1,8 +1,8 @@
 @echo off
-title Valknut Brand Intelligence - Auto-Updater
+title Apollo Brand Intelligence - Auto-Updater
 color 0b
 echo ========================================================
-echo   VALKNUT BRAND INTELLIGENCE - 1-CLICK AUTO-UPDATER
+echo   APOLLO BRAND INTELLIGENCE - 1-CLICK AUTO-UPDATER
 echo ========================================================
 echo.
 
@@ -20,11 +20,17 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo [2/3] Extracting update files...
-powershell -NoProfile -Command "Get-ChildItem -Path '%TARGET_DIR%' -Filter 'ValknutBrandIntelligence-*.zip' | ForEach-Object { Expand-Archive -Path $_.FullName -DestinationPath '%TARGET_DIR%' -Force; Remove-Item $_.FullName }"
+powershell -NoProfile -Command "Get-ChildItem -Path '%TARGET_DIR%' -Filter '*BrandIntelligence-*.zip' | ForEach-Object { Expand-Archive -Path $_.FullName -DestinationPath '%TARGET_DIR%' -Force; Remove-Item $_.FullName }"
 
 echo.
-echo [3/3] Launching latest Valknut Brand Intelligence...
-start "" "%TARGET_DIR%ValknutBrandIntelligence\ValknutBrandIntelligence.exe"
+echo [3/3] Launching latest Apollo Brand Intelligence...
+if exist "%TARGET_DIR%Apollo Brand Intelligence\Apollo Brand Intelligence.exe" (
+    start "" "%TARGET_DIR%Apollo Brand Intelligence\Apollo Brand Intelligence.exe"
+) else if exist "%TARGET_DIR%ApolloBrandIntelligence\ApolloBrandIntelligence.exe" (
+    start "" "%TARGET_DIR%ApolloBrandIntelligence\ApolloBrandIntelligence.exe"
+) else (
+    start "" "%TARGET_DIR%ValknutBrandIntelligence\ValknutBrandIntelligence.exe"
+)
 echo.
 echo Update complete! Starting application...
 timeout /t 2 >nul

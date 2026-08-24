@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
-title Building Standalone Valknut Brand Intelligence Suite
+title Building Standalone Apollo Brand Intelligence Suite
 
 echo ===============================================================================
-echo   Valknut Brand Intelligence - Standalone Executable Builder
+echo   Apollo Brand Intelligence - Standalone Executable Builder
 echo ===============================================================================
 echo.
 
@@ -19,8 +19,10 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
 echo [*] Compiling standalone package with PyInstaller...
-python -m PyInstaller --onedir --noconsole --noconfirm --name "ValknutBrandIntelligence" ^
+python -m PyInstaller --onedir --noconsole --noconfirm --name "ApolloBrandIntelligence" ^
     --add-data "data.json;." ^
+    --add-data "apollo.ico;." ^
+    --add-data "apollo.png;." ^
     --hidden-import "PIL" ^
     --hidden-import "PIL.ImageTk" ^
     --hidden-import "openpyxl" ^
@@ -30,6 +32,10 @@ python -m PyInstaller --onedir --noconsole --noconfirm --name "ValknutBrandIntel
     --hidden-import "curl_cffi.requests" ^
     --hidden-import "playwright" ^
     --hidden-import "playwright.sync_api" ^
+    --hidden-import "visual_catalog" ^
+    --hidden-import "visual_catalog_modal" ^
+    --hidden-import "visual_harvester" ^
+    --hidden-import "vinted_scraper" ^
     main.py
 
 if %errorlevel% neq 0 (
@@ -41,8 +47,8 @@ if %errorlevel% neq 0 (
 
 echo.
 echo [*] Copying default data.json to distribution folder...
-if not exist "dist\ValknutBrandIntelligence\data.json" (
-    copy "data.json" "dist\ValknutBrandIntelligence\data.json" >nul
+if not exist "dist\ApolloBrandIntelligence\data.json" (
+    copy "data.json" "dist\ApolloBrandIntelligence\data.json" >nul
 )
 
 echo.
@@ -51,13 +57,13 @@ echo   BUILD COMPLETE!
 echo ===============================================================================
 echo.
 echo Your standalone folder is located at:
-echo    dist\ValknutBrandIntelligence\
+echo    dist\ApolloBrandIntelligence\
 echo.
 echo Main Executable:
-echo    dist\ValknutBrandIntelligence\ValknutBrandIntelligence.exe
+echo    dist\ApolloBrandIntelligence\ApolloBrandIntelligence.exe
 echo.
 echo Generating SHA-256 Checksum for Corporate IT / Security Verification...
-powershell -Command "Get-FileHash -Algorithm SHA256 dist\ValknutBrandIntelligence\ValknutBrandIntelligence.exe | Format-List"
+powershell -Command "Get-FileHash -Algorithm SHA256 dist\ApolloBrandIntelligence\ApolloBrandIntelligence.exe | Format-List"
 echo.
 echo You can copy the entire 'dist\ValknutBrandIntelligence' folder to any Windows PC without
 echo needing Python installed!

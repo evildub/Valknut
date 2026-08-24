@@ -20,7 +20,7 @@ import threading
 import urllib.parse
 from typing import List, Dict, Optional
 
-logger = logging.getLogger("Valknut.MercadoLibreScraper")
+logger = logging.getLogger("Apollo.MercadoLibreScraper")
 
 # Approximate Latin American currency conversion rates to USD (updated baseline)
 EXCHANGE_RATES_TO_USD = {
@@ -56,7 +56,7 @@ class MercadoLibreScraper:
         # Persistent profile directory to store trust cookies & login credentials
         self.profile_dir = os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-            "Valknut_Meli_Session"
+            "Apollo_Meli_Session"
         )
         os.makedirs(self.profile_dir, exist_ok=True)
 

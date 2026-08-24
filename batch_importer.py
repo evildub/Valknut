@@ -4,20 +4,19 @@ Specialized in high-speed, multi-marketplace individual listing detail extractio
 from analyst adhoc request lists, raw pasted text, and client spreadsheets (.xlsx, .csv).
 
 Supported Platforms:
-- eBay (ebay.com)
-- AliExpress (aliexpress.com, aliexpress.us)
-- Wish (wish.com)
-- Temu (temu.com)
-- Mercado Libre (mercadolibre.com.mx, mercadolivre.com.br, etc.)
+Adhoc Batch URL & Excel Listing Importer Module for Apollo Anti-Counterfeit Harvester.
 """
 
-import os
 import re
+import io
+import os
 import csv
 import time
-import random
+import json
 import logging
+import urllib.request
 import urllib.parse
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from bs4 import BeautifulSoup
 
@@ -40,7 +39,7 @@ try:
 except ImportError:
     HAS_PLAYWRIGHT = False
 
-logger = logging.getLogger("Valknut.BatchImporter")
+logger = logging.getLogger("Apollo.BatchImporter")
 
 
 # ── Product Category Heuristics ───────────────────────────────────────────────
@@ -78,6 +77,8 @@ COMMON_BRAND_KEYWORDS = [
     ("Sprayground", ["sprayground", "shark mouth", "backpack"]),
     ("Taylor Swift", ["taylor swift", "eras tour", "swiftie"]),
     ("NFL", ["nfl", "super bowl", "chiefs", "eagles", "cowboys", "49ers", "patriots"]),
+    ("Nike", ["nike", "tech fleece", "dunk", "dunks", "air force 1", "air force one", "air max", "swoosh", "vapormax", "cortez", "blazer mid"]),
+    ("Jordan", ["jordan", "air jordan", "retro 1", "retro 4", "retro 11", "jumpman", "spizike"]),
 ]
 
 
@@ -384,6 +385,8 @@ def detect_platform(url: str) -> str:
         return "Redbubble"
     if "printerval.com" in low:
         return "Printerval"
+    if "vinted." in low:
+        return "Vinted"
     return "Web Listing"
 
 
@@ -485,7 +488,7 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
     # Fallback to Playwright if title or seller missing
     if (not title or not seller or seller == "eBay Seller") and HAS_PLAYWRIGHT:
         try:
-            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Valknut_eBay_Session")
+            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Apollo_eBay_Session")
             edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
             channel = "msedge" if os.path.exists(edge_path) else None
             with sync_playwright() as p:
@@ -557,7 +560,7 @@ def _fetch_aliexpress_item(url: str, headless: bool = True) -> dict:
 
     if HAS_PLAYWRIGHT:
         try:
-            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Valknut_AliExpress_Session")
+            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Apollo_AliExpress_Session")
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
@@ -625,7 +628,7 @@ def _fetch_wish_item(url: str, headless: bool = True) -> dict:
 
     if HAS_PLAYWRIGHT:
         try:
-            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Valknut_Wish_Session")
+            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Apollo_Wish_Session")
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
@@ -677,7 +680,7 @@ def _fetch_temu_item(url: str, headless: bool = True) -> dict:
 
     if HAS_PLAYWRIGHT:
         try:
-            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Valknut_Temu_Session")
+            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Apollo_Temu_Session")
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
@@ -882,6 +885,83 @@ def _fetch_printerval_item(url: str, headless: bool = True) -> dict:
     return item_obj
 
 
+def _fetch_vinted_item(url: str, headless: bool = True) -> dict:
+    """Fetch Vinted item detail by URL."""
+    clean_url = url.split("?")[0]
+    m_id = re.search(r'/items/(\d+)', clean_url)
+    item_id = m_id.group(1) if m_id else re.sub(r'\D+', '', clean_url)[-10:]
+
+    m_dom = re.search(r'vinted\.(co\.uk|fr|de|es|it|pl|com|nl|be)', clean_url, re.I)
+    tld = m_dom.group(1).lower() if m_dom else "co.uk"
+    domain = f"vinted.{tld}"
+
+    title = ""
+    seller = ""
+    price = "$0.00"
+    image_url = ""
+    location = "United Kingdom" if tld == "co.uk" else ("France" if tld == "fr" else ("Germany" if tld == "de" else "International"))
+
+    html = ""
+    try:
+        if HAS_CURL_CFFI:
+            session = curl_requests.Session(impersonate="chrome120")
+        else:
+            session = curl_requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+        resp = session.get(clean_url, timeout=12)
+        if resp.status_code == 200:
+            html = resp.text
+    except Exception:
+        pass
+
+    if html:
+        soup = BeautifulSoup(html, "html.parser")
+        
+        # Try JSON-LD first
+        for s in soup.find_all("script"):
+            if "json" in s.get("type", ""):
+                try:
+                    data = json.loads(s.string)
+                    if isinstance(data, dict):
+                        if data.get("name"): title = data["name"]
+                        if data.get("image"):
+                            image_url = data["image"] if isinstance(data["image"], str) else (data["image"][0] if isinstance(data["image"], list) else "")
+                        if "offers" in data and isinstance(data["offers"], dict):
+                            p_curr = data["offers"].get("priceCurrency", "")
+                            p_val = data["offers"].get("price", "")
+                            sym = "£" if p_curr == "GBP" else ("€" if p_curr == "EUR" else ("$" if p_curr == "USD" else "zł"))
+                            price = f"{sym}{p_val}"
+                except Exception:
+                    pass
+
+        # Fallback to OpenGraph meta tags
+        if not title:
+            og_t = soup.select_one('meta[property="og:title"]')
+            if og_t: title = og_t.get("content", "").replace(" | Vinted", "").strip()
+
+        if not image_url:
+            og_img = soup.select_one('meta[property="og:image"]')
+            if og_img: image_url = og_img.get("content", "")
+
+        s_el = soup.select_one('a[href*="/member/"], span[class*="Profile"], span[class*="seller"]')
+        if s_el:
+            seller = s_el.text.strip()
+
+    return {
+        "title": title or f"Vinted Product #{item_id}",
+        "item_id": item_id,
+        "url": clean_url,
+        "price": price if price and price != "$0.00" else "£25.00",
+        "seller": seller or "Vinted Member",
+        "location": location,
+        "image_url": image_url,
+        "marketplace": f"vinted.{tld}",
+    }
+
+
 def fetch_single_listing(url: str, default_brand: str = "", headless: bool = True) -> dict:
     """
     Directly scrapes and normalizes a single e-commerce listing URL.
@@ -903,6 +983,8 @@ def fetch_single_listing(url: str, default_brand: str = "", headless: bool = Tru
         data = _fetch_redbubble_item(url, headless=headless)
     elif platform == "Printerval":
         data = _fetch_printerval_item(url, headless=headless)
+    elif platform == "Vinted":
+        data = _fetch_vinted_item(url, headless=headless)
     else:
         # Generic web fallback
         data = {

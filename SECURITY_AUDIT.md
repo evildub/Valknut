@@ -1,9 +1,9 @@
-# Valknut Brand Intelligence — Security & Architecture Audit
-**Application Name:** Valknut Brand Intelligence (Anti-Counterfeit & Brand Protection Harvester)  
+# Apollo Brand Intelligence — Security & Architecture Audit
+**Application Name:** Apollo Brand Intelligence (Anti-Counterfeit & Brand Protection Harvester)  
 **Lead Author & Creator:** Jerry Seidenstucker  
 **Copyright:** © 2026 Jerry Seidenstucker. All Rights Reserved.  
 **Intended Use:** Brand Protection, Trademark Compliance, Threat Actor Intelligence, and Multi-Marketplace Listing Aggregation  
-**Target Workstation Environment:** Enterprise Windows (MarkMonitor / OpSec Security / Corporate Environments)  
+**Target Workstation Environment:** Enterprise Windows (Corporate / Brand Protection Environments)  
 **Runtime Architecture:** Standalone Windows Executable (`--onedir` via PyInstaller, Native Microsoft Edge stealth automation)  
 
 ---

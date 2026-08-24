@@ -1,4 +1,4 @@
-# Valknut Brand Intelligence — Analyst Quickstart Guide
+# Apollo Brand Intelligence — Analyst Quickstart Guide
 
 **Version:** Standalone Windows Portable Application  
 **Author:** Jerry Seidenstucker  
@@ -11,7 +11,7 @@ This package is fully portable and self-contained. **No Python installation, adm
 
 To launch the tool, double-click:
 ```
-ValknutBrandIntelligence.exe
+Apollo Brand Intelligence.exe
 ```
 
 ---
@@ -37,7 +37,7 @@ ValknutBrandIntelligence.exe
 When clients send adhoc lists of URLs or investigation spreadsheets:
 1. Click **`📂 Import URLs / Excel`** in the top navigation bar.
 2. **Direct Paste:** Paste 5, 10, or 100+ raw listing URLs from any supported marketplace.
-3. **Excel File Import:** Click **`Browse Excel (.xlsx)`** to import spreadsheets. Valknut auto-detects listing URL columns.
+3. **Excel File Import:** Click **`Browse Excel (.xlsx)`** to import spreadsheets. Apollo auto-detects listing URL columns.
 4. Click **`⚡ Import & Scrape Listings`** to extract titles, sellers, prices, and thumbnails automatically into your active investigation table.
 
 ### 4. Seller & Creator Enrichment (`⚡ Enrich Sellers`)

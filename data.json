@@ -3,7 +3,7 @@
     "theme": "midnight",
     "headless": true,
     "unlocked_wick": false,
-    "window_geometry": "1680x1060+880+170",
+    "window_geometry": "1400x880",
     "column_widths": {
       "brand": 48,
       "product_type": 83,
@@ -136,6 +136,42 @@
     "Honda": {
       "subs": {},
       "models": []
+    },
+    "Nike": {
+      "subs": {
+        "Jordan": [
+          "Retro 1",
+          "Retro 4",
+          "Retro 11",
+          "Spizike",
+          "Jumpman"
+        ],
+        "Nike SB": [
+          "Dunk Low",
+          "Dunk High",
+          "Stefan Janoski",
+          "Travis Scott"
+        ],
+        "Sportswear": [
+          "Tech Fleece",
+          "Club Fleece",
+          "Windrunner",
+          "Center Swoosh"
+        ]
+      },
+      "models": [
+        "Dunk Low",
+        "Air Force 1",
+        "Air Max 90",
+        "Air Max 95",
+        "Air Max Plus TN",
+        "Tech Fleece Hoodie",
+        "Tech Fleece Joggers",
+        "VaporMax",
+        "Cortez",
+        "Blazer Mid",
+        "Vintage Sweatshirt"
+      ]
     }
   },
   "exclusions": [

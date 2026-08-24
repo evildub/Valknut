@@ -37,7 +37,7 @@ class EbayScraper:
         self.headless = headless
         self.profile_dir = os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-            "Valknut_eBay_Session"
+            "Apollo_eBay_Session"
         )
         os.makedirs(self.profile_dir, exist_ok=True)
 
@@ -152,147 +152,121 @@ class EbayScraper:
         items = []
         seller_label = store_info.get("store_name") or store_info.get("seller") or ""
 
-        with sync_playwright() as p:
-            launch_args = [
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--no-first-run",
-                "--no-default-browser-check"
-            ]
-            ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
-            edge_path = self._find_edge_path()
-            try:
-                context = p.chromium.launch_persistent_context(
-                    self.profile_dir,
-                    executable_path=edge_path if edge_path else None,
-                    channel="msedge" if not edge_path else None,
-                    headless=self.headless,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    args=launch_args
-                )
-            except Exception:
-                context = p.chromium.launch_persistent_context(
-                    self.profile_dir,
-                    headless=self.headless,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    args=launch_args
-                )
-
-            context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                window.navigator.chrome = { runtime: {} };
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-            """)
-
-            page = context.pages[0] if context.pages else context.new_page()
-
-            # If item URL was passed, resolve the actual seller username from the listing
-            if store_info.get("is_item") and store_info.get("item_id"):
-                item_id = store_info["item_id"]
+        temp_worker_dir = tempfile.mkdtemp(prefix="valknut_worker_")
+        try:
+            with sync_playwright() as p:
+                launch_args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    "--no-first-run",
+                    "--no-default-browser-check"
+                ]
+                ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
+                edge_path = self._find_edge_path()
                 try:
-                    page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="load", timeout=20000)
-                    time.sleep(1.5)
-                    item_html = page.content()
-                    resolved = ""
-                    # Prioritize Store Link, then JSON sellerName, then /usr/ profile link
-                    m_str = re.search(r"/str/([a-zA-Z0-9_.-]+)", item_html)
-                    if m_str and not any(k in m_str.group(1).lower() for k in ("help", "about", "contact")):
-                        resolved = m_str.group(1).strip()
-                    else:
-                        m_j = re.search(r'"sellerName":\s*"([a-zA-Z0-9_.-]+)"', item_html)
-                        if m_j:
-                            resolved = m_j.group(1).strip()
-                        else:
-                            m_usr = re.search(r"/usr/([a-zA-Z0-9_.-]+)", item_html)
-                            resolved = m_usr.group(1).strip() if m_usr else ""
-
-                    if resolved:
-                        store_info["seller"] = resolved
-                        store_info["store_name"] = resolved
-                        seller_label = resolved
+                    context = p.chromium.launch_persistent_context(
+                        temp_worker_dir,
+                        executable_path=edge_path if edge_path else None,
+                        channel="msedge" if not edge_path else None,
+                        headless=self.headless,
+                        user_agent=ua,
+                        viewport={"width": 1440, "height": 900},
+                        args=launch_args
+                    )
                 except Exception:
-                    pass
+                    context = p.chromium.launch_persistent_context(
+                        temp_worker_dir,
+                        headless=self.headless,
+                        user_agent=ua,
+                        viewport={"width": 1440, "height": 900},
+                        args=launch_args
+                    )
 
-            # If store URL was passed without a resolved seller username, resolve it directly in browser
-            if store_info.get("is_store") and store_info.get("store_name") and not store_info.get("seller"):
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                """)
+
+                page = context.pages[0] if context.pages else context.new_page()
+
+                # Warm up session with authentic eBay cookies
                 try:
-                    page.goto(f"https://www.ebay.com/str/{store_info['store_name']}", wait_until="load", timeout=20000)
-                    time.sleep(1.0)
-                    store_html = page.content()
-                    m_ssn = re.search(r'"_ssn":\s*"([a-zA-Z0-9_.-]+)"', store_html)
-                    m_seller = re.search(r'"(?:sellerId|ownerUsername|username)":\s*"([a-zA-Z0-9_.-]+)"', store_html)
-                    m_usr = re.search(r'/usr/([a-zA-Z0-9_.-]+)', store_html)
-                    resolved = ""
-                    if m_ssn and not any(k in m_ssn.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
-                        resolved = m_ssn.group(1).strip()
-                    elif m_seller and not any(k in m_seller.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
-                        resolved = m_seller.group(1).strip()
-                    elif m_usr and not any(k in m_usr.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
-                        resolved = m_usr.group(1).strip()
-                    if resolved:
-                        store_info["seller"] = resolved
-                        seller_label = resolved
-                except Exception:
-                    pass
-
-            target_slug = store_info.get("seller") or store_info.get("store_name") or ""
-            candidates = self._generate_seller_candidates(target_slug) if target_slug else [""]
-            active_info = dict(store_info)
-
-            # Try candidate variations on Page 1 until a matching handle is found
-            for cand in candidates:
-                if stop_event and stop_event.is_set():
-                    break
-                if pause_event:
-                    pause_event.wait()
-
-                cand_info = dict(store_info)
-                if cand:
-                    cand_info["seller"] = cand
-                    cand_info["store_name"] = cand
-
-                url = self._build_url(cand_info, include_term, excludes, 1, condition)
-                try:
-                    page.goto(url, wait_until="load", timeout=25000)
-                    time.sleep(1.2)
-                    # Trigger lazy-loaded items (eBay virtualized stream)
-                    for _ in range(3):
-                        page.evaluate("window.scrollBy(0, 1200)")
-                        time.sleep(0.3)
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=12000)
                     time.sleep(0.6)
-                    html = page.content()
                 except Exception:
-                    continue
+                    pass
 
-                page_items = self._parse_html(html, fallback_seller=cand or seller_label)
-                if page_items:
-                    active_info = cand_info
-                    seller_label = cand or seller_label
-                    for item in page_items:
-                        item_id = item.get("item_id")
-                        dedup_key = item_id if item_id else item.get("url")
-                        if dedup_key and dedup_key not in seen_ids:
-                            seen_ids.add(dedup_key)
-                            items.append(item)
-                    break
+                # If item URL was passed, resolve the actual seller username from the listing
+                if store_info.get("is_item") and store_info.get("item_id"):
+                    item_id = store_info["item_id"]
+                    try:
+                        page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="load", timeout=20000)
+                        time.sleep(1.5)
+                        item_html = page.content()
+                        resolved = ""
+                        # Prioritize Store Link, then JSON sellerName, then /usr/ profile link
+                        m_str = re.search(r"/str/([a-zA-Z0-9_.-]+)", item_html)
+                        if m_str and not any(k in m_str.group(1).lower() for k in ("help", "about", "contact")):
+                            resolved = m_str.group(1).strip()
+                        else:
+                            m_j = re.search(r'"sellerName":\s*"([a-zA-Z0-9_.-]+)"', item_html)
+                            if m_j:
+                                resolved = m_j.group(1).strip()
+                            else:
+                                m_usr = re.search(r"/usr/([a-zA-Z0-9_.-]+)", item_html)
+                                resolved = m_usr.group(1).strip() if m_usr else ""
 
-            # If items found on Page 1, paginate remaining pages with the confirmed handle
-            if items:
-                page_num = 2
-                while page_num <= MAX_PAGES:
+                        if resolved:
+                            store_info["seller"] = resolved
+                            store_info["store_name"] = resolved
+                            seller_label = resolved
+                    except Exception:
+                        pass
+
+                # If store URL was passed without a resolved seller username, resolve it directly in browser
+                if store_info.get("is_store") and store_info.get("store_name") and not store_info.get("seller"):
+                    try:
+                        page.goto(f"https://www.ebay.com/str/{store_info['store_name']}", wait_until="load", timeout=20000)
+                        time.sleep(1.0)
+                        store_html = page.content()
+                        m_ssn = re.search(r'"_ssn":\s*"([a-zA-Z0-9_.-]+)"', store_html)
+                        m_seller = re.search(r'"(?:sellerId|ownerUsername|username)":\s*"([a-zA-Z0-9_.-]+)"', store_html)
+                        m_usr = re.search(r'/usr/([a-zA-Z0-9_.-]+)', store_html)
+                        resolved = ""
+                        if m_ssn and not any(k in m_ssn.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                            resolved = m_ssn.group(1).strip()
+                        elif m_seller and not any(k in m_seller.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                            resolved = m_seller.group(1).strip()
+                        elif m_usr and not any(k in m_usr.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                            resolved = m_usr.group(1).strip()
+                        if resolved:
+                            store_info["seller"] = resolved
+                            seller_label = resolved
+                    except Exception:
+                        pass
+
+                target_slug = store_info.get("seller") or store_info.get("store_name") or ""
+                candidates = self._generate_seller_candidates(target_slug) if target_slug else [""]
+                active_info = dict(store_info)
+
+                # Try candidate variations on Page 1 until a matching handle is found
+                for cand in candidates:
                     if stop_event and stop_event.is_set():
                         break
                     if pause_event:
                         pause_event.wait()
 
-                    url = self._build_url(active_info, include_term, excludes, page_num, condition)
+                    cand_info = dict(store_info)
+                    if cand:
+                        cand_info["seller"] = cand
+                        cand_info["store_name"] = cand
+
+                    url = self._build_url(cand_info, include_term, excludes, 1, condition)
                     try:
                         page.goto(url, wait_until="load", timeout=25000)
                         time.sleep(1.2)
-                        # Trigger lazy-loaded items for paginated pages
+                        # Trigger lazy-loaded items (eBay virtualized stream)
                         for _ in range(3):
                             page.evaluate("window.scrollBy(0, 1200)")
                             time.sleep(0.3)
@@ -300,28 +274,72 @@ class EbayScraper:
                         time.sleep(0.6)
                         html = page.content()
                     except Exception:
+                        continue
+
+                    page_items = self._parse_html(html, fallback_seller=cand or seller_label)
+                    if page_items:
+                        active_info = cand_info
+                        seller_label = cand or seller_label
+                        for item in page_items:
+                            item_id = item.get("item_id")
+                            dedup_key = item_id if item_id else item.get("url")
+                            if dedup_key and dedup_key not in seen_ids:
+                                seen_ids.add(dedup_key)
+                                items.append(item)
                         break
 
-                    page_items = self._parse_html(html, fallback_seller=seller_label)
-                    if not page_items:
-                        break
+                # If items found on Page 1, paginate remaining pages with the confirmed handle
+                if items:
+                    page_num = 2
+                    max_crawl_limit = MAX_PAGES if target_slug else 2
+                    while page_num <= max_crawl_limit:
+                        if stop_event and stop_event.is_set():
+                            break
+                        if pause_event:
+                            pause_event.wait()
 
-                    new_found = 0
-                    for item in page_items:
-                        item_id = item.get("item_id")
-                        dedup_key = item_id if item_id else item.get("url")
-                        if dedup_key and dedup_key not in seen_ids:
-                            seen_ids.add(dedup_key)
-                            items.append(item)
-                            new_found += 1
+                        url = self._build_url(active_info, include_term, excludes, page_num, condition)
+                        try:
+                            page.goto(url, wait_until="load", timeout=25000)
+                            time.sleep(1.2)
+                            # Trigger lazy-loaded items for paginated pages
+                            for _ in range(3):
+                                page.evaluate("window.scrollBy(0, 1200)")
+                                time.sleep(0.3)
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            time.sleep(0.6)
+                            html = page.content()
+                        except Exception:
+                            break
 
-                    if new_found == 0 or len(page_items) < 10:
-                        break
+                        page_items = self._parse_html(html, fallback_seller=seller_label)
+                        if not page_items:
+                            break
 
-                    page_num += 1
-                    time.sleep(random.uniform(1.0, 2.0))
+                        new_found = 0
+                        for item in page_items:
+                            item_id = item.get("item_id")
+                            dedup_key = item_id if item_id else item.get("url")
+                            if dedup_key and dedup_key not in seen_ids:
+                                seen_ids.add(dedup_key)
+                                items.append(item)
+                                new_found += 1
 
-            context.close()
+                        if new_found == 0 or len(page_items) < 10:
+                            break
+
+                        page_num += 1
+                        time.sleep(random.uniform(1.0, 2.0))
+
+                try:
+                    context.close()
+                except Exception:
+                    pass
+        finally:
+            try:
+                shutil.rmtree(temp_worker_dir, ignore_errors=True)
+            except Exception:
+                pass
         return items
 
     # ── Store / Seller Info Resolver ──────────────────────────────────────────
@@ -512,16 +530,22 @@ class EbayScraper:
         target = seller if seller else store_name
 
         params = {
-            "_ipg": PAGE_SIZE,
-            "_pgn": page,
+            "_from": "R40",
             "_sacat": "0",
+            "_ipg": PAGE_SIZE
         }
 
         if target:
             params["_ssn"] = target
+            if nkw:
+                params["_nkw"] = nkw
+            else:
+                params["_armrs"] = "1"
+        else:
+            params["_nkw"] = nkw if nkw else ""
 
-        if nkw:
-            params["_nkw"] = nkw
+        if page > 1:
+            params["_pgn"] = page
 
         if condition == "new":
             params["LH_ItemCondition"] = "1000"

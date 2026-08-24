@@ -1,14 +1,25 @@
 import json
 import os
 import sys
+import shutil
 import re
 from datetime import datetime
 
 def get_base_dir():
-    """Return directory where executable/script lives to ensure persistent local storage."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    """Return persistent user AppData directory to guarantee user configurations are never wiped by updates."""
+    appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or os.path.expanduser("~")
+    user_dir = os.path.join(appdata, "Apollo_Brand_Intelligence")
+    legacy_dir = os.path.join(appdata, "Valknut_Brand_Intelligence")
+
+    # Seamless automatic migration from legacy Valknut directory if present
+    if not os.path.exists(user_dir) and os.path.exists(legacy_dir):
+        try:
+            shutil.copytree(legacy_dir, user_dir)
+        except Exception:
+            pass
+
+    os.makedirs(user_dir, exist_ok=True)
+    return user_dir
 
 DATA_FILE = os.path.join(get_base_dir(), "data.json")
 
@@ -44,6 +55,15 @@ DEFAULT_DATA = {
             },
             "models": ["Elantra", "Sonata", "Tucson", "Santa Fe",
                        "Palisade", "Kona", "Veloster", "Ioniq"]
+        },
+        "Nike": {
+            "subs": {
+                "Jordan": ["Retro 1", "Retro 4", "Retro 11", "Spizike", "Jumpman"],
+                "Nike SB": ["Dunk Low", "Dunk High", "Stefan Janoski", "Travis Scott"],
+                "Sportswear": ["Tech Fleece", "Club Fleece", "Windrunner", "Center Swoosh"]
+            },
+            "models": ["Dunk Low", "Air Force 1", "Air Max 90", "Air Max 95", "Air Max Plus TN",
+                       "Tech Fleece Hoodie", "Tech Fleece Joggers", "VaporMax", "Cortez", "Blazer Mid", "Vintage Sweatshirt"]
         }
     },
     "exclusions": [
@@ -57,8 +77,17 @@ DEFAULT_DATA = {
 
 class DataStore:
     def __init__(self):
+        # Initial migration: check if local directory data.json exists and migrate to AppData
+        if not os.path.exists(DATA_FILE):
+            local_src = os.path.join(os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__), "data.json")
+            if os.path.exists(local_src):
+                try:
+                    shutil.copyfile(local_src, DATA_FILE)
+                except Exception:
+                    pass
+
         if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r") as f:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
                 self._data = json.load(f)
             # migrate old format if needed
             for brand, val in self._data.get("brands", {}).items():
@@ -72,8 +101,8 @@ class DataStore:
             self._save()
 
     def _save(self):
-        with open(DATA_FILE, "w") as f:
-            json.dump(self._data, f, indent=2)
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(self._data, f, indent=2, ensure_ascii=False)
 
     # ── settings ──────────────────────────────────────────────────────────────
     def get_setting(self, key, default=""):
@@ -110,7 +139,6 @@ class DataStore:
                 if model not in subs[sub]:
                     subs[sub].append(model)
             else:
-                # maybe it's a top-level model
                 models = self._data["brands"][parent].setdefault("models", [])
                 if model not in models:
                     models.append(model)
@@ -121,18 +149,15 @@ class DataStore:
     def remove_brand_item(self, name):
         """Remove a brand/sub/model by name (searches all levels)."""
         brands = self._data["brands"]
-        # top level
         if name in brands:
             del brands[name]
             self._save()
             return
-        # sub level
         for parent, data in brands.items():
             if name in data.get("subs", {}):
                 del data["subs"][name]
                 self._save()
                 return
-            # model level
             if name in data.get("models", []):
                 data["models"].remove(name)
                 self._save()
@@ -182,21 +207,16 @@ class DataStore:
         """Return the brand name + all its models as search terms."""
         brands = self._data["brands"]
         terms = [brand_name]
-
-        # check if it's a parent brand
         if brand_name in brands:
             terms.extend(brands[brand_name].get("models", []))
             for sub, models in brands[brand_name].get("subs", {}).items():
                 terms.append(sub)
                 terms.extend(models)
             return terms
-
-        # check if it's a sub-brand
         for parent, data in brands.items():
             if brand_name in data.get("subs", {}):
                 terms.extend(data["subs"][brand_name])
                 return terms
-
         return terms
 
     # ── exclusions ────────────────────────────────────────────────────────────
@@ -233,9 +253,18 @@ class DataStore:
         presets = self._data.setdefault("presets", default_presets)
         return presets
 
-    def save_preset(self, name, brand_keys):
+    def save_preset(self, name, preset_payload):
+        """Save a portfolio preset. Accepts either a list of brands or a full snapshot dict."""
         presets = self.get_presets()
-        presets[name] = list(brand_keys)
+        if isinstance(preset_payload, dict):
+            presets[name] = {
+                "brands": list(preset_payload.get("brands", [])),
+                "generic_excludes": list(preset_payload.get("generic_excludes", [])),
+                "custom_includes": list(preset_payload.get("custom_includes", [])),
+                "condition": preset_payload.get("condition", "all")
+            }
+        else:
+            presets[name] = list(preset_payload)
         self._data["presets"] = presets
         self._save()
 
@@ -259,357 +288,188 @@ class DataStore:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         entry = reg.setdefault(seller, {
-            "seller": seller,
-            "first_seen": now_str,
+            "seller_handle": seller,
+            "first_detected": now_str,
             "last_scanned": now_str,
-            "scan_count": 0,
-            "brands": [],
-            "product_types": [],
-            "total_listings": 0,
-            "total_value": 0.0,
-            "locations": [],
-            "items": []
+            "total_infringements": 0,
+            "total_clean_items": 0,
+            "brands_targeted": [],
+            "risk_tier": "Low",
+            "historical_scan_count": 0,
+            "strike_history": []
         })
 
         entry["last_scanned"] = now_str
-        entry["scan_count"] += 1
+        entry["historical_scan_count"] = entry.get("historical_scan_count", 0) + 1
 
-        existing_item_ids = {it.get("item_id") for it in entry.get("items", []) if it.get("item_id")}
+        if brand_name and brand_name not in entry.get("brands_targeted", []):
+            entry.setdefault("brands_targeted", []).append(brand_name)
 
-        for it in items:
-            iid = str(it.get("item_id", "")).strip()
-            brand = it.get("brand") or brand_name or "Unknown"
-            pt = it.get("product_type", "")
-            loc = it.get("location", "")
-            price_str = str(it.get("price", ""))
-
-            # Parse numeric price value
-            m = re.search(r"[\d,]+(?:\.\d+)?", price_str)
-            price_val = 0.0
-            if m:
-                try:
-                    price_val = float(m.group(0).replace(",", ""))
-                except ValueError:
-                    price_val = 0.0
-
-            if brand and brand not in entry["brands"]:
-                entry["brands"].append(brand)
-            if pt and pt not in entry["product_types"]:
-                entry["product_types"].append(pt)
-            if loc and loc not in entry["locations"]:
-                entry["locations"].append(loc)
-
-            # Deduplicate items recorded for this seller
-            if not iid or iid not in existing_item_ids:
-                if iid:
-                    existing_item_ids.add(iid)
-                entry["total_listings"] += 1
-                entry["total_value"] = round(entry["total_value"] + price_val, 2)
-                entry["items"].append({
-                    "item_id": iid,
-                    "title": it.get("title", ""),
-                    "brand": brand,
-                    "product_type": pt,
-                    "price": price_str,
-                    "price_val": price_val,
-                    "seller": it.get("seller") or seller,
-                    "location": loc,
-                    "url": it.get("url", ""),
-                    "scanned_at": now_str
+        flagged_items = []
+        for itm in items:
+            t_score = itm.get("threat_score", 0)
+            is_cf = (
+                itm.get("high_risk") or 
+                itm.get("counterfeit") or 
+                itm.get("visual_counterfeit") or
+                t_score >= 70 or 
+                any(kw in str(itm.get("threat_badge", "")).lower() for kw in ("counterfeit", "syndicate", "flagged"))
+            )
+            if is_cf:
+                entry["total_infringements"] = entry.get("total_infringements", 0) + 1
+                flagged_items.append({
+                    "item_id": itm.get("item_id"),
+                    "title": itm.get("title"),
+                    "price": itm.get("price"),
+                    "threat_score": t_score,
+                    "threat_badge": itm.get("threat_badge", ""),
+                    "timestamp": now_str
                 })
+            else:
+                entry["total_clean_items"] = entry.get("total_clean_items", 0) + 1
 
-        self._data["enforcement_registry"] = reg
+        total_bad = entry.get("total_infringements", 0)
+        total_good = entry.get("total_clean_items", 0)
+        total_all = total_bad + total_good
+
+        if total_bad >= 20 or (total_all > 0 and (total_bad / total_all) >= 0.5 and total_bad >= 5):
+            entry["risk_tier"] = "🚨 Critical Recidivist (Syndicate)"
+        elif total_bad >= 5:
+            entry["risk_tier"] = "⚠️ High Risk (Repeat Offender)"
+        elif total_bad >= 1:
+            entry["risk_tier"] = "🟡 Moderate (Flagged)"
+        else:
+            entry["risk_tier"] = "🟢 Clean / Low"
+
+        if flagged_items:
+            entry.setdefault("strike_history", []).append({
+                "scan_date": now_str,
+                "flagged_count": len(flagged_items),
+                "sample_items": flagged_items[:5]
+            })
+
         self._save()
-
-    def save_enforcement_registry(self, reg: dict):
-        self._data["enforcement_registry"] = reg
-        self._save()
-
-    def clear_enforcement_registry(self):
-        self._data["enforcement_registry"] = {}
-        self._save()
-
-    def delete_registry_entry(self, seller: str):
-        reg = self.get_enforcement_registry()
-        if seller in reg:
-            del reg[seller]
-            self._data["enforcement_registry"] = reg
-            self._save()
-
-    # ── whitelist / authorized dealers ─────────────────────────────────────────
-    def get_whitelist(self) -> dict:
-        """Return dict of whitelisted sellers {slug: {seller, brand, dealer_name, notes, added_at}}."""
-        return self._data.setdefault("whitelist", {})
-
-    def is_seller_whitelisted(self, seller_or_url: str) -> bool:
-        """Check if seller handle or store slug is whitelisted (case-insensitive & hyphen-normalized)."""
-        if not seller_or_url:
-            return False
-        raw = str(seller_or_url).strip().lower()
-        if "/str/" in raw or "/usr/" in raw:
-            raw = raw.split("/str/")[-1].split("/usr/")[-1].split("?")[0].split("/")[0].strip()
-        slug = re.sub(r"[^a-z0-9]", "", raw)
-        if not slug:
-            return False
-        
-        wl = self.get_whitelist()
-        for k in wl.keys():
-            k_slug = re.sub(r"[^a-z0-9]", "", k.lower())
-            if k_slug == slug:
-                return True
-        return False
-
-    def add_to_whitelist(self, seller_handle: str, brand: str = "", dealer_name: str = "", notes: str = ""):
-        """Add seller to authorized whitelist."""
-        if not seller_handle:
-            return
-        wl = self.get_whitelist()
-        clean_handle = seller_handle.strip()
-        if "/str/" in clean_handle or "/usr/" in clean_handle:
-            clean_handle = clean_handle.split("/str/")[-1].split("/usr/")[-1].split("?")[0].split("/")[0].strip()
-        
-        wl[clean_handle] = {
-            "seller": clean_handle,
-            "brand": brand.strip() if brand else "General / All Brands",
-            "dealer_name": dealer_name.strip(),
-            "notes": notes.strip(),
-            "added_at": datetime.now().strftime("%Y-%m-%d %H:%M")
-        }
-        self._data["whitelist"] = wl
-        self._save()
-
-    def remove_from_whitelist(self, seller_handle: str):
-        """Remove seller from whitelist."""
-        wl = self.get_whitelist()
-        clean = seller_handle.strip()
-        if clean in wl:
-            del wl[clean]
-            self._data["whitelist"] = wl
-            self._save()
-            return
-        slug = re.sub(r"[^a-z0-9]", "", clean.lower())
-        for k in list(wl.keys()):
-            if re.sub(r"[^a-z0-9]", "", k.lower()) == slug:
-                del wl[k]
-                self._data["whitelist"] = wl
-                self._save()
-                break
-
-    def bulk_add_whitelist(self, raw_text: str, brand: str = "", notes: str = "") -> int:
-        """Bulk import lines of seller handles or store URLs."""
-        if not raw_text:
-            return 0
-        added = 0
-        for line in raw_text.splitlines():
-            clean = line.strip()
-            if not clean:
-                continue
-            if "/str/" in clean or "/usr/" in clean:
-                clean = clean.split("/str/")[-1].split("/usr/")[-1].split("?")[0].split("/")[0].strip()
-            m = re.search(r"([a-zA-Z0-9_.-]+)", clean)
-            if m:
-                handle = m.group(1).strip()
-                if handle and not self.is_seller_whitelisted(handle):
-                    self.add_to_whitelist(handle, brand=brand, notes=notes)
-                    added += 1
-        return added
-
-    # ══════════════════════════════════════════════════════════════════════════
-    #  SELLER THREAT INTEL & 3PL SMOKESCREEN REGISTRY
-    # ══════════════════════════════════════════════════════════════════════════
-
-    COUNTRY_FLAGS = {
-        "china": "🇨🇳",
-        "hong kong": "🇭🇰",
-        "taiwan": "🇹🇼",
-        "united states": "🇺🇸",
-        "canada": "🇨🇦",
-        "united kingdom": "🇬🇧",
-        "germany": "🇩🇪",
-        "japan": "🇯🇵",
-        "south korea": "🇰🇷",
-        "korea": "🇰🇷",
-        "australia": "🇦🇺",
-        "uganda": "🇺🇬",
-        "sri lanka": "🇱🇰",
-        "thailand": "🇹🇭",
-        "malaysia": "🇲🇾",
-        "united arab emirates": "🇦🇪",
-        "uae": "🇦🇪",
-        "dubai": "🇦🇪",
-        "turkey": "🇹🇷",
-        "argentina": "🇦🇷",
-        "vietnam": "🇻🇳",
-        "pakistan": "🇵🇰",
-        "india": "🇮🇳",
-        "indonesia": "🇮🇩",
-        "philippines": "🇵🇭",
-        "singapore": "🇸🇬",
-        "israel": "🇮🇱",
-        "nigeria": "🇳🇬",
-        "kenya": "🇰🇪",
-        "mexico": "🇲🇽",
-        "brazil": "🇧🇷",
-    }
-
-    HIGH_RISK_JURISDICTIONS = {
-        "china", "hong kong", "uganda", "sri lanka", "thailand",
-        "malaysia", "united arab emirates", "uae", "dubai",
-        "turkey", "argentina", "taiwan", "vietnam", "pakistan",
-        "india", "indonesia", "philippines", "nigeria", "kenya"
-    }
-
-    KNOWN_3PL_HUBS = {
-        "walton", "hebron", "erlanger", "florence, ky",
-        "rowland heights", "city of industry", "industry, ca",
-        "chino", "ontario, ca", "fontana", "gardena",
-        "corona, ca", "la puente", "monterey park", "alhambra",
-        "jamaica, ny", "springfield gardens", "flushing",
-        "elk grove village", "wood dale",
-        "avenel", "edison, nj", "dayton, nj", "carteret"
-    }
-
-    def get_seller_intel_cache(self) -> dict:
-        """Returns cached seller intel mapping {seller_handle: {country, member_since, ...}}."""
-        return self._data.get("seller_intel", {})
 
     def get_seller_intel(self, seller_handle: str) -> dict:
-        """Retrieve cached threat intel for a specific seller handle."""
-        if not seller_handle:
-            return {}
-        clean = seller_handle.strip().lower()
-        intel_map = self.get_seller_intel_cache()
-        if clean in intel_map:
-            return intel_map[clean]
-        slug = re.sub(r"[^a-z0-9]", "", clean)
-        for k, v in intel_map.items():
-            if re.sub(r"[^a-z0-9]", "", k.lower()) == slug:
-                return v
-        return {}
+        """Retrieve cached threat intel profile for a seller."""
+        intel_cache = self._data.setdefault("seller_intel_cache", {})
+        return intel_cache.get(seller_handle.strip(), {})
 
-    def set_seller_intel(self, seller_handle: str, country: str, member_since: str = "", extra: dict = None):
-        """Save resolved seller origin and threat data to persistent cache."""
-        if not seller_handle:
+    def set_seller_intel(self, seller_handle: str, country: str, member_since: str = ""):
+        """Cache resolved location & age for a seller handle."""
+        if not seller_handle or not seller_handle.strip():
             return
-        clean = seller_handle.strip()
-        intel_map = self.get_seller_intel_cache()
-        record = {
-            "seller": clean,
-            "country": country.strip() if country else "Unknown",
-            "member_since": member_since.strip() if member_since else "",
-            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        intel_cache = self._data.setdefault("seller_intel_cache", {})
+        intel_cache[seller_handle.strip()] = {
+            "country": country,
+            "member_since": member_since,
+            "resolved_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
-        if extra:
-            record.update(extra)
-        intel_map[clean.lower()] = record
-        self._data["seller_intel"] = intel_map
         self._save()
 
-    def bulk_set_seller_intel(self, intel_dict: dict):
-        """Batch save multiple seller intel records."""
-        if not intel_dict:
-            return
-        intel_map = self.get_seller_intel_cache()
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        for s, data in intel_dict.items():
-            clean = s.strip()
-            if not clean:
-                continue
-            if isinstance(data, str):
-                country_val = data
-                m_since = ""
-            elif isinstance(data, dict):
-                country_val = data.get("country", "Unknown")
-                m_since = data.get("member_since", "")
-            else:
-                country_val = str(data)
-                m_since = ""
-            intel_map[clean.lower()] = {
-                "seller": clean,
-                "country": country_val.strip() if country_val else "Unknown",
-                "member_since": m_since,
-                "updated_at": now_str
-            }
-        self._data["seller_intel"] = intel_map
+    COUNTRY_FLAGS = {
+        "china": "🇨🇳", "cn": "🇨🇳", "hong kong": "🇭🇰", "hk": "🇭🇰",
+        "united states": "🇺🇸", "us": "🇺🇸", "usa": "🇺🇸",
+        "united kingdom": "🇬🇧", "uk": "🇬🇧", "gb": "🇬🇧",
+        "france": "🇫🇷", "fr": "🇫🇷",
+        "germany": "🇩🇪", "de": "🇩🇪",
+        "spain": "🇪🇸", "es": "🇪🇸",
+        "italy": "🇮🇹", "it": "🇮🇹",
+        "poland": "🇵🇱", "pl": "🇵🇱",
+        "mexico": "🇲🇽", "mx": "🇲🇽",
+        "brazil": "🇧🇷", "br": "🇧🇷",
+        "argentina": "🇦🇷", "ar": "🇦🇷",
+        "colombia": "🇨🇴", "co": "🇨🇴",
+        "chile": "🇨🇱", "cl": "🇨🇱",
+        "peru": "🇵🇪", "pe": "🇵🇪",
+        "netherlands": "🇳🇱", "nl": "🇳🇱",
+        "belgium": "🇧🇪", "be": "🇧🇪",
+        "japan": "🇯🇵", "jp": "🇯🇵",
+        "canada": "🇨🇦", "ca": "🇨🇦",
+        "australia": "🇦🇺", "au": "🇦🇺",
+        "turkey": "🇹🇷", "tr": "🇹🇷",
+        "vietnam": "🇻🇳", "vn": "🇻🇳",
+        "taiwan": "🇹🇼", "tw": "🇹🇼",
+        "thailand": "🇹🇭", "th": "🇹🇭",
+        "india": "🇮🇳", "in": "🇮🇳",
+    }
+
+    def compute_threat_assessment(self, origin: str, location: str = "") -> dict:
+        """
+        Compute high-risk cross-border threat badge and 3PL hub assessment from seller origin and item location.
+        """
+        orig_clean = str(origin or "").strip().lower()
+        loc_clean = str(location or "").strip().lower()
+
+        is_china = any(k in orig_clean or k in loc_clean for k in ("china", "cn", "hong kong", "hk", "shenzhen", "guangdong", "zhejiang", "yiwu", "beijing", "shanghai"))
+        is_3pl = False
+        if is_china and any(d in loc_clean for d in ("united states", "usa", "us", "california", "ca", "nj", "new jersey", "uk", "united kingdom", "germany", "de", "france", "fr", "spain", "es", "italy", "it", "poland", "pl")):
+            is_3pl = True
+
+        country_resolved = "Unknown"
+        for cname in self.COUNTRY_FLAGS.keys():
+            if cname in orig_clean or cname in loc_clean:
+                country_resolved = cname.title()
+                break
+
+        if is_3pl:
+            badge = "🚨 Foreign Drop-Ship Hub"
+            is_high = True
+        elif is_china:
+            badge = "⚠️ Cross-Border Direct"
+            is_high = True
+        elif any(c in orig_clean or c in loc_clean for c in ("mexico", "brazil", "argentina", "colombia", "chile", "peru")):
+            badge = "🌎 Latin America Hub"
+            is_high = False
+        elif any(c in orig_clean or c in loc_clean for c in ("united kingdom", "uk", "france", "germany", "spain", "italy", "poland", "netherlands", "belgium")):
+            badge = "🇪🇺 European Direct"
+            is_high = False
+        elif any(c in orig_clean or c in loc_clean for c in ("united states", "usa", "us")):
+            badge = "🇺🇸 Domestic Verified"
+            is_high = False
+        return {
+            "country": country_resolved if country_resolved != "Unknown" else (origin or location or "Domestic"),
+            "badge": badge,
+            "is_high_risk": is_high,
+            "is_3pl_hub": is_3pl
+        }
+
+    def get_column_visibility(self) -> dict:
+        """Get column visibility configuration, defaulting to all visible except thumbnail."""
+        defaults = {
+            "brand": True,
+            "product_type": True,
+            "title": True,
+            "item_id": True,
+            "price": True,
+            "seller": True,
+            "seller_origin": True,
+            "threat_badge": True,
+            "location": True,
+            "thumbnail": False,
+            "url": True
+        }
+        saved = self._data.setdefault("settings", {}).get("column_visibility", {})
+        merged = defaults.copy()
+        merged.update(saved)
+        return merged
+
+    def set_column_visibility(self, visibility_dict: dict):
+        """Persist column visibility dictionary."""
+        self._data.setdefault("settings", {})["column_visibility"] = visibility_dict
         self._save()
 
-    def compute_threat_assessment(self, seller_country: str, item_location: str) -> dict:
-        """
-        Evaluate seller registered country against declared item location to detect
-        3PL drop-shipping smokescreens and cross-border counterfeit hubs.
-        """
-        country_clean = (seller_country or "").strip().lower()
-        loc_clean = (item_location or "").strip().lower()
-        flag = self.COUNTRY_FLAGS.get(country_clean, "🌍")
+    def set_single_column_visibility(self, col: str, visible: bool):
+        """Update single column visibility state."""
+        current = self.get_column_visibility()
+        current[col] = bool(visible)
+        self.set_column_visibility(current)
 
-        is_high_risk = any(hr in country_clean for hr in self.HIGH_RISK_JURISDICTIONS)
-        is_3pl_hub = any(hub in loc_clean for hub in self.KNOWN_3PL_HUBS)
+    def get_show_analyst_hints(self) -> bool:
+        """Check if analyst hover onboarding tooltips are enabled."""
+        return self._data.setdefault("settings", {}).get("show_analyst_hints", True)
 
-        if not seller_country or country_clean in ("unknown", "unresolved", ""):
-            if is_3pl_hub:
-                return {
-                    "score": "ELEVATED",
-                    "badge": f"⚠️ KNOWN 3PL HUB ({item_location})",
-                    "country": "Unknown",
-                    "flag": "❓",
-                    "is_high_risk": False,
-                    "is_3pl_hub": True
-                }
-            return {
-                "score": "UNKNOWN",
-                "badge": "Unresolved Origin",
-                "country": "Unknown",
-                "flag": "❓",
-                "is_high_risk": False,
-                "is_3pl_hub": False
-            }
-
-        country_display = seller_country.title()
-
-        if is_high_risk and is_3pl_hub:
-            return {
-                "score": "CRITICAL",
-                "badge": f"🚨 GHOST ORIGIN ({country_display} {flag} | 3PL Hub: {item_location})",
-                "country": country_display,
-                "flag": flag,
-                "is_high_risk": True,
-                "is_3pl_hub": True
-            }
-        elif is_high_risk and any(us in loc_clean for us in ["united states", "us", "usa", "ca", "ny", "ky", "tx", "fl", "il"]):
-            return {
-                "score": "HIGH",
-                "badge": f"🚨 OFFSHORE SMOKESCREEN ({country_display} {flag} | Item: US 3PL)",
-                "country": country_display,
-                "flag": flag,
-                "is_high_risk": True,
-                "is_3pl_hub": False
-            }
-        elif is_high_risk:
-            return {
-                "score": "HIGH",
-                "badge": f"⚠️ HIGH-RISK ORIGIN ({country_display} {flag})",
-                "country": country_display,
-                "flag": flag,
-                "is_high_risk": True,
-                "is_3pl_hub": False
-            }
-        elif "united states" in country_clean or country_clean == "us":
-            return {
-                "score": "LOW",
-                "badge": f"🛡️ Domestic Verified (US {flag})",
-                "country": "United States",
-                "flag": flag,
-                "is_high_risk": False,
-                "is_3pl_hub": is_3pl_hub
-            }
-        else:
-            return {
-                "score": "MEDIUM",
-                "badge": f"🌍 Foreign ({country_display} {flag})",
-                "country": country_display,
-                "flag": flag,
-                "is_high_risk": False,
-                "is_3pl_hub": is_3pl_hub
-            }
-
-
+    def set_show_analyst_hints(self, enabled: bool):
+        """Set analyst hover onboarding tooltips setting."""
+        self._data.setdefault("settings", {})["show_analyst_hints"] = bool(enabled)
+        self._save()

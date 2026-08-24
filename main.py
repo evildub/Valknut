@@ -8,6 +8,7 @@ import re
 import io
 import time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import urllib.request
 from datetime import datetime
 import webbrowser
@@ -15,7 +16,7 @@ import winsound
 from PIL import Image, ImageTk
 import ctypes
 
-logger = logging.getLogger("Valknut")
+logger = logging.getLogger("Apollo")
 
 from scraper import EbayScraper
 from aliexpress_scraper import AliExpressScraper
@@ -24,10 +25,16 @@ from temu_scraper import TemuScraper
 from mercadolibre_scraper import MercadoLibreScraper
 from redbubble_scraper import RedbubbleScraper
 from printerval_scraper import PrintervalScraper
+from vinted_scraper import VintedScraper
 from api_client import EbayAPIClient
 from exporter import ExcelExporter
 from data_store import DataStore
 import batch_importer
+from visual_catalog import VisualCatalogManager, compute_phash, hamming_distance
+from visual_harvester import VisualHarvester
+from visual_catalog_modal import VisualCatalogModal
+from field_guide_modal import FieldGuideModal
+from tooltip import add_tooltip, HoverTip
 
 # ── Color Palette Definitions ─────────────────────────────────────────────────
 THEMES = {
@@ -526,9 +533,13 @@ THEMES = {
 }
 
 FONT      = ("Segoe UI", 10)
+FONT_NORM = ("Segoe UI", 9)
+FONT_BOLD = ("Segoe UI", 9, "bold")
 FONT_SM   = ("Segoe UI", 9)
 FONT_LG   = ("Segoe UI", 12, "bold")
 FONT_HEAD = ("Segoe UI", 11, "bold")
+FONT_TITLE= ("Segoe UI", 13, "bold")
+FONT_CODE = ("Consolas", 9)
 
 THUMB_CONFIG = {
     "Off (Text Only)":     {"rowheight": 24,  "img_size": 0,   "col_width": 0,   "show": "headings"},
@@ -548,7 +559,7 @@ QUOTES = [
     "🤝 Tenet 7: Built by Analysts, for Analysts — Purpose-engineered for front-line IP enforcement.",
     "🏛️ Tenet 8: Multi-Jurisdiction Compliance — Structuring clean A2C2 & marketplace enforcement dossiers.",
     "⚔️ Tenet 9: Proactive Recidivism Tracking — Permanently dismantling repeat counterfeit operations.",
-    "💎 Valknut Motto: 'Vigilance in Protection, Precision in Enforcement.'",
+    "☀️ Apollo Motto: 'Apollo is a lightweight interceptor with a captain, making tactical adjustments while the heavy weight carries the burden. We are agile.'",
     "🎖️ Analyst Recognition: Front-line protection defending consumer safety from rogue components.",
 ]
 
@@ -664,13 +675,13 @@ CONTINENTAL_QUOTES = [
 ]
 
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 
 class EbayTool(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"🔺 Valknut Brand Intelligence v{VERSION} — Multi-Marketplace Threat Harvester & Enforcement Suite")
+        self.title(f"☀️ Apollo Brand Intelligence v{VERSION} — Tactical Reconnaissance & Precision Triage")
 
         self.data_store     = DataStore()
         # Scraper background/headless mode (Default: True / Silent Background)
@@ -682,8 +693,13 @@ class EbayTool(tk.Tk):
         self.mercadolibre_scraper = MercadoLibreScraper(headless=self.headless_var.get())
         self.redbubble_scraper = RedbubbleScraper(headless=self.headless_var.get())
         self.printerval_scraper = PrintervalScraper(headless=self.headless_var.get())
+        self.vinted_scraper = VintedScraper(headless=self.headless_var.get())
         self.marketplace_var= tk.StringVar(value="🛒 eBay.com")
         self.exporter       = ExcelExporter()
+        self.visual_catalog = VisualCatalogManager()
+        self.visual_harvester = VisualHarvester()
+        self.filter_hide_benign_var = tk.BooleanVar(value=True)
+        self.store_full_sweep_var = tk.BooleanVar(value=False)
 
         # Load saved theme
         saved_theme_key = self.data_store.get_setting("theme", "midnight")
@@ -726,6 +742,7 @@ class EbayTool(tk.Tk):
         self.sort_directions= {}          # col -> bool (True = descending)
 
         # Image thumbnail caches & Hover popup window
+        self.thumb_executor     = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ApolloThumb")
         self.raw_img_cache      = {}          # url -> PIL.Image (source image)
         self.inline_img_cache   = {}          # (size_key, url) -> PhotoImage (resized for treeview)
         self.img_cache          = {}          # url -> PhotoImage (large hover popup)
@@ -790,11 +807,18 @@ class EbayTool(tk.Tk):
             "checks": [],
         }
 
+        # Column Visibility & Analyst Hints
+        self.show_hints_var = tk.BooleanVar(value=self.data_store.get_show_analyst_hints())
+        self.all_table_cols = ("brand", "product_type", "title", "item_id", "price", "seller", "seller_origin", "threat_badge", "location", "thumbnail", "url")
+        saved_vis = self.data_store.get_column_visibility()
+        self.col_vis_vars = {col: tk.BooleanVar(value=saved_vis.get(col, True)) for col in self.all_table_cols}
+
         # Track open modeless windows
         self._win_registry = None
         self._win_threat_intel = None
         self._win_importer = None
         self._win_whitelist = None
+        self._win_field_guide = None
 
         self._build_ui()
         self._refresh_brand_tree()
@@ -802,6 +826,7 @@ class EbayTool(tk.Tk):
         # Global Keyboard Shortcuts
         self.bind_all("<Control-e>", lambda e: self._export())
         self.bind_all("<Control-E>", lambda e: self._export())
+        self.bind_all("<F1>", lambda e: self._open_field_guide_modal())
 
         # Listen globally for Konami Code
         self.bind_all("<Key>", self._check_konami)
@@ -843,7 +868,7 @@ class EbayTool(tk.Tk):
         self.themed_widgets["panel_frames"].append(title_box)
 
         # Clickable interactive title logo (Easter Egg)
-        self.title_lbl = tk.Label(title_box, text="🔺 Valknut Brand Intelligence",
+        self.title_lbl = tk.Label(title_box, text="☀️ Apollo Brand Intelligence",
                                   font=("Segoe UI", 12, "bold"), bg=t["panel"], fg=t["accent"],
                                   cursor="hand2")
         self.title_lbl.pack(anchor="w")
@@ -868,11 +893,12 @@ class EbayTool(tk.Tk):
         self.themed_widgets["subtext_labels"].append(market_lbl)
 
         self.market_combo = ttk.Combobox(top_right, textvariable=self.marketplace_var,
-                                         values=["🛒 eBay.com", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
+                                         values=["🛒 eBay.com", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
                                          state="readonly", width=16, font=FONT_SM)
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
 
+        # Mercado Libre Regional Controls (packed dynamically)
         self.meli_country_var = tk.StringVar(value="🇲🇽 Mexico")
         self.meli_country_combo = ttk.Combobox(
             top_right,
@@ -900,64 +926,173 @@ class EbayTool(tk.Tk):
             font=FONT_SM
         )
         self.meli_depth_combo.bind("<<ComboboxSelected>>", lambda e: self._log(f"📄 Mercado Libre scan depth set to: {self.meli_depth_var.get()}"))
-
         self.meli_login_btn = self._btn(top_right, "🔑 MeLi Login", self._launch_meli_login)
-        # only pack when Mercado Libre is active
 
-        self._btn(top_right, "📥 Import", self._open_adhoc_importer_window, accent=True).pack(side="left", padx=(0, 2))
-        self._btn(top_right, "🛡 Registry", self._open_enforcement_registry_window).pack(side="left", padx=(0, 2))
-        self._btn(top_right, "🛡 Whitelist", self._open_whitelist_manager_window).pack(side="left", padx=(0, 2))
-        self._btn(top_right, "🕵 Threat Intel", self._open_threat_intel_window, accent=True).pack(side="left", padx=(0, 4))
+        # Vinted Multi-Region Controls (packed dynamically when Vinted is active)
+        self.vinted_country_var = tk.StringVar(value="🌍 All Locales (Europe & US)")
+        self.vinted_country_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.vinted_country_var,
+            values=[
+                "🌍 All Locales (Europe & US)",
+                "🇬🇧 United Kingdom",
+                "🇫🇷 France",
+                "🇩🇪 Germany",
+                "🇪🇸 Spain",
+                "🇮🇹 Italy",
+                "🇵🇱 Poland",
+                "🇺🇸 United States",
+                "🇳🇱 Netherlands",
+                "🇧🇪 Belgium"
+            ],
+            state="readonly",
+            width=24,
+            font=FONT_SM
+        )
+        self.vinted_depth_var = tk.StringVar(value="2 Pages (192)")
+        self.vinted_depth_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.vinted_depth_var,
+            values=["1 Page (96)", "2 Pages (192)", "4 Pages (384)", "8 Pages (768)"],
+            state="readonly",
+            width=14,
+            font=FONT_SM
+        )
+        self.vinted_depth_combo.bind("<<ComboboxSelected>>", lambda e: self._log(f"👗 Vinted scan depth set to: {self.vinted_depth_var.get()}"))
+        self.vinted_login_btn = self._btn(top_right, "👗 Vinted Connect", self._launch_vinted_session)
 
-        # 2. Additional Automation Settings
-        bg_cb = tk.Checkbutton(top_right, text="👻 Stealth",
-                               variable=self.headless_var, command=self._toggle_headless,
-                               bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"],
-                               activebackground=t["panel"], font=FONT_SM)
-        bg_cb.pack(side="left", padx=(0, 2))
-        self.themed_widgets["checks"].append(bg_cb)
+        # Main Toolbar Operational Action Buttons
+        self.btn_import = self._btn(top_right, "📥 Import", self._open_adhoc_importer_window, accent=True)
+        self.btn_import.pack(side="left", padx=(0, 2))
+        
+        self.btn_visual = self._btn(top_right, "🖼️ Visual Library", self._open_visual_catalog_modal, accent=True)
+        self.btn_visual.pack(side="left", padx=(0, 2))
 
-        self.api_cb = tk.Checkbutton(top_right, text="API Mode",
-                                     variable=self.use_api, command=self._toggle_api,
-                                     bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"],
-                                     activebackground=t["panel"], font=FONT_SM)
-        self.api_cb.pack(side="left", padx=(0, 4))
-        self.themed_widgets["checks"].append(self.api_cb)
+        self.btn_registry = self._btn(top_right, "🛡 Registry", self._open_enforcement_registry_window)
+        self.btn_registry.pack(side="left", padx=(0, 2))
 
-        self.app_id_lbl = tk.Label(top_right, text="App ID:", bg=t["panel"], fg=t["subtext"], font=FONT_SM)
-        self.themed_widgets["subtext_labels"].append(self.app_id_lbl)
+        self.btn_whitelist = self._btn(top_right, "🛡 Whitelist", self._open_whitelist_manager_window)
+        self.btn_whitelist.pack(side="left", padx=(0, 2))
 
-        self.app_id_entry = tk.Entry(top_right, textvariable=self.api_app_id_var, width=10,
-                                     bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"],
-                                     relief="flat", font=FONT_SM)
-        self.themed_widgets["text_inputs"].append(self.app_id_entry)
+        self.btn_threat = self._btn(top_right, "🕵 Threat Intel", self._open_threat_intel_window, accent=False)
+        self.btn_threat.pack(side="left", padx=(0, 4))
 
-        self.cert_id_lbl = tk.Label(top_right, text="Cert ID:", bg=t["panel"], fg=t["subtext"], font=FONT_SM)
-        self.themed_widgets["subtext_labels"].append(self.cert_id_lbl)
+        # ── Unified Settings ▾ Menubutton ──
+        self.settings_mb = tk.Menubutton(
+            top_right,
+            text="⚙️ Settings ▾",
+            font=FONT_NORM,
+            bg=t["panel"],
+            fg=t["text"],
+            activebackground=t["accent"],
+            activeforeground="black" if str(t.get("name","")).startswith("⚡") else "white",
+            relief="flat",
+            padx=10,
+            pady=4,
+            cursor="hand2"
+        )
+        self.settings_mb.pack(side="left", padx=(2, 0))
+        self.themed_widgets["normal_btns"].append(self.settings_mb)
 
-        self.cert_id_entry = tk.Entry(top_right, textvariable=self.api_cert_id_var, width=10,
-                                      bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"],
-                                      relief="flat", font=FONT_SM, show="•")
-        self.themed_widgets["text_inputs"].append(self.cert_id_entry)
+        self.settings_menu = tk.Menu(
+            self.settings_mb,
+            tearoff=0,
+            bg=t["panel"],
+            fg=t["text"],
+            activebackground=t["accent"],
+            activeforeground="black" if str(t.get("name","")).startswith("⚡") else "white",
+            bd=1,
+            relief="solid",
+            activeborderwidth=0
+        )
+        self.settings_mb.config(menu=self.settings_menu)
 
-        self.save_keys_btn = self._btn(top_right, "Save", self._save_api_keys, accent=True)
-
-        # 3. Customization & System Info (Rightmost)
-        theme_lbl = tk.Label(top_right, text="🎨 Theme:", bg=t["panel"], fg=t["subtext"], font=FONT_SM)
-        theme_lbl.pack(side="left", padx=(2, 2))
-        self.themed_widgets["subtext_labels"].append(theme_lbl)
-
+        # 1. Themes Submenu
+        self.theme_menu = tk.Menu(
+            self.settings_menu,
+            tearoff=0,
+            bg=t["panel"],
+            fg=t["text"],
+            activebackground=t["accent"],
+            activeforeground="black" if str(t.get("name","")).startswith("⚡") else "white",
+            bd=1,
+            relief="solid",
+            activeborderwidth=0
+        )
         current_key = self.current_theme_key
-        theme_names = [th["name"] for k, th in THEMES.items() if not th.get("hidden", False) or k == current_key or (k == "continental" and self.data_store.is_wick_unlocked())]
-        self.theme_combo = ttk.Combobox(top_right, textvariable=self.theme_var, values=theme_names,
-                                        state="readonly", width=22, font=FONT_SM)
-        self.theme_combo.pack(side="left", padx=(0, 3))
-        self.theme_combo.bind("<<ComboboxSelected>>", self._on_theme_changed)
+        for k, th in THEMES.items():
+            if not th.get("hidden", False) or k == current_key or (k == "continental" and self.data_store.is_wick_unlocked()):
+                self.theme_menu.add_radiobutton(
+                    label=th["name"],
+                    value=th["name"],
+                    variable=self.theme_var,
+                    command=self._on_theme_changed
+                )
+        self.settings_menu.add_cascade(label="🎨 Themes ▾", menu=self.theme_menu)
 
-        self.about_btn = self._btn(top_right, "ℹ", self._show_about_dialog)
-        self.about_btn.pack(side="left", padx=(0, 0))
+        # 2. Column Visibility Submenu
+        self.col_menu = tk.Menu(
+            self.settings_menu,
+            tearoff=0,
+            bg=t["panel"],
+            fg=t["text"],
+            activebackground=t["accent"],
+            activeforeground="black" if str(t.get("name","")).startswith("⚡") else "white",
+            bd=1,
+            relief="solid",
+            activeborderwidth=0
+        )
+        for col_key in self.all_table_cols:
+            col_lbl = self.col_labels.get(col_key, col_key.title())
+            self.col_menu.add_checkbutton(
+                label=col_lbl,
+                variable=self.col_vis_vars[col_key],
+                command=lambda ck=col_key: self._toggle_column_visibility(ck)
+            )
+        self.settings_menu.add_cascade(label="👁 Column Visibility ▾", menu=self.col_menu)
 
-        self._toggle_api()
+        self.settings_menu.add_separator()
+
+        # 3. Automation, Audio & UI Toggles
+        self.settings_menu.add_checkbutton(
+            label="🔔 Audio Chimes & Threat Alerts",
+            variable=self.sound_enabled_var,
+            command=lambda: self.data_store.set_setting("sound_enabled", self.sound_enabled_var.get())
+        )
+        self.settings_menu.add_checkbutton(
+            label="💡 Analyst Onboarding Hints & Tooltips",
+            variable=self.show_hints_var,
+            command=lambda: self.data_store.set_show_analyst_hints(self.show_hints_var.get())
+        )
+        self.settings_menu.add_checkbutton(
+            label="👻 Stealth / Headless Browser Mode",
+            variable=self.headless_var,
+            command=self._toggle_headless
+        )
+        self.settings_menu.add_checkbutton(
+            label="⚡ eBay API Mode (Fast REST Query)",
+            variable=self.use_api,
+            command=self._toggle_api
+        )
+
+        self.settings_menu.add_separator()
+
+        # 4. Modals & Configuration
+        self.settings_menu.add_command(
+            label="🔑 Configure eBay API Keys...",
+            command=self._open_api_keys_dialog
+        )
+        self.settings_menu.add_command(
+            label="📚 Open Analyst Field Guide (F1)",
+            command=self._open_field_guide_modal
+        )
+        self.settings_menu.add_command(
+            label="ℹ About Apollo Brand Intelligence...",
+            command=self._show_about_dialog
+        )
+
+        self.theme_combo = None
+
 
         # ── status bar (Packed FIRST at bottom so it is permanently pinned to the floor) ───────────
         self.status_bar = tk.Frame(self, bg=t["panel"], pady=4)
@@ -970,21 +1105,13 @@ class EbayTool(tk.Tk):
         self.status_lbl.pack(side="left", padx=12)
         self.themed_widgets["text_labels"].append(self.status_lbl)
 
-        # Chime toggle checkbox in status bar
-        sound_cb = tk.Checkbutton(self.status_bar, text="🔔 Sound Alert",
-                                  variable=self.sound_enabled_var,
-                                  bg=t["panel"], fg=t["subtext"], selectcolor=t["entry_bg"],
-                                  activebackground=t["panel"], font=FONT_SM)
-        sound_cb.pack(side="right", padx=(0, 12))
-        self.themed_widgets["checks"].append(sound_cb)
-
         # Style and create Progressbar with vibrant accent animation
         style = ttk.Style()
-        style.configure("Valknut.Horizontal.TProgressbar",
+        style.configure("Apollo.Horizontal.TProgressbar",
                         troughcolor=t["entry_bg"],
                         background=t["accent"],
                         bordercolor=t.get("border", t["entry_bg"]))
-        self.progress = ttk.Progressbar(self.status_bar, mode="indeterminate", length=200, style="Valknut.Horizontal.TProgressbar")
+        self.progress = ttk.Progressbar(self.status_bar, mode="indeterminate", length=200, style="Apollo.Horizontal.TProgressbar")
         self.progress.pack(side="right", padx=12)
 
         # Globally prevent ttk.Combobox from intercepting mousewheel scroll and clear text selection on change
@@ -1006,8 +1133,11 @@ class EbayTool(tk.Tk):
         left  = self._build_left_panel(self.paned)
         right = self._build_right_panel(self.paned)
 
-        self.paned.add(left,  minsize=440, width=490)
-        self.paned.add(right, minsize=620)
+        self.paned.add(left,  minsize=380, width=420)
+        self.paned.add(right, minsize=550)
+
+        # Attach interactive analyst onboarding tooltips
+        self._attach_analyst_tooltips()
 
     # ── LEFT PANEL ────────────────────────────────────────────────────
     def _build_left_panel(self, parent):
@@ -1028,13 +1158,16 @@ class EbayTool(tk.Tk):
 
         frame_window = canvas.create_window((0, 0), window=frame, anchor="nw")
 
-        def _on_left_config(e=None):
+        def _on_left_frame_config(e=None):
             canvas.configure(scrollregion=canvas.bbox("all"))
-            canvas.itemconfig(frame_window, width=canvas.winfo_width())
 
-        frame.bind("<Configure>", _on_left_config)
-        canvas.bind("<Configure>", _on_left_config)
-        self._update_left_scrollregion = _on_left_config
+        def _on_left_canvas_config(e=None):
+            if e and e.width:
+                canvas.itemconfig(frame_window, width=e.width)
+
+        frame.bind("<Configure>", _on_left_frame_config)
+        canvas.bind("<Configure>", _on_left_canvas_config)
+        self._update_left_scrollregion = _on_left_frame_config
 
         def _on_left_mousewheel(event):
             bbox = canvas.bbox("all")
@@ -1097,9 +1230,16 @@ class EbayTool(tk.Tk):
         cond_lbl.pack(side="left")
         self.themed_widgets["subtext_labels"].append(cond_lbl)
 
-        ttk.Radiobutton(cond_row, text="All", variable=self.condition_var, value="all").pack(side="left", padx=6)
-        ttk.Radiobutton(cond_row, text="New Only", variable=self.condition_var, value="new").pack(side="left", padx=6)
-        ttk.Radiobutton(cond_row, text="Used Only", variable=self.condition_var, value="used").pack(side="left", padx=6)
+        ttk.Radiobutton(cond_row, text="All", variable=self.condition_var, value="all").pack(side="left", padx=4)
+        ttk.Radiobutton(cond_row, text="New", variable=self.condition_var, value="new").pack(side="left", padx=4)
+        ttk.Radiobutton(cond_row, text="Used", variable=self.condition_var, value="used").pack(side="left", padx=4)
+
+        self.full_sweep_cb = tk.Checkbutton(cond_row, text="🏪 Full Store Sweep",
+                                            variable=self.store_full_sweep_var,
+                                            bg=t["bg"], fg=t["accent"], selectcolor=t["entry_bg"],
+                                            activebackground=t["bg"], font=FONT_SM)
+        self.full_sweep_cb.pack(side="right", padx=(4, 0))
+        self.themed_widgets["checks"].append(self.full_sweep_cb)
 
         # ── Brand Library & Targeting ─────────────────────────────────────────
         toggle_brands_holder = []
@@ -1222,14 +1362,8 @@ class EbayTool(tk.Tk):
         self._excl_window = self.excl_canvas.create_window(
             (0, 0), window=self.excl_inner, anchor="nw")
 
-        def _on_excl_configure(e):
-            self.excl_canvas.configure(
-                scrollregion=self.excl_canvas.bbox("all"))
-            self.excl_canvas.itemconfig(
-                self._excl_window, width=self.excl_canvas.winfo_width())
-
-        self.excl_inner.bind("<Configure>", _on_excl_configure)
-        self.excl_canvas.bind("<Configure>", _on_excl_configure)
+        self.excl_inner.bind("<Configure>", lambda e: self.excl_canvas.configure(scrollregion=self.excl_canvas.bbox("all")))
+        self.excl_canvas.bind("<Configure>", lambda e: self.excl_canvas.itemconfig(self._excl_window, width=e.width) if e and e.width else None)
         self.excl_canvas.bind("<MouseWheel>", self._on_excl_mousewheel)
         self.excl_inner.bind("<MouseWheel>", self._on_excl_mousewheel)
 
@@ -1376,22 +1510,22 @@ class EbayTool(tk.Tk):
         self.themed_widgets["subtext_labels"].append(count_lbl)
 
         # Thumbnail view size selector
-        th_lbl = tk.Label(toolbar, text="Thumbnails:", bg=t["panel"], fg=t["subtext"], font=FONT_SM)
-        th_lbl.pack(side="left", padx=(8, 2))
+        th_lbl = tk.Label(toolbar, text="🖼️", bg=t["panel"], fg=t["subtext"], font=FONT_SM)
+        th_lbl.pack(side="left", padx=(6, 2))
         self.themed_widgets["subtext_labels"].append(th_lbl)
 
         self.thumb_size_combo = ttk.Combobox(toolbar, textvariable=self.thumb_size_var,
                                              values=list(THUMB_CONFIG.keys()),
-                                             width=14, state="readonly", font=FONT_SM)
-        self.thumb_size_combo.pack(side="left", padx=(0, 8))
+                                             width=11, state="readonly", font=FONT_SM)
+        self.thumb_size_combo.pack(side="left", padx=(0, 6))
         self.thumb_size_combo.bind("<<ComboboxSelected>>", self._on_thumb_size_changed)
 
-        # Primary Action: Export to Excel (Packed FIRST on right so it is anchored to the far right and NEVER clipped)
-        self._btn(toolbar, "💾 Export to Excel", self._export, accent=True).pack(side="right", padx=(4, 2))
+        # Primary Action: Export (Packed FIRST on right so it is anchored to the far right and NEVER clipped)
+        self._btn(toolbar, "💾 Export", self._export, accent=True).pack(side="right", padx=(4, 2))
         self._btn(toolbar, "🌐 Multi-Locale", self._open_multi_locale_expander, accent=False).pack(side="right", padx=2)
-        self._btn(toolbar, "📋 Copy URLs", self._copy_all_listing_urls).pack(side="right", padx=2)
-        self._btn(toolbar, "🌍 Threat Intel", self._enrich_seller_threat_intel, accent=False).pack(side="right", padx=2)
-        self._btn(toolbar, "🔗 Network Scan", self._open_connected_network_scanner, accent=False).pack(side="right", padx=2)
+        self._btn(toolbar, "📋 Copy", self._copy_all_listing_urls).pack(side="right", padx=2)
+        self._btn(toolbar, "🌍 Threat", self._enrich_seller_threat_intel, accent=False).pack(side="right", padx=2)
+        self._btn(toolbar, "🔗 Network", self._open_connected_network_scanner, accent=False).pack(side="right", padx=2)
         self._btn(toolbar, "🏪 Enrich", self._enrich_sellers).pack(side="right", padx=2)
         self._btn(toolbar, "✕ Remove", self._remove_selected_results).pack(side="right", padx=2)
         self._btn(toolbar, "🗑 Clear", self._clear_results, danger=True).pack(side="right", padx=2)
@@ -1422,11 +1556,17 @@ class EbayTool(tk.Tk):
         self.themed_widgets["text_inputs"].append(self.filter_entry)
 
         self.filter_high_risk_var = tk.BooleanVar(value=False)
-        self.hr_cb = tk.Checkbutton(filter_bar, text="🚨 High-Risk / 3PL Only", variable=self.filter_high_risk_var,
+        self.hr_cb = tk.Checkbutton(filter_bar, text="🚨 High-Risk", variable=self.filter_high_risk_var,
                                     command=self._repopulate_results_table, bg=t["panel"], fg=t["danger"],
                                     selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
-        self.hr_cb.pack(side="left", padx=(2, 4))
+        self.hr_cb.pack(side="left", padx=(2, 2))
         self.themed_widgets["checks"].append(self.hr_cb)
+
+        self.hb_cb = tk.Checkbutton(filter_bar, text="🛡️ Hide Benign", variable=self.filter_hide_benign_var,
+                                    command=self._repopulate_results_table, bg=t["panel"], fg=t["success"],
+                                    selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        self.hb_cb.pack(side="left", padx=(2, 4))
+        self.themed_widgets["checks"].append(self.hb_cb)
 
         self._btn(filter_bar, "✕ Clear", self._clear_filter).pack(side="left", padx=(0, 4))
         self._btn(filter_bar, "✓ Select All Visible", self._select_all_visible).pack(side="left", padx=(0, 4))
@@ -1550,6 +1690,7 @@ class EbayTool(tk.Tk):
                                      command=lambda _c=c: self._sort_by_column(_c))
             self.result_tree.column(c, width=w, minwidth=45)
         self._style_tree(self.result_tree)
+        self._apply_column_visibility()
 
         vsb = ttk.Scrollbar(table_frame, orient="vertical",   command=self.result_tree.yview)
         hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=self.result_tree.xview)
@@ -1758,15 +1899,23 @@ class EbayTool(tk.Tk):
         target = window or self
         try:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-            ico_path = os.path.join(base_dir, "valknut.ico")
-            png_path = os.path.join(base_dir, "valknut.png")
+            ico_path = os.path.join(base_dir, "apollo.ico")
+            png_path = os.path.join(base_dir, "apollo.png")
+            if not os.path.exists(ico_path): ico_path = os.path.join(base_dir, "valknut.ico")
+            if not os.path.exists(png_path): png_path = os.path.join(base_dir, "valknut.png")
 
             # Try PyInstaller bundled _MEIPASS path first
             if hasattr(sys, "_MEIPASS"):
-                m_ico = os.path.join(sys._MEIPASS, "valknut.ico")
-                m_png = os.path.join(sys._MEIPASS, "valknut.png")
-                if os.path.exists(m_ico): ico_path = m_ico
-                if os.path.exists(m_png): png_path = m_png
+                for name in ("apollo.ico", "valknut.ico"):
+                    p = os.path.join(sys._MEIPASS, name)
+                    if os.path.exists(p):
+                        ico_path = p
+                        break
+                for name in ("apollo.png", "valknut.png"):
+                    p = os.path.join(sys._MEIPASS, name)
+                    if os.path.exists(p):
+                        png_path = p
+                        break
 
             if os.path.exists(ico_path):
                 target.iconbitmap(ico_path)
@@ -1777,6 +1926,25 @@ class EbayTool(tk.Tk):
                 target.iconphoto(True, self._cached_app_icon_photo)
         except Exception as e:
             logger.debug(f"Could not load app icon: {e}")
+
+    def _center_window(self, win, w=None, h=None):
+        """Center a Toplevel window on screen or relative to master window."""
+        win.update_idletasks()
+        width = w or win.winfo_width()
+        height = h or win.winfo_height()
+        master_x = self.winfo_x()
+        master_y = self.winfo_y()
+        master_w = self.winfo_width()
+        master_h = self.winfo_height()
+        if master_w > 100 and master_h > 100:
+            x = master_x + (master_w - width) // 2
+            y = master_y + (master_h - height) // 2
+        else:
+            x = (win.winfo_screenwidth() - width) // 2
+            y = (win.winfo_screenheight() - height) // 2
+        x = max(10, x)
+        y = max(10, y)
+        win.geometry(f"{width}x{height}+{x}+{y}")
 
     def _apply_dark_titlebar(self, win=None):
         """Enable immersive dark mode title bar, icon, and custom caption colors via Windows DWM API."""
@@ -1965,6 +2133,25 @@ class EbayTool(tk.Tk):
             self.store_text.insert("1.0", self.store_placeholder)
             self.store_text.config(fg=self.theme["subtext"])
 
+    def _get_current_platform_name(self, market_str: str = None) -> str:
+        """Resolve canonical platform name from current marketplace selection or passed string."""
+        mkt = market_str if market_str is not None else (self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay")
+        if "Vinted" in mkt:
+            return "Vinted"
+        elif "Wish" in mkt:
+            return "Wish"
+        elif "Temu" in mkt:
+            return "Temu"
+        elif "AliExpress" in mkt:
+            return "AliExpress"
+        elif "Printerval" in mkt:
+            return "Printerval"
+        elif "Redbubble" in mkt:
+            return "Redbubble"
+        elif "Mercado" in mkt:
+            return "Mercado Libre"
+        return "eBay"
+
     def _on_market_changed(self, event=None):
         market = self.marketplace_var.get()
         t = self.theme
@@ -1990,7 +2177,34 @@ class EbayTool(tk.Tk):
             else:
                 self.meli_login_btn.pack_forget()
 
-        if "AliExpress" in market:
+        if hasattr(self, "vinted_country_combo"):
+            if "Vinted" in market:
+                self.vinted_country_combo.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.vinted_country_combo.pack_forget()
+
+        if hasattr(self, "vinted_depth_combo"):
+            if "Vinted" in market:
+                after_w = self.vinted_country_combo if hasattr(self, "vinted_country_combo") else self.market_combo
+                self.vinted_depth_combo.pack(side="left", padx=(0, 4), after=after_w)
+            else:
+                self.vinted_depth_combo.pack_forget()
+
+        if hasattr(self, "vinted_login_btn"):
+            if "Vinted" in market:
+                after_w = self.vinted_depth_combo if hasattr(self, "vinted_depth_combo") else (self.vinted_country_combo if hasattr(self, "vinted_country_combo") else self.market_combo)
+                self.vinted_login_btn.pack(side="left", padx=(0, 4), after=after_w)
+            else:
+                self.vinted_login_btn.pack_forget()
+
+        if "Vinted" in market:
+            self.store_placeholder = "👗 Global Vinted Search: https://www.vinted.co.uk/catalog\n(Leave blank to sweep entire Vinted marketplace, or enter specific member profile URLs: https://www.vinted.co.uk/member/123456-seller)"
+            if not current_text or "ebay.com" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "store2" in current_text or "Global" in current_text:
+                self.store_text.delete("1.0", "end")
+                self.store_text.insert("1.0", self.store_placeholder)
+                self.store_text.config(fg=t["subtext"])
+            self._log(f"👗 Switched platform to: Vinted ({self.vinted_country_var.get()} active)")
+        elif "AliExpress" in market:
             self.store_placeholder = "🌐 Global Wholesale Search: https://www.aliexpress.com/w/wholesale-\n(Leave blank to sweep entire AliExpress marketplace, or enter specific store URLs)"
             if not current_text or "ebay.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "store2" in current_text or "Global" in current_text:
                 self.store_text.delete("1.0", "end")
@@ -2034,7 +2248,7 @@ class EbayTool(tk.Tk):
             self._log("👕 Switched platform to: Printerval.com (Global Catalog & Creator Sweeps active)")
         else:
             self.store_placeholder = "https://www.ebay.com/str/store1\nstore2\nseller3"
-            if not current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "Global" in current_text:
+            if not current_text or "vinted.co" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "Global" in current_text:
                 self.store_text.delete("1.0", "end")
                 self.store_text.insert("1.0", self.store_placeholder)
                 self.store_text.config(fg=t["subtext"])
@@ -2044,6 +2258,7 @@ class EbayTool(tk.Tk):
         """Parse stores from input text box, safely ignoring placeholders and handling Global platform modes."""
         raw_text = self.store_text.get("1.0", "end").strip()
         market = self.marketplace_var.get()
+        is_vinted = "Vinted" in market
         is_ali = "AliExpress" in market
         is_wish = "Wish" in market
         is_temu = "Temu" in market
@@ -2056,6 +2271,8 @@ class EbayTool(tk.Tk):
             "Global" in raw_text or 
             "store1" in raw_text or 
             "leave blank to sweep" in raw_text.lower()):
+            if is_vinted:
+                return ["👗 Global Vinted Search"]
             if is_ali:
                 return ["🌐 Global AliExpress Search"]
             if is_wish:
@@ -2718,13 +2935,24 @@ class EbayTool(tk.Tk):
             self.preset_var.set(keys[0])
 
     def _on_preset_selected(self, event=None):
-        """When user selects a preset, auto-target its brands in the brand library."""
+        """When user selects a preset, auto-target its brands and restore exclusions / custom terms."""
         preset_name = self.preset_var.get().strip()
         presets = self.data_store.get_presets()
         if preset_name not in presets:
             return
 
-        target_brands = presets[preset_name]
+        payload = presets[preset_name]
+        if isinstance(payload, dict):
+            target_brands = payload.get("brands", [])
+            generic_excludes = payload.get("generic_excludes", [])
+            custom_inc = payload.get("custom_includes", [])
+            cond = payload.get("condition", "all")
+        else:
+            target_brands = list(payload)
+            generic_excludes = []
+            custom_inc = []
+            cond = "all"
+
         self.brand_states.clear()
 
         # Find and target matching parent brands, sub-brands, and models
@@ -2745,12 +2973,78 @@ class EbayTool(tk.Tk):
                 if model_name in target_brands or mod_key in target_brands:
                     self._apply_mode(mod_key, "target")
 
+        # Restore generic exclusions if saved in preset
+        if generic_excludes and hasattr(self, "excl_vars"):
+            for term, var in self.excl_vars.items():
+                var.set(term in generic_excludes)
+
+        # Restore custom includes if saved
+        if custom_inc and hasattr(self, "include_text"):
+            self.include_text.delete("1.0", "end")
+            self.include_text.insert("1.0", "\n".join(custom_inc) + "\n")
+
+        if hasattr(self, "condition_var") and cond:
+            self.condition_var.set(cond)
+
         self._update_include_preview()
-        self._log(f"📦 Loaded Preset '{preset_name}': Targeted {len(target_brands)} item(s) ({', '.join(target_brands)}).")
+        self._log(f"📦 Loaded Preset '{preset_name}': {len(target_brands)} brands, {len(generic_excludes)} exclusions restored.")
         self._status(f"Loaded Preset: {preset_name}")
 
+    def _auto_detect_brand_from_title(self, title: str) -> tuple:
+        """
+        Scan a listing title against all known Parent Brands, Sub-Brands, Models, and Product Types.
+        Returns: (detected_brand, detected_product_type)
+        """
+        if not title:
+            return "Unassigned", ""
+
+        t_low = title.lower()
+        brands_data = self.data_store.get_brands()
+
+        for parent_name, data in brands_data.items():
+            p_clean = parent_name.lower().strip()
+            if len(p_clean) >= 2 and re.search(r'\b' + re.escape(p_clean) + r'\b', t_low):
+                return parent_name, self._detect_product_type(title)
+
+            for sub_name, models in data.get("subs", {}).items():
+                s_clean = sub_name.lower().strip()
+                if len(s_clean) >= 2 and re.search(r'\b' + re.escape(s_clean) + r'\b', t_low):
+                    return parent_name, self._detect_product_type(title)
+                for m in models:
+                    m_clean = m.lower().strip()
+                    if len(m_clean) >= 3 and re.search(r'\b' + re.escape(m_clean) + r'\b', t_low):
+                        return parent_name, self._detect_product_type(title)
+
+            for m in data.get("models", []):
+                m_clean = m.lower().strip()
+                if len(m_clean) >= 3 and re.search(r'\b' + re.escape(m_clean) + r'\b', t_low):
+                    return parent_name, self._detect_product_type(title)
+
+        return "Unassigned", self._detect_product_type(title)
+
+    def _detect_product_type(self, title: str) -> str:
+        """Categorize product type based on listing title keywords."""
+        t_low = title.lower()
+        pt_map = {
+            "Spark Plugs": ["spark plug", "sparkplug", "iridium", "platinum plug"],
+            "Headlights / Lamps": ["headlight", "headlamp", "tail light", "fog light", "lamp assembly"],
+            "Brake Pads / Rotors": ["brake pad", "brake rotor", "caliper", "brake shoe"],
+            "Oil / Fuel Filters": ["oil filter", "fuel filter", "air filter", "cabin filter"],
+            "Water Pumps": ["water pump", "coolant pump"],
+            "Oxygen Sensors": ["oxygen sensor", "o2 sensor", "lambda sensor"],
+            "Ignition Coils": ["ignition coil", "coil pack"],
+            "Emblems / Badges": ["emblem", "badge", "logo", "grille emblem", "trunk emblem"],
+            "Key Fobs / Cases": ["key fob", "remote key", "smart key", "key shell"],
+            "Pharmaceuticals / Vet": ["safeguard", "dewormer", "antiparasitario", "ivermectin", "suspension", "paste", "drench"]
+        }
+        for pt, kws in pt_map.items():
+            for kw in kws:
+                if kw in t_low:
+                    return pt
+        return ""
+
     def _save_custom_preset(self):
-        """Save currently targeted brands as a new custom portfolio preset with overwrite support."""
+        """Save currently targeted brands, generic exclusions, and custom terms as a new custom portfolio preset."""
         target_keys = [k for k, v in self.brand_states.items() if v == "target"]
         if not target_keys:
             sel = self.brand_tree.selection()
@@ -2763,7 +3057,11 @@ class EbayTool(tk.Tk):
             if name not in target_brands:
                 target_brands.append(name)
 
-        if not target_brands:
+        active_excls = self._get_active_exclusions()
+        custom_inc = [l.strip() for l in self.include_text.get("1.0", "end").splitlines() if l.strip()]
+        cond = self.condition_var.get() if hasattr(self, "condition_var") else "all"
+
+        if not target_brands and not custom_inc:
             messagebox.showinfo("No Brands Selected", "Mark one or more brands as 🎯 Target in the library first before saving a preset.")
             return
 
@@ -2771,15 +3069,22 @@ class EbayTool(tk.Tk):
         win = tk.Toplevel(self)
         win.title("Save / Update Portfolio Preset")
         win.configure(bg=t["bg"])
-        win.geometry("440x210")
+        win.geometry("460x240")
         win.resizable(False, False)
-        self._center_window(win, 440, 210)
+        
+        # Center directly on parent
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 230
+        y = self.winfo_y() + (self.winfo_height() // 2) - 120
+        win.geometry(f"460x240+{max(0, x)}+{max(0, y)}")
         self._apply_dark_titlebar(win)
+        win.transient(self)
+        win.grab_set()
 
         tk.Label(win, text="💾 Save or Update Portfolio Preset", bg=t["bg"], fg=t["accent"],
                  font=("Segoe UI", 11, "bold")).pack(pady=(14, 4))
 
-        tk.Label(win, text=f"Targeting {len(target_brands)} brand(s): {', '.join(target_brands[:4])}{'...' if len(target_brands) > 4 else ''}",
+        tk.Label(win, text=f"Snapshot: {len(target_brands)} Brands • {len(active_excls)} Exclusions • {len(custom_inc)} Custom Keywords",
                  bg=t["bg"], fg=t["subtext"], font=FONT_SM).pack(pady=(0, 10))
 
         lbl_frame = tk.Frame(win, bg=t["bg"])
@@ -2803,15 +3108,21 @@ class EbayTool(tk.Tk):
                 messagebox.showwarning("Name Required", "Please enter or select a preset name.", parent=win)
                 return
             if chosen_name in presets:
-                if not messagebox.askyesno("Overwrite Preset", f"Portfolio Preset '{chosen_name}' already exists.\n\nOverwrite and update with current {len(target_brands)} targeted brand(s)?", parent=win):
+                if not messagebox.askyesno("Overwrite Preset", f"Portfolio Preset '{chosen_name}' already exists.\n\nOverwrite and update with current workspace snapshot?", parent=win):
                     return
 
-            self.data_store.save_preset(chosen_name, target_brands)
+            preset_payload = {
+                "brands": target_brands,
+                "generic_excludes": active_excls,
+                "custom_includes": custom_inc,
+                "condition": cond
+            }
+            self.data_store.save_preset(chosen_name, preset_payload)
             self._refresh_preset_list()
             self.preset_var.set(chosen_name)
-            self._log(f"💾 Saved Portfolio Preset '{chosen_name}' with {len(target_brands)} brand(s): {', '.join(target_brands)}")
+            self._log(f"💾 Saved Portfolio Preset '{chosen_name}' ({len(target_brands)} brands, {len(active_excls)} exclusions).")
             win.destroy()
-            messagebox.showinfo("Preset Saved", f"Successfully saved Portfolio Preset '{chosen_name}' with {len(target_brands)} brand(s)!", parent=self)
+            messagebox.showinfo("Preset Saved", f"Successfully saved Portfolio Preset '{chosen_name}' with {len(target_brands)} brand(s) and {len(active_excls)} generic exclusion(s)!", parent=self)
 
         self._btn(btn_row, "💾 Save / Update Preset", _do_save, accent=True).pack(side="left", fill="x", expand=True, padx=(0, 6))
         self._btn(btn_row, "Cancel", win.destroy).pack(side="right")
@@ -2859,36 +3170,18 @@ class EbayTool(tk.Tk):
         generic_excludes = self._get_active_exclusions()
         condition = self.condition_var.get()
         all_library_brands = self.data_store.get_brands() if hasattr(self, "data_store") else {}
-        market = self.marketplace_var.get()
-        if "Wish" in market:
-            platform_name = "Wish"
-        elif "Temu" in market:
-            platform_name = "Temu"
-        elif "AliExpress" in market:
-            platform_name = "AliExpress"
-        elif "Printerval" in market:
-            platform_name = "Printerval"
-        elif "Redbubble" in market:
-            platform_name = "Redbubble"
-        elif "Mercado" in market:
-            platform_name = "Mercado Libre"
-        else:
-            platform_name = "eBay"
+        platform_name = self._get_current_platform_name()
+        v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
+        v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
 
         queued_count = 0
-        skipped_executed = 0
         for store in stores:
             for term in target_terms:
                 if any(q.get("store", "").strip().lower() == store.strip().lower() and 
                        q.get("brand", "").strip().lower() == term.strip().lower() and 
-                       q.get("marketplace", "eBay").lower() == platform_name.lower() 
+                       q.get("marketplace", "eBay").lower() == platform_name.lower() and
+                       q.get("vinted_country", "") == v_country
                        for q in self.queue):
-                    continue
-                if any(ex.get("store", "").strip().lower() == store.strip().lower() and 
-                       ex.get("brand", "").strip().lower() == term.strip().lower() and 
-                       ex.get("marketplace", "eBay").lower() == platform_name.lower() 
-                       for ex in self.executed_jobs):
-                    skipped_executed += 1
                     continue
 
                 # Exclude competitor library brands outside this targeted term/parent
@@ -2910,17 +3203,18 @@ class EbayTool(tk.Tk):
                     "store": store,
                     "brand": term,
                     "marketplace": platform_name,
+                    "vinted_country": v_country,
+                    "vinted_depth": v_depth,
                     "includes": [term],  # Clean, standalone single keyword!
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                label = f"{self._store_label(store, platform=platform_name)} ▸ {term} [Clean 1-Term Sweep]"
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {term} [Clean 1-Term Sweep]"
                 self.queue_list.insert("end", label)
                 queued_count += 1
 
-        if skipped_executed > 0:
-            self._log(f"ℹ️ Skipped {skipped_executed} already-completed search(es) on {platform_name} in this session.")
         store_names = [self._store_label(s, platform=platform_name) for s in stores]
         self._log(f"🎯 Queued {queued_count} Clean Individual Search(es) for [{', '.join(target_terms)}] across {len(stores)} target(s): {', '.join(store_names)} [{platform_name}]")
         self._status(f"🎯 Queued {queued_count} Clean Term Search(es) [{platform_name}]!")
@@ -2946,39 +3240,20 @@ class EbayTool(tk.Tk):
         generic_excludes = self._get_active_exclusions()
         condition = self.condition_var.get()
         all_library_brands = self.data_store.get_brands()
-
-        market = self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay"
-        if "Wish" in market:
-            platform_name = "Wish"
-        elif "Temu" in market:
-            platform_name = "Temu"
-        elif "AliExpress" in market:
-            platform_name = "AliExpress"
-        elif "Printerval" in market:
-            platform_name = "Printerval"
-        elif "Redbubble" in market:
-            platform_name = "Redbubble"
-        elif "Mercado" in market:
-            platform_name = "Mercado Libre"
-        else:
-            platform_name = "eBay"
+        platform_name = self._get_current_platform_name()
+        v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
+        v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
 
         queued_count = 0
-        skipped_executed = 0
         for store in stores:
             for parent_brand in preset_brands:
                 if parent_brand not in all_library_brands:
                     continue
                 if any(q.get("store", "").strip().lower() == store.strip().lower() and 
                        q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
-                       q.get("marketplace", "eBay").lower() == platform_name.lower() 
+                       q.get("marketplace", "eBay").lower() == platform_name.lower() and
+                       q.get("vinted_country", "") == v_country
                        for q in self.queue):
-                    continue
-                if any(ex.get("store", "").strip().lower() == store.strip().lower() and 
-                       ex.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
-                       ex.get("marketplace", "eBay").lower() == platform_name.lower() 
-                       for ex in self.executed_jobs):
-                    skipped_executed += 1
                     continue
                 pdata = all_library_brands[parent_brand]
 
@@ -3002,17 +3277,18 @@ class EbayTool(tk.Tk):
                     "store": store,
                     "brand": parent_brand,
                     "marketplace": platform_name,
+                    "vinted_country": v_country,
+                    "vinted_depth": v_depth,
                     "includes": includes,
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                label = f"{self._store_label(store, platform=platform_name)} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
 
-        if skipped_executed > 0:
-            self._log(f"ℹ️ Skipped {skipped_executed} already-completed search(es) on {platform_name} in this session.")
         store_names = [self._store_label(s, platform=platform_name) for s in stores]
         self._log(f"📦 [PORTFOLIO SWEEP] Queued {queued_count} batch job(s) for Preset '{preset_name}' across {len(stores)} target(s): {', '.join(store_names)} [{platform_name}]")
         self._status(f"📦 1-Click Sweep: Queued {queued_count} job(s) for {len(stores)} target(s) [{platform_name}]!")
@@ -3033,17 +3309,20 @@ class EbayTool(tk.Tk):
                 self._trigger_rickroll_easter_egg()
                 break
 
+        is_full_store_sweep = self.store_full_sweep_var.get() if hasattr(self, "store_full_sweep_var") else False
+
         # 2. Identify Target Brands & Custom Include Terms
         target_items = [k for k, v in self.brand_states.items() if v == "target"]
         custom_includes = [l.strip() for l in self.include_text.get("1.0", "end").splitlines() if l.strip()]
 
-        if not target_items and not custom_includes:
-            sel = self.brand_tree.selection()
-            if sel:
-                target_items = [sel[0]]
-            else:
-                messagebox.showwarning("Missing Targets", "Mark at least one brand as 🎯 Target or type custom keywords in the Target box.")
-                return
+        if not is_full_store_sweep:
+            if not target_items and not custom_includes:
+                sel = self.brand_tree.selection()
+                if sel:
+                    target_items = [sel[0]]
+                else:
+                    messagebox.showwarning("Missing Targets", "Mark at least one brand as 🎯 Target, type custom keywords in the Target box, or check '🏪 Full Store Sweep' to sweep whole stores without keywords.")
+                    return
 
         # 3. Identify Excluded Brands from Brand Library
         brand_excludes = []
@@ -3068,93 +3347,81 @@ class EbayTool(tk.Tk):
         if not top_targets and custom_includes:
             top_targets = [custom_includes[0].title() if len(custom_includes) == 1 else "Custom Search"]
 
-        market = self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay"
-        if "Wish" in market:
-            platform_name = "Wish"
-        elif "Temu" in market:
-            platform_name = "Temu"
-        elif "AliExpress" in market:
-            platform_name = "AliExpress"
-        elif "Printerval" in market:
-            platform_name = "Printerval"
-        elif "Redbubble" in market:
-            platform_name = "Redbubble"
-        elif "Mercado" in market:
-            platform_name = "Mercado Libre"
-        else:
-            platform_name = "eBay"
+        platform_name = self._get_current_platform_name()
+        v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
+        v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
 
         queued_count = 0
-        skipped_executed = 0
-        for store in stores:
-            for parent_brand in top_targets:
-                if any(q.get("store", "").strip().lower() == store.strip().lower() and 
-                       q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
-                       q.get("marketplace", "eBay").lower() == platform_name.lower() 
-                       for q in self.queue):
-                    continue
-                if any(ex.get("store", "").strip().lower() == store.strip().lower() and 
-                       ex.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
-                       ex.get("marketplace", "eBay").lower() == platform_name.lower() 
-                       for ex in self.executed_jobs):
-                    skipped_executed += 1
-                    continue
+        is_full_store_sweep = self.store_full_sweep_var.get() if hasattr(self, "store_full_sweep_var") else False
 
-                # Gather explicit target terms for this parent
-                brand_target_terms = []
-                for k in target_items:
-                    if k.split("/")[0] == parent_brand:
-                        term_name = k.split("/")[-1]
-                        if term_name not in brand_target_terms and term_name not in brand_excludes:
-                            brand_target_terms.append(term_name)
-
-                includes = brand_target_terms if brand_target_terms else custom_includes
-                if not includes:
-                    includes = [parent_brand]
-
-                # Build exclusion list: other targeted brands in batch + library excludes + generic excludes
-                job_excludes = list(generic_excludes) + list(brand_excludes)
-                for other_b in top_targets:
-                    if other_b != parent_brand and other_b not in job_excludes:
-                        job_excludes.append(other_b)
-
+        if is_full_store_sweep and stores:
+            for store in stores:
+                b_name = top_targets[0] if top_targets else "Full Store Sweep"
+                job_excludes = list(generic_excludes)
                 entry = {
                     "store": store,
-                    "brand": parent_brand,
+                    "brand": b_name,
                     "marketplace": platform_name,
-                    "includes": includes,
+                    "vinted_country": v_country,
+                    "vinted_depth": v_depth,
+                    "includes": ["*"],
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                label = f"{self._store_label(store, platform=platform_name)} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ 🏪 FULL INVENTORY ({len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
+        else:
+            for store in stores:
+                for parent_brand in top_targets:
+                    if any(q.get("store", "").strip().lower() == store.strip().lower() and 
+                           q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
+                           q.get("marketplace", "eBay").lower() == platform_name.lower() and
+                           q.get("vinted_country", "") == v_country
+                           for q in self.queue):
+                        continue
 
-        if skipped_executed > 0:
-            self._log(f"ℹ️ Skipped {skipped_executed} already-completed search(es) on {platform_name} in this session.")
+                    # Gather explicit target terms for this parent
+                    brand_target_terms = []
+                    for k in target_items:
+                        if k.split("/")[0] == parent_brand:
+                            term_name = k.split("/")[-1]
+                            if term_name not in brand_target_terms and term_name not in brand_excludes:
+                                brand_target_terms.append(term_name)
+
+                    includes = brand_target_terms if brand_target_terms else custom_includes
+                    if not includes:
+                        includes = [parent_brand]
+
+                    # Build exclusion list: other targeted brands in batch + library excludes + generic excludes
+                    job_excludes = list(generic_excludes) + list(brand_excludes)
+                    for other_b in top_targets:
+                        if other_b != parent_brand and other_b not in job_excludes:
+                            job_excludes.append(other_b)
+
+                    entry = {
+                        "store": store,
+                        "brand": parent_brand,
+                        "marketplace": platform_name,
+                        "vinted_country": v_country,
+                        "vinted_depth": v_depth,
+                        "includes": includes,
+                        "excludes": job_excludes,
+                        "condition": condition
+                    }
+                    self.queue.append(entry)
+                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                    label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
+                    self.queue_list.insert("end", label)
+                    queued_count += 1
+
         store_names = [self._store_label(s, platform=platform_name) for s in stores]
         self._log(f"🎯 Queued {queued_count} job(s) for [{', '.join(top_targets)}] across {len(stores)} target(s): {', '.join(store_names)} [{platform_name}]")
 
     def _store_label(self, url, platform=None):
-        if not platform:
-            mkt = self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay"
-            if "Wish" in mkt:
-                plat = "Wish"
-            elif "Temu" in mkt:
-                plat = "Temu"
-            elif "AliExpress" in mkt:
-                plat = "AliExpress"
-            elif "Printerval" in mkt:
-                plat = "Printerval"
-            elif "Redbubble" in mkt:
-                plat = "Redbubble"
-            elif "Mercado" in mkt:
-                plat = "Mercado Libre"
-            else:
-                plat = "eBay"
-        else:
-            plat = platform
+        plat = platform or self._get_current_platform_name()
 
         if not url:
             return f"[{plat}] Full Search"
@@ -3283,8 +3550,22 @@ class EbayTool(tk.Tk):
         self.del_q_btn.config(state="disabled")
         self.clear_q_btn.config(state="disabled")
 
+        use_api = self.use_api.get()
+        app_id  = self.api_app_id_var.get().strip()
+        cert_id = self.api_cert_id_var.get().strip()
+        is_headless = self.headless_var.get()
+        default_mkt = self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay"
+        meli_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
+        meli_d = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
+        vinted_c = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "United Kingdom"
+        vinted_d = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages (192)"
+
         self.progress.start()
-        thread = threading.Thread(target=self._process_queue, daemon=True)
+        thread = threading.Thread(
+            target=self._process_queue,
+            args=(use_api, app_id, cert_id, is_headless, default_mkt, meli_c, meli_d, vinted_c, vinted_d),
+            daemon=True
+        )
         thread.start()
 
     def _toggle_pause(self):
@@ -3315,13 +3596,8 @@ class EbayTool(tk.Tk):
         self.pause_event.set()
         self.stop_btn.config(state="disabled")
 
-    def _process_queue(self):
-        use_api = self.use_api.get()
-        app_id  = self.api_app_id_var.get().strip()
-        cert_id = self.api_cert_id_var.get().strip()
-
+    def _process_queue(self, use_api=False, app_id="", cert_id="", is_headless=True, default_mkt="eBay", meli_c="Mexico", meli_d="2 Pages (100)", vinted_c="United Kingdom", vinted_d="2 Pages (192)"):
         # Ensure scrapers honor current headless background mode
-        is_headless = self.headless_var.get()
         self.scraper.headless = is_headless
         self.aliexpress_scraper.headless = is_headless
         self.wish_scraper.headless = is_headless
@@ -3329,6 +3605,7 @@ class EbayTool(tk.Tk):
         self.mercadolibre_scraper.headless = is_headless
         self.redbubble_scraper.headless = is_headless
         self.printerval_scraper.headless = is_headless
+        self.vinted_scraper.headless = is_headless
 
         if use_api and app_id:
             client = EbayAPIClient(app_id=app_id, cert_id=cert_id)
@@ -3346,6 +3623,7 @@ class EbayTool(tk.Tk):
             job_mkt = job.get("marketplace")
             if job_mkt:
                 platform_name = job_mkt
+                is_vinted = platform_name == "Vinted"
                 is_wish = platform_name == "Wish"
                 is_temu = platform_name == "Temu"
                 is_aliexpress = platform_name == "AliExpress"
@@ -3353,20 +3631,24 @@ class EbayTool(tk.Tk):
                 is_redbubble = platform_name == "Redbubble"
                 is_printerval = platform_name == "Printerval"
                 mkt_map = {
-                    "Wish": "wish.com", "Temu": "temu.com", "AliExpress": "aliexpress.com",
-                    "Mercado Libre": "mercadolibre.com", "Redbubble": "redbubble.com",
-                    "Printerval": "printerval.com", "eBay": "ebay.com"
+                    "Vinted": "vinted.co.uk", "Wish": "wish.com", "Temu": "temu.com",
+                    "AliExpress": "aliexpress.com", "Mercado Libre": "mercadolibre.com",
+                    "Redbubble": "redbubble.com", "Printerval": "printerval.com", "eBay": "ebay.com"
                 }
                 mkt_tag = mkt_map.get(platform_name, "ebay.com")
             else:
-                is_wish = "wish.com" in store_raw.lower() or "Wish" in self.marketplace_var.get()
-                is_temu = "temu.com" in store_raw.lower() or "Temu" in self.marketplace_var.get()
-                is_aliexpress = "aliexpress.com" in store_raw.lower() or "AliExpress" in self.marketplace_var.get()
-                is_meli = "mercadolibre" in store_raw.lower() or "mercadolivre" in store_raw.lower() or "Mercado Libre" in self.marketplace_var.get()
-                is_redbubble = "redbubble.com" in store_raw.lower() or "Redbubble" in self.marketplace_var.get()
-                is_printerval = "printerval.com" in store_raw.lower() or "Printerval" in self.marketplace_var.get()
+                is_vinted = "vinted." in store_raw.lower() or "Vinted" in default_mkt
+                is_wish = "wish.com" in store_raw.lower() or "Wish" in default_mkt
+                is_temu = "temu.com" in store_raw.lower() or "Temu" in default_mkt
+                is_aliexpress = "aliexpress.com" in store_raw.lower() or "AliExpress" in default_mkt
+                is_meli = "mercadolibre" in store_raw.lower() or "mercadolivre" in store_raw.lower() or "Mercado Libre" in default_mkt
+                is_redbubble = "redbubble.com" in store_raw.lower() or "Redbubble" in default_mkt
+                is_printerval = "printerval.com" in store_raw.lower() or "Printerval" in default_mkt
 
-                if is_wish:
+                if is_vinted:
+                    platform_name = "Vinted"
+                    mkt_tag = "vinted.co.uk"
+                elif is_wish:
                     platform_name = "Wish"
                     mkt_tag = "wish.com"
                 elif is_temu:
@@ -3406,7 +3688,12 @@ class EbayTool(tk.Tk):
             }
 
             try:
-                if is_wish:
+                if is_vinted:
+                    v_info = self.vinted_scraper.resolve_target_info(store_raw)
+                    resolved = v_info.get("seller_name", seller_label)
+                    job_record["resolved_seller"] = resolved
+                    self._log(f"👗 [Vinted] Target resolved: '{resolved}' ({v_info['domain']})")
+                elif is_wish:
                     resolved = self.wish_scraper.resolve_store_info(store_raw).get("store_name", seller_label)
                     job_record["resolved_seller"] = resolved
                     self._log(f"🌠 [Wish] Target store resolved: '{resolved}'")
@@ -3440,19 +3727,21 @@ class EbayTool(tk.Tk):
                         break
                     self.pause_event.wait()
 
-                    self._status(f"Harvesting [{platform_name}]: {job['brand']} → '{include_term}' in {seller_label}...")
-                    self._log(f"Searching [{platform_name}]: '{include_term}' in {seller_label} (Condition: {job.get('condition','all')})")
+                    actual_term = "" if include_term == "*" else include_term
+                    term_display = "🏪 Full Store Inventory" if include_term == "*" else f"'{include_term}'"
+                    self._status(f"Harvesting [{platform_name}]: {job['brand']} → {term_display} in {seller_label}...")
+                    self._log(f"Searching [{platform_name}]: {term_display} in {seller_label} (Condition: {job.get('condition','all')})")
                     
                     if is_wish:
                         target_url = self.wish_scraper._build_search_url(
                             self.wish_scraper.resolve_store_info(store_raw),
-                            include_term
+                            actual_term
                         )
                         self._log(f"  🔗 URL: {target_url}")
                         job_record["url"] = target_url
                         items = self.wish_scraper.search(
                             store_raw,
-                            include_term,
+                            actual_term,
                             job["excludes"],
                             condition=job.get("condition", "all"),
                             stop_event=self.stop_event,
@@ -3461,13 +3750,13 @@ class EbayTool(tk.Tk):
                     elif is_temu:
                         target_url = self.temu_scraper._build_search_url(
                             self.temu_scraper.resolve_store_info(store_raw),
-                            include_term
+                            actual_term
                         )
                         self._log(f"  🔗 URL: {target_url}")
                         job_record["url"] = target_url
                         items = self.temu_scraper.search(
                             store_raw,
-                            include_term,
+                            actual_term,
                             job["excludes"],
                             condition=job.get("condition", "all"),
                             stop_event=self.stop_event,
@@ -3476,13 +3765,13 @@ class EbayTool(tk.Tk):
                     elif is_aliexpress:
                         target_url = self.aliexpress_scraper._build_search_url(
                             self.aliexpress_scraper.resolve_store_info(store_raw),
-                            include_term
+                            actual_term
                         )
                         self._log(f"  🔗 URL: {target_url}")
                         job_record["url"] = target_url
                         items = self.aliexpress_scraper.search(
                             store_raw,
-                            include_term,
+                            actual_term,
                             job["excludes"],
                             condition=job.get("condition", "all"),
                             stop_event=self.stop_event,
@@ -3490,22 +3779,22 @@ class EbayTool(tk.Tk):
                         )
                     elif is_meli:
                         self.mercadolibre_scraper.headless = is_headless
-                        selected_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
-                        depth_str = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
+                        selected_c = meli_c
+                        depth_str = meli_d
                         m_pages_match = re.search(r'(\d+)\s+Page', depth_str, re.IGNORECASE)
                         m_pages = int(m_pages_match.group(1)) if m_pages_match else 2
                         target_max_items = m_pages * 50
 
                         if "All Latin America" in selected_c:
-                            self._log(f"🌎 [Latin America Multi-Sweep] Initiating cross-border sweep across Mexico, Brazil, Argentina, Colombia, Chile, and Peru for '{include_term}' ({m_pages * 25} items/region)...")
+                            self._log(f"🌎 [Latin America Multi-Sweep] Initiating cross-border sweep across Mexico, Brazil, Argentina, Colombia, Chile, and Peru for {term_display} ({m_pages * 25} items/region)...")
                             items = self.mercadolibre_scraper.search_multi_region(
-                                include_term,
+                                actual_term,
                                 site_codes=["MLM", "MLB", "MLA", "MCO", "MLC", "MPE"],
                                 max_items_per_region=m_pages * 25,
                                 condition=job.get("condition", "all"),
                                 log_callback=self._log
                             )
-                            job_record["url"] = f"https://www.mercadolibre.com/multi-search?q={include_term.replace(' ', '+')}"
+                            job_record["url"] = f"https://www.mercadolibre.com/multi-search?q={actual_term.replace(' ', '+')}"
                         else:
                             code_map = {
                                 "Mexico": "MLM", "Brazil": "MLB", "Argentina": "MLA",
@@ -3518,41 +3807,85 @@ class EbayTool(tk.Tk):
                                     break
                             self.mercadolibre_scraper.site_code = target_code
                             items = self.mercadolibre_scraper.search(
-                                include_term,
+                                actual_term,
                                 max_items=target_max_items,
                                 condition=job.get("condition", "all"),
                                 log_callback=self._log
                             )
-                            job_record["url"] = f"https://listado.mercadolibre.com.mx/{include_term.replace(' ', '-')}"
+                            job_record["url"] = f"https://listado.mercadolibre.com.mx/{actual_term.replace(' ', '-')}"
                     elif is_redbubble:
                         self.redbubble_scraper.headless = is_headless
                         items = self.redbubble_scraper.search(
-                            include_term,
+                            actual_term,
                             max_items=50,
                             condition=job.get("condition", "all"),
                             log_callback=self._log
                         )
-                        job_record["url"] = f"https://www.redbubble.com/shop/?query={include_term.replace(' ', '+')}"
+                        job_record["url"] = f"https://www.redbubble.com/shop/?query={actual_term.replace(' ', '+')}"
                     elif is_printerval:
                         self.printerval_scraper.headless = is_headless
                         items = self.printerval_scraper.search(
-                            include_term,
+                            actual_term,
                             max_items=50,
                             condition=job.get("condition", "all"),
                             log_callback=self._log
                         )
-                        job_record["url"] = f"https://printerval.com/search?q={include_term.replace(' ', '+')}"
+                        job_record["url"] = f"https://printerval.com/search?q={actual_term.replace(' ', '+')}"
+                    elif is_vinted:
+                        self.vinted_scraper.headless = is_headless
+                        target_terms = [actual_term] if actual_term else ([job["brand"]] if job.get("brand") else [])
+                        job_v_depth = job.get("vinted_depth") or vinted_d
+                        job_v_country = job.get("vinted_country") or vinted_c
+                        m_pages_match = re.search(r'(\d+)\s+Page', job_v_depth, re.IGNORECASE)
+                        v_pages = int(m_pages_match.group(1)) if m_pages_match else 2
+
+                        if "All Locales" in job_v_country or "All" in job_v_country:
+                            self._log(f"🌍 [Vinted Multi-Region Sweep] Initiating cross-border sweep across UK, France, Germany, Spain, Italy, Poland, USA, Netherlands, and Belgium for {term_display} ({v_pages} pages/region)...")
+                            items = self.vinted_scraper.search_multi_region(
+                                store_raw,
+                                brand_terms=target_terms,
+                                exclusions=job["excludes"],
+                                regions=["UK", "FR", "DE", "ES", "IT", "PL", "US", "NL", "BE"],
+                                max_pages_per_region=v_pages,
+                                stop_event=self.stop_event,
+                                log_callback=self._log,
+                                status_callback=self._status
+                            )
+                            job_record["url"] = f"https://www.vinted.co.uk/catalog?search_text={actual_term.replace(' ', '+')}"
+                        else:
+                            v_region = "UK"
+                            region_names = {
+                                "UK": ["UK", "United Kingdom"], "FR": ["France", "FR"], "DE": ["Germany", "DE"],
+                                "ES": ["Spain", "ES"], "IT": ["Italy", "IT"], "PL": ["Poland", "PL"],
+                                "US": ["United States", "US"], "NL": ["Netherlands", "NL"], "BE": ["Belgium", "BE"]
+                            }
+                            for code, names in region_names.items():
+                                if any(n in job_v_country for n in names):
+                                    v_region = code
+                                    break
+                            items = self.vinted_scraper.scrape_store(
+                                store_raw,
+                                brand_terms=target_terms,
+                                exclusions=job["excludes"],
+                                max_pages=v_pages,
+                                stop_event=self.stop_event,
+                                log_callback=self._log,
+                                status_callback=self._status,
+                                region_code=v_region
+                            )
+                            dom_tag = self.vinted_scraper.get_active_domain()
+                            job_record["url"] = f"https://www.{dom_tag}/catalog?search_text={actual_term.replace(' ', '+')}"
                     elif client:
                         items = client.search(
                             store_raw,
-                            include_term,
+                            actual_term,
                             job["excludes"],
                             condition=job.get("condition", "all")
                         )
                     else:
                         target_url = self.scraper._build_url(
                             self.scraper.resolve_store_info(store_raw),
-                            include_term,
+                            actual_term,
                             job["excludes"],
                             1,
                             job.get("condition", "all")
@@ -3561,7 +3894,7 @@ class EbayTool(tk.Tk):
                         job_record["url"] = target_url
                         items = self.scraper.search(
                             store_raw,
-                            include_term,
+                            actual_term,
                             job["excludes"],
                             condition=job.get("condition", "all"),
                             stop_event=self.stop_event,
@@ -3578,8 +3911,18 @@ class EbayTool(tk.Tk):
                             filtered_out_count += 1
                             continue
 
-                        item["brand"] = job["brand"]
-                        item["keyword"] = include_term
+                        # Auto-detect brand & product type from title if doing Full Store Sweep or unassigned
+                        if job["brand"] in ("Full Store Sweep", "Store Inventory", "All Products", "Full Search", "", "Custom Search") or include_term == "*":
+                            auto_b, auto_pt = self._auto_detect_brand_from_title(title)
+                            item["brand"] = auto_b
+                            if not item.get("product_type"):
+                                item["product_type"] = auto_pt
+                        else:
+                            item["brand"] = job["brand"]
+                            if not item.get("product_type"):
+                                item["product_type"] = self._detect_product_type(title)
+
+                        item["keyword"] = "🏪 Full Sweep" if include_term == "*" else include_term
                         if "marketplace" not in item or not item["marketplace"]:
                             item["marketplace"] = mkt_tag
 
@@ -3874,11 +4217,25 @@ class EbayTool(tk.Tk):
                 threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
                 if orig_country != "Unknown":
                     item["seller_origin"] = orig_country
-                item["threat_badge"] = threat_display
+
+                # If item already has a specialized visual or threat badge, preserve it
+                if item.get("visual_benign"):
+                    threat_display = item.get("threat_badge", "🟢 Benign Packaging")
+                elif item.get("visual_counterfeit"):
+                    threat_display = item.get("threat_badge", "🚨 Visual Counterfeit")
+                elif item.get("threat_badge"):
+                    threat_display = item["threat_badge"]
+                else:
+                    item["threat_badge"] = threat_display
+
+                # Check Hide Benign filter checkbox
+                if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
+                    if item.get("visual_benign") or str(threat_display).startswith("🟢 Benign"):
+                        continue
 
                 # Check High-Risk filter checkbox
                 if hasattr(self, "filter_high_risk_var") and self.filter_high_risk_var.get():
-                    if not (assessment.get("is_high_risk") or assessment.get("is_3pl_hub")):
+                    if not self._is_high_risk_item(item, assessment, threat_display):
                         continue
 
                 if query and not self._item_matches_filter(item, query, target_col):
@@ -3892,6 +4249,8 @@ class EbayTool(tk.Tk):
                     item.get("item_id", ""),
                     item.get("price", ""),
                     item.get("seller", ""),
+                    orig_display,
+                    threat_display,
                     item.get("location", ""),
                     img_url,
                     item.get("url", ""),
@@ -3938,11 +4297,25 @@ class EbayTool(tk.Tk):
             threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
             if orig_country != "Unknown":
                 item["seller_origin"] = orig_country
-            item["threat_badge"] = threat_display
+
+            # If item already has a specialized visual or threat badge, preserve it
+            if item.get("visual_benign"):
+                threat_display = item.get("threat_badge", "🟢 Benign Packaging")
+            elif item.get("visual_counterfeit"):
+                threat_display = item.get("threat_badge", "🚨 Visual Counterfeit")
+            elif item.get("threat_badge"):
+                threat_display = item["threat_badge"]
+            else:
+                item["threat_badge"] = threat_display
+
+            # Check Hide Benign filter checkbox
+            if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
+                if item.get("visual_benign") or str(threat_display).startswith("🟢 Benign"):
+                    continue
 
             # Check High-Risk filter checkbox
             if hasattr(self, "filter_high_risk_var") and self.filter_high_risk_var.get():
-                if not (assessment.get("is_high_risk") or assessment.get("is_3pl_hub")):
+                if not self._is_high_risk_item(item, assessment, threat_display):
                     continue
 
             if query and not self._item_matches_filter(item, query, target_col):
@@ -4105,26 +4478,471 @@ class EbayTool(tk.Tk):
         menu = tk.Menu(self, tearoff=0, bg=t["panel"], fg=t["text"],
                        activebackground=t["accent"], activeforeground="black" if t.get("name","").startswith("⚡") else "white")
 
-        menu.add_command(label="💾 📊 Export All Results to Excel (Ctrl+E)", command=self._export)
-        menu.add_command(label="🌐 🗺️ Multi-Locale Global Expander", command=self._open_multi_locale_expander)
+        menu.add_command(label="💾 Export to Excel (Ctrl+E)", command=self._export)
+        menu.add_command(label="🌐 Multi-Locale Expander", command=self._open_multi_locale_expander)
         menu.add_separator()
-        menu.add_command(label="🔗 🕵️ Find Connected Sellers by Photo / Carousel", command=self._open_connected_network_scanner)
-        menu.add_command(label="🏪 ➕ Add Selected Seller to Stores Input", command=self._add_selected_result_seller_to_stores)
-        menu.add_command(label="🌍 🚨 Resolve Seller Origin & Threat Intel", command=self._enrich_seller_threat_intel)
-        menu.add_command(label="🛡️ Whitelist This Seller (Authorized Dealer)", command=self._whitelist_selected_result_seller)
+        menu.add_command(label="🔗 Connected Seller Network Hunter", command=self._open_connected_network_scanner)
+
+        # ── Nested Reverse Visual Search Submenu ──
+        vis_menu = tk.Menu(menu, tearoff=0, bg=t["panel"], fg=t["text"],
+                           activebackground=t["accent"], activeforeground="black" if t.get("name","").startswith("⚡") else "white")
+        
+        vis_menu.add_command(
+            label="⚡ Quick Sweep (Current Platform & Active Locale)",
+            font=("Segoe UI", 9, "bold"),
+            command=self._reverse_visual_search_selected
+        )
+        vis_menu.add_separator()
+
+        # Vinted Submenu
+        vinted_sub = tk.Menu(vis_menu, tearoff=0, bg=t["panel"], fg=t["text"],
+                             activebackground=t["accent"], activeforeground="black" if t.get("name","").startswith("⚡") else "white")
+        vinted_locales = [
+            ("🌍 All Locales (Global Cross-Border)", "All"),
+            ("🇬🇧 United Kingdom", "UK"),
+            ("🇺🇸 United States", "US"),
+            ("🇪🇸 Spain", "ES"),
+            ("🇫🇷 France", "FR"),
+            ("🇩🇪 Germany", "DE"),
+            ("🇮🇹 Italy", "IT"),
+            ("🇵🇱 Poland", "PL"),
+            ("🇳🇱 Netherlands", "NL"),
+            ("🇧🇪 Belgium", "BE"),
+        ]
+        for v_label, v_code in vinted_locales:
+            vinted_sub.add_command(
+                label=v_label,
+                command=lambda vc=v_code: self._reverse_visual_search_selected(marketplace="Vinted", region=vc)
+            )
+        vis_menu.add_cascade(label="👗 Vinted Locales ▾", menu=vinted_sub)
+
+        # Mercado Libre Submenu
+        meli_sub = tk.Menu(vis_menu, tearoff=0, bg=t["panel"], fg=t["text"],
+                           activebackground=t["accent"], activeforeground="black" if t.get("name","").startswith("⚡") else "white")
+        meli_locales = [
+            ("🇲🇽 Mexico", "Mexico"),
+            ("🇧🇷 Brazil", "Brazil"),
+            ("🇦🇷 Argentina", "Argentina"),
+            ("🇨🇴 Colombia", "Colombia"),
+            ("🇨🇱 Chile", "Chile"),
+            ("🇵🇪 Peru", "Peru"),
+            ("🌎 All Latin America", "All Latin America"),
+        ]
+        for m_label, m_code in meli_locales:
+            meli_sub.add_command(
+                label=m_label,
+                command=lambda mc=m_code: self._reverse_visual_search_selected(marketplace="Mercado Libre", region=mc)
+            )
+        vis_menu.add_cascade(label="🛍 Mercado Libre Countries ▾", menu=meli_sub)
+
+        # Other platforms
+        vis_menu.add_command(label="🛒 eBay (Global)", command=lambda: self._reverse_visual_search_selected(marketplace="eBay"))
+        vis_menu.add_command(label="🌐 AliExpress.com", command=lambda: self._reverse_visual_search_selected(marketplace="AliExpress"))
+        vis_menu.add_command(label="🌠 Wish.com", command=lambda: self._reverse_visual_search_selected(marketplace="Wish"))
+        vis_menu.add_command(label="🟠 Temu.com", command=lambda: self._reverse_visual_search_selected(marketplace="Temu"))
+
+        menu.add_cascade(label="📸 Reverse Visual Search (Sweep by Photo) ▾", menu=vis_menu)
+
+        menu.add_command(label="🟢 Mark Packaging as Known Benign", command=self._mark_selected_as_visual_benign)
+        menu.add_command(label="🔴 Mark Photo as Known Counterfeit", command=self._mark_selected_as_visual_counterfeit)
+        menu.add_command(label="🏪 Add Seller to Stores Box", command=self._add_selected_result_seller_to_stores)
+        menu.add_command(label="🌍 Resolve Threat Intel & Origin", command=self._enrich_seller_threat_intel)
+        menu.add_command(label="🛡 Whitelist Seller (Authorized Dealer)", command=self._whitelist_selected_result_seller)
         menu.add_separator()
-        menu.add_command(label="☑️ Select All Rows (Ctrl+A)", command=self._select_all_results)
-        menu.add_command(label="🌐 Open in Browser", command=lambda: self._open_url(None))
-        menu.add_command(label="📋 Copy Selected Listing URLs", command=self._copy_selected_urls)
-        menu.add_command(label="📋 Copy All Listing URLs", command=self._copy_all_listing_urls)
+        menu.add_command(label="☑ Select All (Ctrl+A)", command=self._select_all_results)
+        menu.add_command(label="🌐 Open Listing in Browser", command=lambda: self._open_url(None))
+        menu.add_command(label="📋 Copy Selected URLs", command=self._copy_selected_urls)
+        menu.add_command(label="📋 Copy All URLs", command=self._copy_all_listing_urls)
         menu.add_command(label="🏪 Enrich Selected Seller Names", command=self._enrich_sellers)
         menu.add_separator()
-        menu.add_command(label="✕ Remove Selected", command=self._remove_selected_results)
+        menu.add_command(label="✕ Remove Selected (Del)", command=self._remove_selected_results)
+        menu.add_command(label="🗑 Clear All Results", command=self._clear_results)
         
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _is_high_risk_item(self, item: dict, assessment: dict, threat_display: str) -> bool:
+        """Centralized multi-platform evaluation to isolate genuine high-threat items."""
+        # 1. 3PL Forwarding Hubs or High-Risk Foreign Origin
+        if assessment.get("is_high_risk") or assessment.get("is_3pl_hub"):
+            return True
+        # 2. Mathematical Visual Clone / Known Counterfeit
+        if item.get("visual_counterfeit"):
+            return True
+        # 3. Vinted Heuristics, Burner Handles, and High-Threat Badges
+        tb = str(threat_display or item.get("threat_badge", "")).lower()
+        if "🚨" in tb or "risk (high)" in tb or "counterfeit" in tb or "burner" in tb or "drop-ship" in tb or "nwt" in tb:
+            return True
+        # 4. Numerical Threat Score >= 75
+        try:
+            if float(item.get("threat_score", 0) or 0) >= 75:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _open_field_guide_modal(self):
+        """Open the searchable Analyst Field Guide & Threat Intelligence Glossary."""
+        if self._win_field_guide and self._win_field_guide.winfo_exists():
+            self._win_field_guide.lift()
+            self._win_field_guide.focus_force()
+            return
+        self._win_field_guide = FieldGuideModal(self, self.theme)
+
+    def _attach_analyst_tooltips(self):
+        """Attach theme-adaptive hover tooltips across Apollo UI for analyst onboarding."""
+        t_func = lambda: self.theme
+        e_func = lambda: self.show_hints_var.get() if hasattr(self, "show_hints_var") else True
+
+        if hasattr(self, "filter_entry"):
+            add_tooltip(self.filter_entry, "Live filter results. Type words to search. Use +term for mandatory inclusion, -term for exclusion (e.g. 'fleece +jacket -pants').", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "filter_col_combo"):
+            add_tooltip(self.filter_col_combo, "Target live search to a specific column (e.g. Title, Seller, Threat Intel).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "hr_cb"):
+            add_tooltip(self.hr_cb, "Isolate confirmed 3PL drop-ship hubs, Vinted NWT replica risks, burner handles, and visual clones in 1 click.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "hb_cb"):
+            add_tooltip(self.hb_cb, "Hide verified authentic packaging matched against the Green Catalog.", theme_provider=t_func, is_enabled_callback=e_func)
+        
+        if hasattr(self, "btn_guide"):
+            add_tooltip(self.btn_guide, "Open Analyst Field Guide, Threat Signals Dictionary & Search Syntax (F1).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_visual"):
+            add_tooltip(self.btn_visual, "Open Visual Threat Catalog & Benign Packaging Manager (F2).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_registry"):
+            add_tooltip(self.btn_registry, "Open Enforcement Registry to track and export legal takedown notices.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_whitelist"):
+            add_tooltip(self.btn_whitelist, "Manage whitelisted brand partners and authorized dealer storefronts.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_threat"):
+            add_tooltip(self.btn_threat, "Resolve WHOIS / seller origin and expose 3PL forwarding hubs.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_import"):
+            add_tooltip(self.btn_import, "Import listing URLs from external spreadsheets (.xlsx, .csv) or text files.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "settings_mb"):
+            add_tooltip(self.settings_mb, "Configure themes, toggle column visibility, sound chimes, and hints.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "store_text"):
+            add_tooltip(self.store_text, "Target storefront usernames or full profile URLs to sweep (one per line).", theme_provider=t_func, is_enabled_callback=e_func)
+
+    def _toggle_column_visibility(self, col_key: str):
+        """Handle toggle of a single column's visibility."""
+        is_vis = self.col_vis_vars[col_key].get()
+        self.data_store.set_single_column_visibility(col_key, is_vis)
+        self._apply_column_visibility()
+
+    def _apply_column_visibility(self):
+        """Apply active column visibility settings to result_tree displaycolumns."""
+        vis = self.data_store.get_column_visibility()
+        display_cols = [c for c in self.all_table_cols if vis.get(c, True)]
+        if not display_cols:
+            display_cols = ["title"]
+        try:
+            self.result_tree["displaycolumns"] = display_cols
+        except Exception as e:
+            logger.debug(f"Error updating displaycolumns: {e}")
+
+    def _open_api_keys_dialog(self):
+        """Dedicated dialog to inspect and update eBay Developer API credentials."""
+        t = self.theme
+        win = tk.Toplevel(self)
+        win.title("eBay Developer API Configuration")
+        win.configure(bg=t["bg"])
+        win.geometry("520x250")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        self._apply_dark_titlebar(win)
+        self._load_app_icon(win)
+        self._center_window(win, 520, 250)
+
+        card = tk.Frame(win, bg=t["panel"], padx=20, pady=18, relief="solid", bd=1)
+        card.pack(fill="both", expand=True, padx=12, pady=12)
+
+        tk.Label(
+            card,
+            text="🔑 eBay Finding API Credentials",
+            font=FONT_HEAD,
+            bg=t["panel"],
+            fg=t["accent"]
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            card,
+            text="Required when running searches in high-speed REST API mode.",
+            font=FONT_NORM,
+            bg=t["panel"],
+            fg=t["subtext"]
+        ).pack(anchor="w", pady=(0, 12))
+
+        # App ID
+        row1 = tk.Frame(card, bg=t["panel"])
+        row1.pack(fill="x", pady=4)
+        tk.Label(row1, text="App ID (Client ID):", width=18, anchor="w", font=FONT_BOLD, bg=t["panel"], fg=t["text"]).pack(side="left")
+        app_entry = tk.Entry(row1, textvariable=self.api_app_id_var, font=FONT_NORM, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], relief="solid", bd=1)
+        app_entry.pack(side="left", fill="x", expand=True)
+
+        # Cert ID
+        row2 = tk.Frame(card, bg=t["panel"])
+        row2.pack(fill="x", pady=4)
+        tk.Label(row2, text="Cert ID (Client Secret):", width=18, anchor="w", font=FONT_BOLD, bg=t["panel"], fg=t["text"]).pack(side="left")
+        cert_entry = tk.Entry(row2, textvariable=self.api_cert_id_var, font=FONT_NORM, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], show="*", relief="solid", bd=1)
+        cert_entry.pack(side="left", fill="x", expand=True)
+
+        btn_box = tk.Frame(card, bg=t["panel"])
+        btn_box.pack(fill="x", pady=(16, 0))
+
+        def _save_and_close():
+            self._save_api_keys()
+            win.destroy()
+
+        tk.Button(
+            btn_box,
+            text="Save Credentials",
+            font=FONT_BOLD,
+            bg=t["accent"],
+            fg="black" if str(t.get("name","")).startswith("⚡") else "white",
+            relief="flat",
+            padx=14,
+            pady=4,
+            command=_save_and_close
+        ).pack(side="right")
+
+        tk.Button(
+            btn_box,
+            text="Cancel",
+            font=FONT_NORM,
+            bg=t["panel"],
+            fg=t["subtext"],
+            relief="flat",
+            padx=8,
+            pady=4,
+            command=win.destroy
+        ).pack(side="right", padx=6)
+
+    def _open_visual_catalog_modal(self):
+        """Open the Visual Threat Catalog & Benign Packaging Manager dialog."""
+        VisualCatalogModal(self, self.visual_catalog, self.theme, on_update_callback=self._repopulate_results_table)
+
+    def _mark_selected_as_visual_benign(self):
+        """Add all selected listings' photos to the Green Catalog (Known Benign Packaging)."""
+        selected = self.result_tree.selection()
+        if not selected:
+            messagebox.showinfo("Select", "Select one or more listings to mark packaging as Known Benign.")
+            return
+
+        added_count = 0
+        for iid in selected:
+            item_id = str(self.result_tree.set(iid, "item_id")).strip()
+            target_item = next((it for it in self.results if str(it.get("item_id", "")).strip() == item_id), None)
+            if not target_item:
+                continue
+
+            img_url = target_item.get("image_url", "")
+            pil_img = self.raw_img_cache.get(img_url)
+            if not pil_img and img_url:
+                try:
+                    req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=10) as r:
+                        pil_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                    self.raw_img_cache[img_url] = pil_img
+                except Exception:
+                    continue
+
+            if not pil_img:
+                continue
+
+            label = target_item.get("title", "Benign Packaging")[:32]
+            entry = self.visual_catalog.add_entry(pil_img, entry_type="benign", label=label, source_url=img_url)
+            if entry:
+                target_item["threat_badge"] = f"🟢 Benign: {entry['label']}"
+                target_item["visual_benign"] = True
+                added_count += 1
+                self._log(f"🟢 Added image fingerprint to Green Catalog (Benign): '{entry['label']}'")
+
+        if added_count > 0:
+            self._repopulate_results_table()
+            messagebox.showinfo("Saved", f"Successfully added {added_count} visual fingerprint(s) to the Benign Packaging Catalog!\n\nAll matching listings will be recognized and filtered as benign.")
+        else:
+            messagebox.showwarning("Warning", "Could not capture valid images for the selected listing(s).")
+
+    def _mark_selected_as_visual_counterfeit(self):
+        """Add all selected listings' photos to the Red Catalog (Known Counterfeit Photo)."""
+        selected = self.result_tree.selection()
+        if not selected:
+            messagebox.showinfo("Select", "Select one or more listings to mark photos as Known Counterfeit.")
+            return
+
+        added_count = 0
+        for iid in selected:
+            item_id = str(self.result_tree.set(iid, "item_id")).strip()
+            target_item = next((it for it in self.results if str(it.get("item_id", "")).strip() == item_id), None)
+            if not target_item:
+                continue
+
+            img_url = target_item.get("image_url", "")
+            pil_img = self.raw_img_cache.get(img_url)
+            if not pil_img and img_url:
+                try:
+                    req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=10) as r:
+                        pil_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                    self.raw_img_cache[img_url] = pil_img
+                except Exception:
+                    continue
+
+            if not pil_img:
+                continue
+
+            label = target_item.get("title", "Known Counterfeit Photo")[:32]
+            entry = self.visual_catalog.add_entry(pil_img, entry_type="counterfeit", label=label, source_url=img_url)
+            if entry:
+                target_item["threat_badge"] = "🚨 Known Counterfeit (Visual Match)"
+                target_item["visual_counterfeit"] = True
+                added_count += 1
+                self._log(f"🔴 Added image fingerprint to Red Catalog (Counterfeit): '{entry['label']}'")
+
+        if added_count > 0:
+            self._repopulate_results_table()
+            messagebox.showinfo("Saved", f"Successfully added {added_count} visual fingerprint(s) to the Counterfeit Threat Catalog!\n\nAll matching listings will be flagged as High Threat!")
+        else:
+            messagebox.showwarning("Warning", "Could not capture valid images for the selected listing(s).")
+
+    def _reverse_visual_search_from_url(self, img_url: str, label: str = "Visual Reference", marketplace: Optional[str] = None, region: Optional[str] = None):
+        """Execute Reverse Image Search across active marketplace & locale using an image URL or local photo file."""
+        if not img_url:
+            messagebox.showwarning("Warning", "No image source provided.")
+            return
+
+        mkt = marketplace or self.marketplace_var.get()
+        reg = region
+        if not reg:
+            if "Vinted" in mkt and hasattr(self, "vinted_country_var"):
+                v_c = self.vinted_country_var.get()
+                reg = "UK"
+                for code, names in {
+                    "UK": ["UK", "United Kingdom"], "FR": ["France", "FR"], "DE": ["Germany", "DE"],
+                    "ES": ["Spain", "ES"], "IT": ["Italy", "IT"], "PL": ["Poland", "PL"],
+                    "US": ["United States", "US"], "NL": ["Netherlands", "NL"], "BE": ["Belgium", "BE"],
+                    "All": ["All", "Europe", "Global"]
+                }.items():
+                    if any(n in v_c for n in names):
+                        reg = code
+                        break
+            elif "Mercado" in mkt and hasattr(self, "meli_country_var"):
+                reg = self.meli_country_var.get()
+
+        thresh = getattr(self.visual_catalog, "match_threshold", 6)
+        
+        # Link all scrapers to visual harvester
+        self.visual_harvester.scraper = self.scraper
+        self.visual_harvester.vinted_scraper = self.vinted_scraper
+        self.visual_harvester.meli_scraper = self.mercadolibre_scraper
+        self.visual_harvester.ali_scraper = self.aliexpress_scraper
+        self.visual_harvester.wish_scraper = self.wish_scraper
+        self.visual_harvester.temu_scraper = self.temu_scraper
+
+        loc_label = f" [{reg}]" if reg else ""
+        self._status(f"📸 Running Reverse Visual Dredge on {mkt}{loc_label} (Tolerance <={thresh})...")
+        self._log(f"📸 Initiating Reverse Visual Dredge on {mkt}{loc_label} for '{label}' (Threshold <={thresh})")
+        self.progress.start()
+
+        def _worker():
+            try:
+                hits = self.visual_harvester.search_by_image(
+                    img_url,
+                    label=label,
+                    marketplace=mkt,
+                    region=reg,
+                    max_distance=thresh,
+                    max_results=50,
+                    log_callback=self._log
+                )
+                def _done():
+                    self.progress.stop()
+                    if not hits:
+                        self._status(f"Reverse visual search on {mkt}{loc_label} found no new direct listings.")
+                        messagebox.showinfo("Visual Search", f"No additional {mkt}{loc_label} listings found for '{label}'.")
+                        return
+
+                    new_items = []
+                    existing_ids = {it.get("item_id") for it in self.results if it.get("item_id")}
+                    discovered_sellers = set()
+
+                    for h in hits:
+                        if h.get("item_id") not in existing_ids:
+                            new_items.append(h)
+                            self.results.append(h)
+                            existing_ids.add(h.get("item_id"))
+                        s = str(h.get("seller", "")).replace("🛡️", "").replace("(Authorized)", "").strip()
+                        if s and s not in ("eBay Seller", "Unknown"):
+                            discovered_sellers.add(s)
+
+                    self._repopulate_results_table()
+                    self._log(f"📸 Reverse Visual Dredge Complete: Discovered {len(new_items)} {mkt}{loc_label} listings across {len(discovered_sellers)} seller accounts.")
+                    self._status(f"Visual search added {len(new_items)} listings.")
+
+                    if discovered_sellers:
+                        seller_list = ", ".join(list(discovered_sellers)[:8])
+                        if len(discovered_sellers) > 8: seller_list += f" (+{len(discovered_sellers)-8} more)"
+                        prompt = f"Reverse Visual Dredge on {mkt}{loc_label} for '{label}' found {len(new_items)} listings across {len(discovered_sellers)} rogue seller account(s):\n\n{seller_list}\n\nWould you like to automatically add these {len(discovered_sellers)} sellers into the Stores box to run a Full Storefront Sweep?"
+                        if messagebox.askyesno("Syndicate Sellers Discovered", prompt):
+                            curr = self.store_text.get("1.0", "end").strip()
+                            ph = self.store_placeholder.strip()
+                            existing_lines = [l.strip() for l in curr.splitlines() if l.strip() and l != ph]
+                            for ds in discovered_sellers:
+                                if ds not in existing_lines:
+                                    existing_lines.append(ds)
+                            self.store_text.delete("1.0", "end")
+                            self.store_text.insert("1.0", "\n".join(existing_lines) + "\n")
+                            self.store_text.config(fg=self.theme["text"])
+                            self.store_full_sweep_var.set(True)
+                            self._log(f"🏪 Added {len(discovered_sellers)} discovered syndicate sellers to Stores box & enabled Full Store Sweep.")
+                self.after(0, _done)
+            except Exception as e:
+                def _err(err=e):
+                    self.progress.stop()
+                    self._log(f"❌ Reverse Visual Search failed: {err}")
+                    messagebox.showerror("Error", f"Reverse Visual Search error: {err}")
+                self.after(0, _err)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _reverse_visual_search_selected(self, marketplace: Optional[str] = None, region: Optional[str] = None):
+        """Execute Reverse Image Search across specified or active marketplace & region using selected listing photo."""
+        selected = self.result_tree.selection()
+        if not selected:
+            messagebox.showinfo("Select", "Select a listing to perform Reverse Visual Search.")
+            return
+        iid = selected[0]
+        item_id = str(self.result_tree.set(iid, "item_id")).strip()
+        target_item = next((it for it in self.results if str(it.get("item_id", "")).strip() == item_id), None)
+        if not target_item:
+            messagebox.showwarning("Warning", "Could not locate listing data.")
+            return
+
+        img_url = target_item.get("image_url", "")
+        if not img_url:
+            messagebox.showwarning("Warning", "Selected listing has no image URL.")
+            return
+
+        if marketplace:
+            target_mkt = marketplace
+        else:
+            url = target_item.get("url", "").lower()
+            if "vinted" in url or "vinted" in str(target_item.get("platform", "")).lower():
+                target_mkt = "Vinted"
+            elif "mercadolibre" in url or "mercado" in str(target_item.get("platform", "")).lower():
+                target_mkt = "Mercado Libre"
+            elif "aliexpress" in url or "aliexpress" in str(target_item.get("platform", "")).lower():
+                target_mkt = "AliExpress"
+            elif "wish.com" in url or "wish" in str(target_item.get("platform", "")).lower():
+                target_mkt = "Wish"
+            elif "temu.com" in url or "temu" in str(target_item.get("platform", "")).lower():
+                target_mkt = "Temu"
+            else:
+                target_mkt = self.marketplace_var.get()
+
+        target_reg = region
+        self._reverse_visual_search_from_url(img_url, label=target_item.get("title", "Selected Listing")[:32], marketplace=target_mkt, region=target_reg)
 
     def _add_selected_result_seller_to_stores(self):
         """Append highlighted results table seller username directly into Stores / Sellers box."""
@@ -4175,14 +4993,14 @@ class EbayTool(tk.Tk):
         vis_count = len(self.result_tree.get_children())
         if selected_count > 0:
             if vis_count < total_count:
-                self.result_count.set(f"{vis_count} / {total_count} listings ({selected_count} selected)")
+                self.result_count.set(f"{vis_count}/{total_count} ({selected_count} sel)")
             else:
-                self.result_count.set(f"{total_count} listings ({selected_count} selected)")
+                self.result_count.set(f"{total_count} total ({selected_count} sel)")
         else:
             if vis_count < total_count:
-                self.result_count.set(f"{vis_count} / {total_count} listings (filtered)")
+                self.result_count.set(f"{vis_count}/{total_count} (filter)")
             else:
-                self.result_count.set(f"{total_count} listings")
+                self.result_count.set(f"{total_count} total")
 
     def _copy_all_listing_urls(self):
         """Copy all harvested listing URLs in the results table to clipboard."""
@@ -4586,6 +5404,14 @@ class EbayTool(tk.Tk):
         cur_img_size = cur_cfg.get("img_size", 100)
 
         def _worker(sz_key=cur_size_key, sz_px=cur_img_size):
+            # Cache size safeguard to prevent RAM bloat
+            if len(self.raw_img_cache) > 800:
+                for k in list(self.raw_img_cache.keys())[:250]:
+                    self.raw_img_cache.pop(k, None)
+            if len(self.inline_img_cache) > 800:
+                for k in list(self.inline_img_cache.keys())[:250]:
+                    self.inline_img_cache.pop(k, None)
+
             for attempt in range(2):
                 try:
                     req = urllib.request.Request(str(image_url), headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
@@ -4594,6 +5420,32 @@ class EbayTool(tk.Tk):
                     pil_img = Image.open(io.BytesIO(data)).convert("RGBA")
                     self.raw_img_cache[image_url] = pil_img
                     
+                    # Auto-match against Visual Catalog (Benign vs Counterfeit)
+                    try:
+                        v_match = self.visual_catalog.match_image(pil_img, max_distance=6)
+                        if v_match:
+                            for itm in self.results:
+                                if itm.get("image_url") == image_url:
+                                    if v_match["type"] == "benign":
+                                        itm["threat_badge"] = f"🟢 Benign: {v_match['label']}"
+                                        itm["visual_benign"] = True
+                                    elif v_match["type"] == "counterfeit":
+                                        itm["threat_badge"] = f"🚨 Visual Counterfeit ({v_match['similarity_pct']}%)"
+                                        itm["threat_score"] = max(itm.get("threat_score", 0), 95)
+                                        itm["visual_counterfeit"] = True
+                                    
+                                    # Update UI treeview if row exists
+                                    def _update_row(t_badge=itm["threat_badge"]):
+                                        if self.result_tree.exists(iid):
+                                            vals = list(self.result_tree.item(iid, "values"))
+                                            if len(vals) > 7:
+                                                vals[7] = t_badge
+                                                self.result_tree.item(iid, values=vals)
+                                    self.after(0, _update_row)
+                                    break
+                    except Exception:
+                        pass
+
                     if sz_px > 0:
                         photo = self._get_scaled_photo(pil_img, sz_px)
                         self.inline_img_cache[(sz_key, image_url)] = photo
@@ -4607,7 +5459,10 @@ class EbayTool(tk.Tk):
                     if attempt == 0:
                         time.sleep(0.4)
 
-        threading.Thread(target=_worker, daemon=True).start()
+        if hasattr(self, "thumb_executor"):
+            self.thumb_executor.submit(_worker)
+        else:
+            threading.Thread(target=_worker, daemon=True).start()
 
     def _on_thumb_size_changed(self, event=None):
         """Handle user changing thumbnail size (Off, Small, Medium, Large, Extra Large)."""
@@ -5111,6 +5966,23 @@ class EbayTool(tk.Tk):
         self._log("🔑 Opening Mercado Libre authentication window in Microsoft Edge. Please log in or create an account—your authenticated session will be saved permanently!")
         self.mercadolibre_scraper.launch_interactive_auth()
         messagebox.showinfo("Mercado Libre Login", "A browser window is opening to Mercado Libre.\n\nPlease log in or create an account (you only need to do this once!).\n\nYour session cookies will be permanently stored for all future automated searches.")
+
+    def _launch_vinted_session(self):
+        """Open a visible browser window to solve Cloudflare Turnstile challenge and save persistent clearance cookies."""
+        v_c = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "UK"
+        reg_code = "UK"
+        region_map = {
+            "UK": ["UK", "United Kingdom"], "FR": ["France", "FR"], "DE": ["Germany", "DE"],
+            "ES": ["Spain", "ES"], "IT": ["Italy", "IT"], "PL": ["Poland", "PL"],
+            "US": ["United States", "US"], "NL": ["Netherlands", "NL"], "BE": ["Belgium", "BE"]
+        }
+        for code, names in region_map.items():
+            if any(n in v_c for n in names):
+                reg_code = code
+                break
+        self._log(f"👗 Opening Vinted authentication window for {v_c} in Microsoft Edge. If Cloudflare prompts to 'Verify you are human' or accept cookies, please complete it.")
+        self.vinted_scraper.launch_interactive_auth(region_code=reg_code)
+        messagebox.showinfo("Vinted Connect & Cloudflare Sync", f"A browser window is opening to Vinted ({v_c}).\n\nIf Cloudflare asks to 'Verify you are human' or accept cookies, please complete it.\n\nYour clearance tokens will be permanently saved for all automated background sweeps!")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  ADHOC BATCH URL & EXCEL LISTING IMPORTER
@@ -6612,53 +7484,27 @@ class EbayTool(tk.Tk):
         self._btn(btn_row, "✕ Close", win.destroy).pack(side="right")
 
     def _show_about_dialog(self):
-        """Show About, Valknut Ethos & Architecture, and Intellectual Property Disclaimer dialog."""
+        """Show About, Apollo Ethos & Architecture, and Intellectual Property Disclaimer dialog."""
         t = self.theme
         win = tk.Toplevel(self)
-        win.title("About 🔺 Valknut Brand Intelligence")
+        win.title("About ☀️ Apollo Brand Intelligence")
         win.configure(bg=t["bg"])
         win.geometry("880x700")
         win.minsize(820, 620)
         win.transient(self)
         win.grab_set()
+
         self._apply_dark_titlebar(win)
+        self._load_app_icon(win)
+        self._center_window(win, 880, 700)
 
-        # Center dialog relative to main window
-        win.update_idletasks()
-        p_x = self.winfo_rootx()
-        p_y = self.winfo_rooty()
-        p_w = self.winfo_width()
-        p_h = self.winfo_height()
-        w, h = 880, 700
-        x = p_x + (p_w - w) // 2
-        y = p_y + (p_h - h) // 2
-        win.geometry(f"{w}x{h}+{x}+{y}")
-
-        # Secret word easter egg listener scoped strictly inside About dialog
+        # Easter egg key listener (Dom, Eleanor, etc.)
         about_word_buf = [""]
         def _on_about_key(e):
-            if hasattr(e, "char") and e.char and e.char.isprintable():
+            if e.char and e.char.isalnum():
                 about_word_buf[0] += e.char.lower()
-                if len(about_word_buf[0]) > 25:
-                    about_word_buf[0] = about_word_buf[0][-25:]
-                if any(w in about_word_buf[0] for w in ("wick", "babayaga", "continental")):
-                    self._trigger_wick_easter_egg()
-                    about_word_buf[0] = ""
-                elif any(w in about_word_buf[0] for w in ("lock", "relock", "hide")):
-                    self.data_store.set_setting("unlocked_wick", False)
-                    if self.current_theme_key == "continental":
-                        self.theme_var.set(THEMES["midnight"]["name"])
-                        self._on_theme_changed()
-                    vals = [v for v in self.theme_combo["values"] if v != THEMES["continental"]["name"]]
-                    self.theme_combo["values"] = vals
-                    self._log("🔒 Secret Continental theme relocked and hidden from dropdown.")
-                    self._status("🔒 The Continental relocked and secured.")
-                    about_word_buf[0] = ""
-                elif any(w in about_word_buf[0] for w in ("jarvis", "heimvis")):
-                    self._trigger_heimvis_easter_egg()
-                    about_word_buf[0] = ""
-                elif any(w in about_word_buf[0] for w in ("rick", "astley", "nevergonna", "rickroll")):
-                    self._trigger_rickroll_easter_egg()
+                if any(w in about_word_buf[0] for w in ("dom", "quartermile", "nos", "toretto")):
+                    self._trigger_easter_egg()
                     about_word_buf[0] = ""
                 elif any(w in about_word_buf[0] for w in ("eleanor", "gobabygo", "shelby")):
                     self._trigger_eleanor_easter_egg()
@@ -6672,10 +7518,10 @@ class EbayTool(tk.Tk):
         head_f = tk.Frame(pad_f, bg=t["bg"])
         head_f.pack(fill="x", pady=(0, 10))
 
-        tk.Label(head_f, text="🔺 Valknut Brand Intelligence",
+        tk.Label(head_f, text="☀️ Apollo Brand Intelligence",
                  font=("Segoe UI", 16, "bold"), bg=t["bg"], fg=t["accent"]).pack(anchor="w")
 
-        tk.Label(head_f, text="Targeted Seller Harvester & Cross-Brand Syndicate Defense Suite",
+        tk.Label(head_f, text="Tactical Reconnaissance, Precision Triage & Genesis Influx Suite",
                  font=FONT_SM, bg=t["bg"], fg=t["subtext"]).pack(anchor="w", pady=(2, 0))
 
         div = tk.Frame(pad_f, bg=t["border"], height=1)
@@ -6683,7 +7529,6 @@ class EbayTool(tk.Tk):
 
         # ── Notebook / Tabs ──────────────────────────────────────────────────
         style = ttk.Style(win)
-        style.theme_use("clam")
         style.configure("About.TNotebook",
                         background=t["bg"],
                         bordercolor=t["border"],
@@ -6711,7 +7556,7 @@ class EbayTool(tk.Tk):
 
         # ── TAB 1: Ethos & Architecture ──────────────────────────────────────
         tab_ethos = tk.Frame(nb, bg=t["panel"], padx=16, pady=12)
-        nb.add(tab_ethos, text="🔺 Enterprise Architecture & 9 Pillars")
+        nb.add(tab_ethos, text="☀️ Tactical Architecture & Ethos")
 
         # Scrollable container for ethos tab
         ethos_canvas = tk.Canvas(tab_ethos, bg=t["panel"], highlightthickness=0)
@@ -6762,15 +7607,16 @@ class EbayTool(tk.Tk):
         tri_frame.pack(fill="x", padx=4, pady=(0, 12))
         tri_frame.bind("<MouseWheel>", _on_mousewheel)
 
-        tri_hdr = tk.Label(tri_frame, text="🔺 The Triad of Modern Brand Defense:",
+        tri_hdr = tk.Label(tri_frame, text="🏛️ The Enterprise Tactical Suite:",
                            font=("Segoe UI", 10, "bold"), bg=t["entry_bg"], fg=t["accent"])
         tri_hdr.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
         tri_hdr.bind("<MouseWheel>", _on_mousewheel)
 
         tri_data = [
-            ("🔍", "Pillar 1: Reconnaissance", "Rapid, automated store sweeps across global marketplaces with stealth session handling."),
-            ("🛡",  "Pillar 2: Threat Intelligence", "Unmasking 3PL domestic smokescreens, dropship margins, and historical store recidivism."),
-            ("⚡", "Pillar 3: Rapid Enforcement", "Standardized, audit-ready Excel compliance packs and multi-locale takedown dossiers."),
+            ("🏢", "Genesis", "The Enterprise Base of Record — Massive cloud archives, case history, client billing, and formal takedown tracking."),
+            ("☀️", "Apollo", "Tactical Recon & Precision Triage — 35-worker parallel visual dredge, 1-click portfolio sweeps, and zero-noise filtering."),
+            ("🏹", "Artemis", "Automated Platform Enforcement — Rapid-fire form-filling for VeRO, Amazon Brand Registry, and Mercado Libre BPP."),
+            ("⚖️", "Nemesis", "Syndicate Retribution & Legal Vault — Forensic cross-border entity correlation and court-admissible evidence dossiers."),
         ]
 
         for r_idx, (icon, title, desc) in enumerate(tri_data, start=1):
@@ -6798,7 +7644,7 @@ class EbayTool(tk.Tk):
         tri_frame.columnconfigure(2, weight=1)
 
         # 9 Pillars
-        p_hdr = tk.Label(ethos_scroll_frame, text="⚔️ The 9 Pillars of Valknut Intelligence:",
+        p_hdr = tk.Label(ethos_scroll_frame, text="⚔️ The 9 Pillars of Apollo Intelligence:",
                          font=("Segoe UI", 10, "bold"), bg=t["panel"], fg=t["accent"])
         p_hdr.pack(anchor="w", padx=4, pady=(4, 6))
         p_hdr.bind("<MouseWheel>", _on_mousewheel)
@@ -6852,7 +7698,8 @@ class EbayTool(tk.Tk):
         _row(info_frame, "Creator & Lead Architect:", "Jerry Seidenstucker (Personal Project)")
         _row(info_frame, "AI Pair Programmer:", "Antigravity (Google DeepMind)")
         _row(info_frame, "Intellectual Property:", "© 2026 Jerry Seidenstucker. All Rights Reserved.")
-        _row(info_frame, "Architecture Version:", "Valknut v3.0 Enterprise Suite")
+        _row(info_frame, "Architecture Version:", "Apollo v1.5.0 Enterprise Tactical Suite")
+        _row(info_frame, "License Mode:", "Proprietary / Authorized Internal Evaluation")
         _row(info_frame, "License Mode:", "Proprietary / Authorized Internal Evaluation")
 
         # Legal & Ownership Notice box
@@ -6884,23 +7731,37 @@ class EbayTool(tk.Tk):
     # ══════════════════════════════════════════════════════════════════════════
     def _log(self, msg, error=False):
         def _write():
-            self.log_text.config(state="normal")
-            ts  = datetime.now().strftime("%H:%M:%S")
-            tag = "err" if error else "info"
-            self.log_text.tag_config("err",  foreground=self.theme["danger"])
-            self.log_text.tag_config("info", foreground=self.theme["text"])
-            self.log_text.insert("end", f"[{ts}] {msg}\n", tag)
-            self.log_text.see("end")
-            self.log_text.config(state="disabled")
-        self.after(0, _write)
+            try:
+                if hasattr(self, "log_text") and self.log_text.winfo_exists():
+                    self.log_text.config(state="normal")
+                    ts  = datetime.now().strftime("%H:%M:%S")
+                    tag = "err" if error else "info"
+                    self.log_text.tag_config("err",  foreground=self.theme.get("danger", "#ff4444"))
+                    self.log_text.tag_config("info", foreground=self.theme.get("text", "#ffffff"))
+                    self.log_text.insert("end", f"[{ts}] {msg}\n", tag)
+                    self.log_text.see("end")
+                    self.log_text.config(state="disabled")
+            except Exception:
+                pass
+        try:
+            self.after(0, _write)
+        except Exception:
+            pass
 
     def _clear_log(self):
-        self.log_text.config(state="normal")
-        self.log_text.delete("1.0", "end")
-        self.log_text.config(state="disabled")
+        try:
+            if hasattr(self, "log_text") and self.log_text.winfo_exists():
+                self.log_text.config(state="normal")
+                self.log_text.delete("1.0", "end")
+                self.log_text.config(state="disabled")
+        except Exception:
+            pass
 
     def _status(self, msg):
-        self.after(0, lambda: self.status_var.set(msg))
+        try:
+            self.after(0, lambda: self.status_var.set(msg) if hasattr(self, "status_var") else None)
+        except Exception:
+            pass
 
 
 
@@ -7980,22 +8841,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         custom_includes = [l.strip() for l in parent.include_text.get("1.0", "end").splitlines() if l.strip()]
         generic_excludes = parent._get_active_exclusions() if hasattr(parent, "_get_active_exclusions") else []
         condition = parent.condition_var.get() if hasattr(parent, "condition_var") else "all"
-
-        market = parent.marketplace_var.get() if hasattr(parent, "marketplace_var") else "eBay"
-        if "Wish" in market:
-            platform_name = "Wish"
-        elif "Temu" in market:
-            platform_name = "Temu"
-        elif "AliExpress" in market:
-            platform_name = "AliExpress"
-        elif "Printerval" in market:
-            platform_name = "Printerval"
-        elif "Redbubble" in market:
-            platform_name = "Redbubble"
-        elif "Mercado" in market:
-            platform_name = "Mercado Libre"
-        else:
-            platform_name = "eBay"
+        platform_name = parent._get_current_platform_name() if hasattr(parent, "_get_current_platform_name") else "eBay"
 
         added_count = 0
         skipped_executed = 0
@@ -8144,22 +8990,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         custom_includes = [l.strip() for l in parent.include_text.get("1.0", "end").splitlines() if l.strip()]
         generic_excludes = parent._get_active_exclusions() if hasattr(parent, "_get_active_exclusions") else []
         condition = parent.condition_var.get() if hasattr(parent, "condition_var") else "all"
-
-        market = parent.marketplace_var.get() if hasattr(parent, "marketplace_var") else "eBay"
-        if "Wish" in market:
-            platform_name = "Wish"
-        elif "Temu" in market:
-            platform_name = "Temu"
-        elif "AliExpress" in market:
-            platform_name = "AliExpress"
-        elif "Printerval" in market:
-            platform_name = "Printerval"
-        elif "Redbubble" in market:
-            platform_name = "Redbubble"
-        elif "Mercado" in market:
-            platform_name = "Mercado Libre"
-        else:
-            platform_name = "eBay"
+        platform_name = parent._get_current_platform_name() if hasattr(parent, "_get_current_platform_name") else "eBay"
 
         added_count = 0
         skipped_executed = 0

@@ -25,6 +25,8 @@ GH_PATH = r"C:\Program Files\GitHub CLI\gh.exe" if os.path.exists(r"C:\Program F
 def get_dist_dir():
     """Locate the compiled distribution directory."""
     candidates = [
+        os.path.join(TOOL_DIR, "dist", "Apollo Brand Intelligence"),
+        os.path.join(TOOL_DIR, "dist", "ApolloBrandIntelligence"),
         os.path.join(TOOL_DIR, "dist", "Valknut Brand Intelligence"),
         os.path.join(TOOL_DIR, "dist", "ValknutBrandIntelligence")
     ]
@@ -42,7 +44,7 @@ def get_current_version():
                 m = re.search(r'VERSION\s*=\s*["\']([0-9\.]+)["\']', line)
                 if m:
                     return m.group(1)
-    return "1.3.0"
+    return "1.5.0"
 
 def zip_distribution(version_tag):
     """Create a zip archive of the compiled dist folder."""
@@ -52,7 +54,7 @@ def zip_distribution(version_tag):
         print("Please run build_exe.bat first to compile the binary.")
         sys.exit(1)
 
-    zip_filename = f"ValknutBrandIntelligence-{version_tag}.zip"
+    zip_filename = f"ApolloBrandIntelligence-{version_tag}.zip"
     zip_path = os.path.join(TOOL_DIR, "dist", zip_filename)
 
     print(f"📦 Compressing distribution into: {zip_filename}...")

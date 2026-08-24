@@ -31,7 +31,7 @@ class AliExpressScraper:
         anti-bot bypass, persistent session profiles, and client-side exclusion filtering.
         """
         self.headless = headless
-        self.profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()), "Valknut_AliExpress_Session")
+        self.profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()), "Apollo_AliExpress_Session")
 
     def resolve_store_info(self, raw_input: str) -> dict:
         """Parse AliExpress store URL, Store ID, seller name, or Global Search."""
