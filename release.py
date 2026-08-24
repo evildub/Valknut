@@ -56,6 +56,8 @@ def zip_distribution(version_tag):
 
     zip_filename = f"ApolloBrandIntelligence-{version_tag}.zip"
     zip_path = os.path.join(TOOL_DIR, "dist", zip_filename)
+    valknut_filename = f"ValknutBrandIntelligence-{version_tag}.zip"
+    valknut_zip_path = os.path.join(TOOL_DIR, "dist", valknut_filename)
 
     print(f"📦 Compressing distribution into: {zip_filename}...")
     total_files = sum(len(files) for _, _, files in os.walk(dist_dir))
@@ -72,9 +74,12 @@ def zip_distribution(version_tag):
                     pct = int((processed / total_files) * 100)
                     print(f"  [{pct}%] Archived {processed}/{total_files} files...")
 
+    # Copy to Valknut name for backward compatibility with older work PC updaters
+    shutil.copy2(zip_path, valknut_zip_path)
+
     zip_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-    print(f"✅ Successfully created {zip_filename} ({zip_size_mb:.1f} MB)")
-    return zip_path
+    print(f"✅ Successfully created {zip_filename} & {valknut_filename} ({zip_size_mb:.1f} MB)")
+    return [zip_path, valknut_zip_path]
 
 def git_commit_and_push(version_tag, message=""):
     """Commit tracked changes and push to GitHub origin."""
@@ -83,7 +88,7 @@ def git_commit_and_push(version_tag, message=""):
         subprocess.run(["git", "add", "."], cwd=TOOL_DIR, check=True)
         status = subprocess.run(["git", "status", "--porcelain"], cwd=TOOL_DIR, capture_output=True, text=True)
         if status.stdout.strip():
-            msg = message if message else f"Release {version_tag} — Enterprise Brand Protection Suite"
+            msg = message if message else f"Release {version_tag} — Multi-Platform Vinted & Mercado Libre Suite"
             subprocess.run(["git", "commit", "-m", msg], cwd=TOOL_DIR, check=True)
             print(f"  ✓ Committed source changes: {msg}")
         else:
@@ -95,15 +100,21 @@ def git_commit_and_push(version_tag, message=""):
     except Exception as e:
         print(f"⚠️ Git sync notice: {e}")
 
-def publish_github_release(version_tag, zip_path, title="", notes=""):
-    """Publish a release to GitHub with the attached zip file."""
+def publish_github_release(version_tag, zip_paths, title="", notes=""):
+    """Publish a release to GitHub with the attached zip files."""
     print(f"🚀 Publishing GitHub Release {version_tag}...")
-    rel_title = title if title else f"Valknut Brand Intelligence {version_tag}"
+    rel_title = title if title else f"Apollo Brand Intelligence {version_tag} — Multi-Platform Vinted & Mercado Libre Enterprise Suite"
+    
+    notes_file = os.path.join(TOOL_DIR, "release_notes.md")
+    if not notes and os.path.exists(notes_file):
+        with open(notes_file, "r", encoding="utf-8", errors="ignore") as f:
+            notes = f.read()
+
     rel_notes = notes if notes else f"Automated build and release for {version_tag} published on {datetime.now().strftime('%Y-%m-%d %H:%M')}."
 
     cmd = [
         GH_PATH, "release", "create", version_tag,
-        zip_path,
+        *zip_paths,
         "--title", rel_title,
         "--notes", rel_notes
     ]
@@ -114,17 +125,18 @@ def publish_github_release(version_tag, zip_path, title="", notes=""):
         print(res.stdout.strip())
     except subprocess.CalledProcessError as e:
         if "already exists" in e.stderr.lower():
-            print(f"ℹ️ Release {version_tag} already exists. Uploading zip asset...")
-            up_cmd = [GH_PATH, "release", "upload", version_tag, zip_path, "--clobber"]
-            subprocess.run(up_cmd, cwd=TOOL_DIR, check=True)
-            print(f"✅ Successfully updated asset on release {version_tag}!")
+            print(f"ℹ️ Release {version_tag} already exists. Uploading zip assets...")
+            for zp in zip_paths:
+                up_cmd = [GH_PATH, "release", "upload", version_tag, zp, "--clobber"]
+                subprocess.run(up_cmd, cwd=TOOL_DIR, check=True)
+            print(f"✅ Successfully updated assets on release {version_tag}!")
         else:
             print(f"❌ GitHub release error: {e.stderr}")
             sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="Valknut Release Automation")
-    parser.add_argument("--version", "-v", help="Version tag (e.g. v1.3.0)")
+    parser = argparse.ArgumentParser(description="Apollo Release Automation")
+    parser.add_argument("--version", "-v", help="Version tag (e.g. v1.5.0)")
     parser.add_argument("--title", "-t", help="Release title")
     parser.add_argument("--notes", "-n", help="Release notes string or path to markdown file")
     parser.add_argument("--skip-git", action="store_true", help="Skip git commit and push")
@@ -139,14 +151,14 @@ def main():
             notes_content = f.read()
 
     print("==================================================")
-    print(f"🛡️ VALKNUT AUTOMATED RELEASE ENGINE — {tag}")
+    print(f"☀️ APOLLO AUTOMATED RELEASE ENGINE — {tag}")
     print("==================================================")
 
     if not args.skip_git:
         git_commit_and_push(tag, message=args.title)
 
-    zip_path = zip_distribution(tag)
-    publish_github_release(tag, zip_path, title=args.title, notes=notes_content)
+    zip_paths = zip_distribution(tag)
+    publish_github_release(tag, zip_paths, title=args.title, notes=notes_content)
 
     print(f"\n🏆 All steps complete! Download your release on your work PC from:")
     print(f"   https://github.com/evildub/Valknut/releases/tag/{tag}\n")
