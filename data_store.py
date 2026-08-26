@@ -412,6 +412,9 @@ class DataStore:
                 country_resolved = cname.title()
                 break
 
+        badge = "Unresolved"
+        is_high = False
+
         if is_3pl:
             badge = "🚨 Foreign Drop-Ship Hub"
             is_high = True
@@ -428,7 +431,7 @@ class DataStore:
             badge = "🇺🇸 Domestic Verified"
             is_high = False
         return {
-            "country": country_resolved if country_resolved != "Unknown" else (origin or location or "Domestic"),
+            "country": country_resolved if country_resolved != "Unknown" else (origin or location or "Unresolved"),
             "badge": badge,
             "is_high_risk": is_high,
             "is_3pl_hub": is_3pl
@@ -473,3 +476,50 @@ class DataStore:
         """Set analyst hover onboarding tooltips setting."""
         self._data.setdefault("settings", {})["show_analyst_hints"] = bool(enabled)
         self._save()
+
+    # ── authorized dealer whitelist ───────────────────────────────────────────
+    def get_whitelist(self) -> dict:
+        """Get dictionary of all whitelisted sellers/dealers."""
+        return self._data.setdefault("whitelist", {})
+
+    def is_seller_whitelisted(self, seller_handle: str) -> bool:
+        """Check if seller handle is on authorized dealer whitelist."""
+        if not seller_handle:
+            return False
+        clean = str(seller_handle).strip().lower()
+        wl = self.get_whitelist()
+        for k in wl.keys():
+            if str(k).strip().lower() == clean:
+                return True
+        return False
+
+    def add_to_whitelist(self, seller_handle: str, brand: str = "General", dealer_name: str = "", notes: str = ""):
+        """Add or update an authorized dealer on the whitelist."""
+        if not seller_handle:
+            return
+        clean = str(seller_handle).strip()
+        wl = self.get_whitelist()
+        import datetime
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        wl[clean] = {
+            "brand": brand or "General",
+            "dealer_name": dealer_name or "Authorized Dealership",
+            "notes": notes or "",
+            "date_added": now_str
+        }
+        self._save()
+
+    def remove_from_whitelist(self, seller_handle: str):
+        """Remove a seller from the authorized dealer whitelist."""
+        if not seller_handle:
+            return
+        clean = str(seller_handle).strip().lower()
+        wl = self.get_whitelist()
+        found_key = None
+        for k in wl.keys():
+            if str(k).strip().lower() == clean:
+                found_key = k
+                break
+        if found_key and found_key in wl:
+            del wl[found_key]
+            self._save()

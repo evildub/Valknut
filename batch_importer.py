@@ -119,7 +119,7 @@ HEADER_ALIASES = {
     "seller": ["seller", "store", "merchant", "seller name", "seller_name", "seller username", "seller_username", "store name", "store_name", "shop", "vendor", "user", "username"],
     "price": ["price", "item price", "item_price", "current price", "cost", "amount", "unit price", "sale price"],
     "image_url": ["image url", "image_url", "photo", "photo url", "photo_url", "thumbnail", "thumb", "thumbnail url", "picture url", "picture_url", "img", "image", "pic", "image link"],
-    "brand": ["brand", "client", "trademark", "brand name", "brand_name"],
+    "brand": ["brand", "client", "trademark", "brand name", "brand_name", "product", "product line", "product_line"],
     "product_type": ["product type", "product_type", "category", "type", "part type", "part_type"],
     "location": ["location", "seller location", "seller_location", "country", "origin", "item location", "item_location"],
     "marketplace": ["marketplace", "platform", "site", "source"]
@@ -197,7 +197,25 @@ def extract_structured_listings_from_file(filepath: str, default_brand: str = ""
 
                         # Reconstruct URL if missing but item_id exists
                         if item_id_val and not url_val:
-                            url_val = f"https://www.ebay.com/itm/{item_id_val}"
+                            upper_id = str(item_id_val).strip().upper()
+                            if upper_id.startswith("MLM"):
+                                url_val = f"https://articulo.mercadolibre.com.mx/{upper_id}"
+                            elif upper_id.startswith("MLA"):
+                                url_val = f"https://articulo.mercadolibre.com.ar/{upper_id}"
+                            elif upper_id.startswith("MLB"):
+                                url_val = f"https://produto.mercadolivre.com.br/{upper_id}"
+                            elif upper_id.startswith("MCO"):
+                                url_val = f"https://articulo.mercadolibre.com.co/{upper_id}"
+                            elif upper_id.startswith("MLC"):
+                                url_val = f"https://articulo.mercadolibre.cl/{upper_id}"
+                            elif upper_id.startswith("MPE"):
+                                url_val = f"https://articulo.mercadolibre.com.pe/{upper_id}"
+                            elif upper_id.startswith("MLU"):
+                                url_val = f"https://articulo.mercadolibre.com.uy/{upper_id}"
+                            elif "mercado" in str(rec.get("marketplace", "")).lower():
+                                url_val = f"https://articulo.mercadolibre.com.mx/{upper_id}"
+                            else:
+                                url_val = f"https://www.ebay.com/itm/{item_id_val}"
                             rec["url"] = url_val
 
                         if url_val:
@@ -222,10 +240,12 @@ def extract_structured_listings_from_file(filepath: str, default_brand: str = ""
                         rec["price"] = p_val if p_val else "$0.00"
 
                         # Ensure defaults
+                        b_name = rec.get("brand") or default_brand
+                        fallback_title = (f"{b_name} Listing #{item_id_val}" if b_name and b_name not in ("⚡ Auto-Detect from Title", "Auto-Detect", "") else f"Listing #{item_id_val}") if item_id_val else "Imported Listing"
                         rec.setdefault("seller", "Unknown")
                         rec.setdefault("location", "United States")
                         rec.setdefault("image_url", "")
-                        rec.setdefault("title", title_val or (f"Listing #{item_id_val}" if item_id_val else "Imported Listing"))
+                        rec.setdefault("title", title_val or fallback_title)
 
                         structured_items.append(rec)
         except Exception as e:
@@ -274,7 +294,25 @@ def extract_structured_listings_from_file(filepath: str, default_brand: str = ""
                                         rec["item_id"] = item_id_val
 
                                 if item_id_val and not url_val:
-                                    url_val = f"https://www.ebay.com/itm/{item_id_val}"
+                                    upper_id = str(item_id_val).strip().upper()
+                                    if upper_id.startswith("MLM"):
+                                        url_val = f"https://articulo.mercadolibre.com.mx/{upper_id}"
+                                    elif upper_id.startswith("MLA"):
+                                        url_val = f"https://articulo.mercadolibre.com.ar/{upper_id}"
+                                    elif upper_id.startswith("MLB"):
+                                        url_val = f"https://produto.mercadolivre.com.br/{upper_id}"
+                                    elif upper_id.startswith("MCO"):
+                                        url_val = f"https://articulo.mercadolibre.com.co/{upper_id}"
+                                    elif upper_id.startswith("MLC"):
+                                        url_val = f"https://articulo.mercadolibre.cl/{upper_id}"
+                                    elif upper_id.startswith("MPE"):
+                                        url_val = f"https://articulo.mercadolibre.com.pe/{upper_id}"
+                                    elif upper_id.startswith("MLU"):
+                                        url_val = f"https://articulo.mercadolibre.com.uy/{upper_id}"
+                                    elif "mercado" in str(rec.get("marketplace", "")).lower():
+                                        url_val = f"https://articulo.mercadolibre.com.mx/{upper_id}"
+                                    else:
+                                        url_val = f"https://www.ebay.com/itm/{item_id_val}"
                                     rec["url"] = url_val
 
                                 if url_val:
@@ -295,10 +333,12 @@ def extract_structured_listings_from_file(filepath: str, default_brand: str = ""
                                         p_val = f"${m_num.group(0)}"
                                 rec["price"] = p_val if p_val else "$0.00"
 
+                                b_name = rec.get("brand") or default_brand
+                                fallback_title = (f"{b_name} Listing #{item_id_val}" if b_name and b_name not in ("⚡ Auto-Detect from Title", "Auto-Detect", "") else f"Listing #{item_id_val}") if item_id_val else "Imported Listing"
                                 rec.setdefault("seller", "Unknown")
                                 rec.setdefault("location", "United States")
                                 rec.setdefault("image_url", "")
-                                rec.setdefault("title", title_val or (f"Listing #{item_id_val}" if item_id_val else "Imported Listing"))
+                                rec.setdefault("title", title_val or fallback_title)
 
                                 structured_items.append(rec)
                 if structured_items:

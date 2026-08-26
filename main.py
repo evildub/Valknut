@@ -520,7 +520,7 @@ THEMES = {
         "accent2": "#E63946",
         "success": "#4EBA6F",
         "warning": "#D4AF37",
-        "danger": "#730608",
+        "danger": "#E63946",
         "text": "#F2F4F8",
         "subtext": "#8C93A3",
         "border": "#2E3342",
@@ -675,13 +675,13 @@ CONTINENTAL_QUOTES = [
 ]
 
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 
 
 class EbayTool(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"☀️ Apollo Brand Intelligence v{VERSION} — Tactical Reconnaissance & Precision Triage")
+        self.title(f"Apollo v{VERSION}")
 
         self.data_store     = DataStore()
         # Scraper background/headless mode (Default: True / Silent Background)
@@ -699,6 +699,7 @@ class EbayTool(tk.Tk):
         self.visual_catalog = VisualCatalogManager()
         self.visual_harvester = VisualHarvester()
         self.filter_hide_benign_var = tk.BooleanVar(value=True)
+        self.filter_only_benign_var = tk.BooleanVar(value=False)
         self.store_full_sweep_var = tk.BooleanVar(value=False)
 
         # Load saved theme
@@ -1449,30 +1450,36 @@ class EbayTool(tk.Tk):
         toggle_queue = self._create_resize_grip(frame, self.queue_list, widget_type="lines", min_val=2, max_val=40, default_val=4, max_toggle=20, name="queue")
         toggle_queue_holder.append(toggle_queue)
 
-        q_btn_row = tk.Frame(frame, bg=t["bg"])
-        q_btn_row.pack(fill="x", padx=8, pady=5)
-        self.themed_widgets["bg_frames"].append(q_btn_row)
+        # Row 1: Execution actions (Run, Pause, Stop)
+        q_btn_row1 = tk.Frame(frame, bg=t["bg"])
+        q_btn_row1.pack(fill="x", padx=8, pady=(4, 2))
+        self.themed_widgets["bg_frames"].append(q_btn_row1)
 
-        self.run_btn = self._btn(q_btn_row, "▶  Run", self._run_queue, accent=True)
-        self.run_btn.pack(side="left", padx=(0, 4))
+        self.run_btn = self._btn(q_btn_row1, "▶  Run", self._run_queue, accent=True)
+        self.run_btn.pack(side="left", fill="x", expand=True, padx=(0, 3))
         self.run_btn.bind("<Double-Button-1>", self._on_run_btn_double_click)
 
-        self.pause_btn = self._btn(q_btn_row, "⏸  Pause", self._toggle_pause)
-        self.pause_btn.pack(side="left", padx=(0, 4))
+        self.pause_btn = self._btn(q_btn_row1, "⏸  Pause", self._toggle_pause)
+        self.pause_btn.pack(side="left", padx=2)
         self.pause_btn.config(state="disabled")
 
-        self.stop_btn = self._btn(q_btn_row, "⏹  Stop", self._stop_scan, danger=True)
-        self.stop_btn.pack(side="left", padx=(0, 4))
+        self.stop_btn = self._btn(q_btn_row1, "⏹  Stop", self._stop_scan, danger=True)
+        self.stop_btn.pack(side="left", padx=(2, 0))
         self.stop_btn.config(state="disabled")
 
-        self.dedup_q_btn = self._btn(q_btn_row, "🧹 Dedup", self._deduplicate_queue)
-        self.dedup_q_btn.pack(side="left", padx=(4, 0))
+        # Row 2: Queue maintenance actions (Dedup, Remove, Clear) - full horizontal visibility
+        q_btn_row2 = tk.Frame(frame, bg=t["bg"])
+        q_btn_row2.pack(fill="x", padx=8, pady=(2, 6))
+        self.themed_widgets["bg_frames"].append(q_btn_row2)
 
-        self.del_q_btn = self._btn(q_btn_row, "✕ Remove", self._remove_selected_from_queue)
-        self.del_q_btn.pack(side="left", padx=(4, 0))
+        self.dedup_q_btn = self._btn(q_btn_row2, "🧹 Dedup", self._deduplicate_queue)
+        self.dedup_q_btn.pack(side="left", fill="x", expand=True, padx=(0, 2))
 
-        self.clear_q_btn = self._btn(q_btn_row, "🗑 Clear", self._clear_queue)
-        self.clear_q_btn.pack(side="right")
+        self.del_q_btn = self._btn(q_btn_row2, "✕ Remove", self._remove_selected_from_queue)
+        self.del_q_btn.pack(side="left", fill="x", expand=True, padx=2)
+
+        self.clear_q_btn = self._btn(q_btn_row2, "🗑 Clear", self._clear_queue)
+        self.clear_q_btn.pack(side="left", fill="x", expand=True, padx=(2, 0))
 
         def _bind_left_mousewheel_recursive(w):
             try:
@@ -1563,10 +1570,16 @@ class EbayTool(tk.Tk):
         self.themed_widgets["checks"].append(self.hr_cb)
 
         self.hb_cb = tk.Checkbutton(filter_bar, text="🛡️ Hide Benign", variable=self.filter_hide_benign_var,
-                                    command=self._repopulate_results_table, bg=t["panel"], fg=t["success"],
+                                    command=self._on_hide_benign_toggled, bg=t["panel"], fg=t["success"],
                                     selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
-        self.hb_cb.pack(side="left", padx=(2, 4))
+        self.hb_cb.pack(side="left", padx=(2, 2))
         self.themed_widgets["checks"].append(self.hb_cb)
+
+        self.ob_cb = tk.Checkbutton(filter_bar, text="🟢 Benign Only", variable=self.filter_only_benign_var,
+                                    command=self._on_only_benign_toggled, bg=t["panel"], fg=t["accent"],
+                                    selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        self.ob_cb.pack(side="left", padx=(2, 4))
+        self.themed_widgets["checks"].append(self.ob_cb)
 
         self._btn(filter_bar, "✕ Clear", self._clear_filter).pack(side="left", padx=(0, 4))
         self._btn(filter_bar, "✓ Select All Visible", self._select_all_visible).pack(side="left", padx=(0, 4))
@@ -1669,26 +1682,26 @@ class EbayTool(tk.Tk):
         init_cfg = THUMB_CONFIG.get(init_size, THUMB_CONFIG["Medium (100px)"])
         self.result_tree = ttk.Treeview(table_frame, columns=cols, show=init_cfg["show"], selectmode="extended", style="Results.Treeview")
         self.result_tree.heading("#0", text="Preview" if init_cfg["img_size"] > 0 else "", anchor="center")
-        self.result_tree.column("#0", width=init_cfg["col_width"], minwidth=init_cfg["col_width"], anchor="center")
+        self.result_tree.column("#0", width=init_cfg["col_width"], minwidth=init_cfg["col_width"], anchor="center", stretch=False)
         saved_col_widths = self.data_store.get_setting("column_widths", {})
         col_widths = {
-            "brand": 75,
-            "product_type": 110,
-            "title": 260,
-            "item_id": 100,
-            "price": 70,
-            "seller": 100,
-            "seller_origin": 85,
-            "threat_badge": 175,
-            "location": 110,
-            "thumbnail": 100,
-            "url": 120
+            "brand": 80,
+            "product_type": 120,
+            "title": 300,
+            "item_id": 110,
+            "price": 80,
+            "seller": 130,
+            "seller_origin": 90,
+            "threat_badge": 180,
+            "location": 120,
+            "thumbnail": 110,
+            "url": 220
         }
         for c in cols:
-            w = saved_col_widths.get(c, col_widths.get(c, 100)) if isinstance(saved_col_widths, dict) else col_widths.get(c, 100)
+            w = saved_col_widths.get(c, col_widths.get(c, 120)) if isinstance(saved_col_widths, dict) else col_widths.get(c, 120)
             self.result_tree.heading(c, text=self.col_labels[c],
                                      command=lambda _c=c: self._sort_by_column(_c))
-            self.result_tree.column(c, width=w, minwidth=45)
+            self.result_tree.column(c, width=w, minwidth=50, stretch=False)
         self._style_tree(self.result_tree)
         self._apply_column_visibility()
 
@@ -2077,12 +2090,12 @@ class EbayTool(tk.Tk):
 
         def toggle_maximize():
             if drag_state["is_max"]:
-                target_widget.configure(height=default_val)
-                drag_state["current_val"] = default_val
+                target_widget.configure(height=min_val)
+                drag_state["current_val"] = min_val
                 drag_state["is_max"] = False
             else:
-                target_widget.configure(height=max_toggle)
-                drag_state["current_val"] = max_toggle
+                target_widget.configure(height=max_val)
+                drag_state["current_val"] = max_val
                 drag_state["is_max"] = True
             if hasattr(self, "_update_left_scrollregion"):
                 self._update_left_scrollregion()
@@ -2754,9 +2767,22 @@ class EbayTool(tk.Tk):
         win = tk.Toplevel(self)
         win.title(title)
         win.configure(bg=t["bg"])
-        win.geometry("320x120")
+        win.geometry("340x140")
+        win.resizable(False, False)
+        win.transient(self)
         win.grab_set()
         self._apply_dark_titlebar(win)
+        self._center_window(win, 340, 140)
+
+        def _close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _close)
+
         tk.Label(win, text="Name:", bg=t["bg"], fg=t["text"], font=FONT).pack(pady=(16, 4))
         entry = tk.Entry(win, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"],
                          relief="flat", font=FONT, width=28)
@@ -2766,7 +2792,7 @@ class EbayTool(tk.Tk):
             name = entry.get().strip()
             if name:
                 callback(name)
-                win.destroy()
+                _close()
         entry.bind("<Return>", submit)
         tk.Button(win, text="Add", command=submit,
                   bg=t["accent"], fg="black" if t.get("name", "").startswith("⚡") else "white", relief="flat", font=FONT).pack(pady=8)
@@ -3102,6 +3128,15 @@ class EbayTool(tk.Tk):
         btn_row = tk.Frame(win, bg=t["bg"])
         btn_row.pack(fill="x", padx=24)
 
+        def _close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _close)
+
         def _do_save():
             chosen_name = name_var.get().strip()
             if not chosen_name:
@@ -3121,11 +3156,11 @@ class EbayTool(tk.Tk):
             self._refresh_preset_list()
             self.preset_var.set(chosen_name)
             self._log(f"💾 Saved Portfolio Preset '{chosen_name}' ({len(target_brands)} brands, {len(active_excls)} exclusions).")
-            win.destroy()
-            messagebox.showinfo("Preset Saved", f"Successfully saved Portfolio Preset '{chosen_name}' with {len(target_brands)} brand(s) and {len(active_excls)} generic exclusion(s)!", parent=self)
+            _close()
+            self.after(50, lambda: messagebox.showinfo("Preset Saved", f"Successfully saved Portfolio Preset '{chosen_name}' with {len(target_brands)} brand(s) and {len(active_excls)} generic exclusion(s)!", parent=self))
 
         self._btn(btn_row, "💾 Save / Update Preset", _do_save, accent=True).pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self._btn(btn_row, "Cancel", win.destroy).pack(side="right")
+        self._btn(btn_row, "Cancel", _close).pack(side="right")
         win.bind("<Return>", lambda e: _do_save())
 
     def _delete_custom_preset(self):
@@ -3168,8 +3203,8 @@ class EbayTool(tk.Tk):
             target_terms = list(custom_includes)
 
         generic_excludes = self._get_active_exclusions()
-        condition = self.condition_var.get()
-        all_library_brands = self.data_store.get_brands() if hasattr(self, "data_store") else {}
+        ds = getattr(self, "data_store", None)
+        all_library_brands = ds.get_brands() if ds else {}
         platform_name = self._get_current_platform_name()
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
@@ -4228,8 +4263,11 @@ class EbayTool(tk.Tk):
                 else:
                     item["threat_badge"] = threat_display
 
-                # Check Hide Benign filter checkbox
-                if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
+                # Check Only Benign vs Hide Benign filter checkboxes
+                if hasattr(self, "filter_only_benign_var") and self.filter_only_benign_var.get():
+                    if not (item.get("visual_benign") or str(threat_display).startswith("🟢 Benign")):
+                        continue
+                elif hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
                     if item.get("visual_benign") or str(threat_display).startswith("🟢 Benign"):
                         continue
 
@@ -4259,12 +4297,41 @@ class EbayTool(tk.Tk):
                 if is_thumbs and img_url:
                     self._fetch_inline_thumbnail(iid, img_url)
 
-            if query:
-                vis = len(self.result_tree.get_children())
-                self.result_count.set(f"{vis} / {len(self.results)} listings (filtered)")
-            else:
-                self.result_count.set(f"{len(self.results)} listings")
+            self._update_result_count()
         self.after(0, _add)
+
+    def _on_hide_benign_toggled(self):
+        """Toggle Hide Benign filter, disabling Benign Only if enabled."""
+        if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
+            if hasattr(self, "filter_only_benign_var"):
+                self.filter_only_benign_var.set(False)
+        self._repopulate_results_table()
+
+    def _on_only_benign_toggled(self):
+        """Toggle Benign Only filter, disabling conflicting filters."""
+        if hasattr(self, "filter_only_benign_var") and self.filter_only_benign_var.get():
+            if hasattr(self, "filter_hide_benign_var"):
+                self.filter_hide_benign_var.set(False)
+            if hasattr(self, "filter_high_risk_var"):
+                self.filter_high_risk_var.set(False)
+        self._repopulate_results_table()
+
+    def _update_result_count(self):
+        """Standardize and synchronize result count display across all views."""
+        total_count = len(self.results)
+        vis_count = len(self.result_tree.get_children())
+        selected_count = len(self.result_tree.selection())
+
+        if selected_count > 0:
+            if vis_count < total_count:
+                self.result_count.set(f"{vis_count} / {total_count} listings ({selected_count} selected)")
+            else:
+                self.result_count.set(f"{total_count} listings ({selected_count} selected)")
+        else:
+            if vis_count < total_count:
+                self.result_count.set(f"{vis_count} / {total_count} listings (filtered)")
+            else:
+                self.result_count.set(f"{total_count} listings")
 
     def _repopulate_results_table(self):
         """Clear and refill result_tree from self.results honoring current filter."""
@@ -4276,7 +4343,6 @@ class EbayTool(tk.Tk):
         is_thumbs = (cfg["img_size"] > 0)
         ph = self._get_placeholder_thumb(cfg["img_size"]) if is_thumbs else ""
 
-        count = 0
         for item in self.results:
             if "product_type" not in item:
                 item["product_type"] = ""
@@ -4308,8 +4374,11 @@ class EbayTool(tk.Tk):
             else:
                 item["threat_badge"] = threat_display
 
-            # Check Hide Benign filter checkbox
-            if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
+            # Check Only Benign vs Hide Benign filter checkboxes
+            if hasattr(self, "filter_only_benign_var") and self.filter_only_benign_var.get():
+                if not (item.get("visual_benign") or str(threat_display).startswith("🟢 Benign")):
+                    continue
+            elif hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
                 if item.get("visual_benign") or str(threat_display).startswith("🟢 Benign"):
                     continue
 
@@ -4339,12 +4408,7 @@ class EbayTool(tk.Tk):
             if is_thumbs and img_url:
                 self._fetch_inline_thumbnail(iid, img_url)
 
-            count += 1
-
-        if query or (hasattr(self, "filter_high_risk_var") and self.filter_high_risk_var.get()):
-            self.result_count.set(f"{count} / {len(self.results)} listings (filtered)")
-        else:
-            self.result_count.set(f"{len(self.results)} listings")
+        self._update_result_count()
 
     def _sort_by_column(self, col):
         """Sort self.results by column with numeric/price intelligence and update headers."""
@@ -4859,43 +4923,16 @@ class EbayTool(tk.Tk):
                 def _done():
                     self.progress.stop()
                     if not hits:
-                        self._status(f"Reverse visual search on {mkt}{loc_label} found no new direct listings.")
-                        messagebox.showinfo("Visual Search", f"No additional {mkt}{loc_label} listings found for '{label}'.")
+                        self._status(f"Reverse visual search on {mkt}{loc_label} found no matching listings.")
+                        messagebox.showinfo("Visual Search", f"No additional {mkt}{loc_label} listings found matching the reference photo for '{label}'.")
                         return
 
-                    new_items = []
-                    existing_ids = {it.get("item_id") for it in self.results if it.get("item_id")}
-                    discovered_sellers = set()
-
-                    for h in hits:
-                        if h.get("item_id") not in existing_ids:
-                            new_items.append(h)
-                            self.results.append(h)
-                            existing_ids.add(h.get("item_id"))
-                        s = str(h.get("seller", "")).replace("🛡️", "").replace("(Authorized)", "").strip()
-                        if s and s not in ("eBay Seller", "Unknown"):
-                            discovered_sellers.add(s)
-
-                    self._repopulate_results_table()
-                    self._log(f"📸 Reverse Visual Dredge Complete: Discovered {len(new_items)} {mkt}{loc_label} listings across {len(discovered_sellers)} seller accounts.")
-                    self._status(f"Visual search added {len(new_items)} listings.")
-
-                    if discovered_sellers:
-                        seller_list = ", ".join(list(discovered_sellers)[:8])
-                        if len(discovered_sellers) > 8: seller_list += f" (+{len(discovered_sellers)-8} more)"
-                        prompt = f"Reverse Visual Dredge on {mkt}{loc_label} for '{label}' found {len(new_items)} listings across {len(discovered_sellers)} rogue seller account(s):\n\n{seller_list}\n\nWould you like to automatically add these {len(discovered_sellers)} sellers into the Stores box to run a Full Storefront Sweep?"
-                        if messagebox.askyesno("Syndicate Sellers Discovered", prompt):
-                            curr = self.store_text.get("1.0", "end").strip()
-                            ph = self.store_placeholder.strip()
-                            existing_lines = [l.strip() for l in curr.splitlines() if l.strip() and l != ph]
-                            for ds in discovered_sellers:
-                                if ds not in existing_lines:
-                                    existing_lines.append(ds)
-                            self.store_text.delete("1.0", "end")
-                            self.store_text.insert("1.0", "\n".join(existing_lines) + "\n")
-                            self.store_text.config(fg=self.theme["text"])
-                            self.store_full_sweep_var.set(True)
-                            self._log(f"🏪 Added {len(discovered_sellers)} discovered syndicate sellers to Stores box & enabled Full Store Sweep.")
+                    total_matches = len(hits)
+                    self._log(f"📸 Reverse Visual Dredge Complete: Found {total_matches} verified photo clone(s) on {mkt}{loc_label}. Launching Triage Modal...")
+                    self._status(f"Visual search identified {total_matches} matching listings on {mkt}.")
+                    
+                    # Launch dedicated Discovery & Triage Modal for Analyst Verification
+                    ReverseVisualModal(self, hits, img_url, label=label, marketplace=mkt, region=reg, target_phash=str(thresh))
                 self.after(0, _done)
             except Exception as e:
                 def _err(err=e):
@@ -4988,19 +5025,7 @@ class EbayTool(tk.Tk):
 
     def _on_result_tree_select(self, event=None):
         """Update live selected row counter in Results toolbar."""
-        selected_count = len(self.result_tree.selection())
-        total_count = len(self.results)
-        vis_count = len(self.result_tree.get_children())
-        if selected_count > 0:
-            if vis_count < total_count:
-                self.result_count.set(f"{vis_count}/{total_count} ({selected_count} sel)")
-            else:
-                self.result_count.set(f"{total_count} total ({selected_count} sel)")
-        else:
-            if vis_count < total_count:
-                self.result_count.set(f"{vis_count}/{total_count} (filter)")
-            else:
-                self.result_count.set(f"{total_count} total")
+        self._update_result_count()
 
     def _copy_all_listing_urls(self):
         """Copy all harvested listing URLs in the results table to clipboard."""
@@ -5126,19 +5151,26 @@ class EbayTool(tk.Tk):
             return
 
         values = self.result_tree.item(sel)["values"]
-        target_item = {
-            "brand": values[0] if len(values) > 0 else "",
-            "product_type": values[1] if len(values) > 1 else "",
-            "title": values[2] if len(values) > 2 else "",
-            "item_id": str(values[3]) if len(values) > 3 else "",
-            "price": str(values[4]) if len(values) > 4 else "",
-            "seller": str(values[5]) if len(values) > 5 else "",
-            "seller_origin": str(values[6]) if len(values) > 6 else "",
-            "threat_badge": str(values[7]) if len(values) > 7 else "",
-            "location": str(values[8]) if len(values) > 8 else "",
-            "image_url": str(values[9]) if len(values) > 9 else "",
-            "url": str(values[10]) if len(values) > 10 else (str(values[8]) if len(values) > 8 else ""),
-        }
+        item_id = str(values[3]).strip() if len(values) > 3 else ""
+        target_item = None
+        for it in self.results:
+            if str(it.get("item_id", "")).strip() == item_id:
+                target_item = dict(it)
+                break
+        if not target_item:
+            target_item = {
+                "brand": values[0] if len(values) > 0 else "",
+                "product_type": values[1] if len(values) > 1 else "",
+                "title": values[2] if len(values) > 2 else "",
+                "item_id": item_id,
+                "price": str(values[4]) if len(values) > 4 else "",
+                "seller": str(values[5]) if len(values) > 5 else "",
+                "seller_origin": str(values[6]) if len(values) > 6 else "",
+                "threat_badge": str(values[7]) if len(values) > 7 else "",
+                "location": str(values[8]) if len(values) > 8 else "",
+                "image_url": str(values[9]) if len(values) > 9 else "",
+                "url": str(values[10]) if len(values) > 10 else (f"https://www.ebay.com/itm/{item_id}" if item_id else ""),
+            }
         ConnectedNetworkModal(self, target_item)
 
     def _enrich_seller_threat_intel(self):
@@ -5474,7 +5506,7 @@ class EbayTool(tk.Tk):
         style = ttk.Style()
         style.configure("Results.Treeview", rowheight=cfg["rowheight"])
         self.result_tree.configure(show=cfg["show"], style="Results.Treeview")
-        self.result_tree.column("#0", width=cfg["col_width"], minwidth=cfg["col_width"], anchor="center")
+        self.result_tree.column("#0", width=cfg["col_width"], minwidth=cfg["col_width"], anchor="center", stretch=False)
         self.result_tree.heading("#0", text="Preview" if cfg["img_size"] > 0 else "", anchor="center")
 
         if cfg["img_size"] <= 0:
@@ -5834,6 +5866,19 @@ class EbayTool(tk.Tk):
         if not self.results:
             messagebox.showinfo("Export", "No results to export.")
             return
+
+        # Determine items to export: honor active Hide Benign filter so benign packaging is not exported
+        export_items = self.results
+        if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
+            export_items = [
+                it for it in export_items
+                if not (it.get("visual_benign") or str(it.get("threat_badge", "")).startswith("🟢 Benign"))
+            ]
+
+        if not export_items:
+            messagebox.showinfo("Export", "No listings to export (all active listings are classified as Benign Packaging).")
+            return
+
         path = filedialog.asksaveasfilename(
             defaultextension=".xlsx",
             filetypes=[("Excel", "*.xlsx")],
@@ -5841,17 +5886,17 @@ class EbayTool(tk.Tk):
         )
         if path:
             try:
-                self.exporter.export(self.results, path)
+                self.exporter.export(export_items, path)
                 # Ingest verified exported results into Enterprise Brand Enforcement Registry
                 seller_items = {}
-                for item in self.results:
+                for item in export_items:
                     seller = item.get("seller") or "Unknown"
                     seller_items.setdefault(seller, []).append(item)
                 for seller, s_items in seller_items.items():
                     self.data_store.record_enforcement_scan(seller, s_items)
-                self._log(f"Exported {len(self.results)} rows → {path}")
-                self._log(f"🛡️ Logged {len(self.results)} verified listing(s) across {len(seller_items)} seller(s) into Enterprise Brand Enforcement Registry.")
-                messagebox.showinfo("Exported", f"Saved {len(self.results)} verified listings to:\n{path}\n\n🛡️ Logged into Enterprise Brand Enforcement Registry.")
+                self._log(f"Exported {len(export_items)} rows → {path}")
+                self._log(f"🛡️ Logged {len(export_items)} verified listing(s) across {len(seller_items)} seller(s) into Enterprise Brand Enforcement Registry.")
+                messagebox.showinfo("Exported", f"Saved {len(export_items)} verified listings to:\n{path}\n\n🛡️ Logged into Enterprise Brand Enforcement Registry.")
             except Exception as e:
                 messagebox.showerror("Export Error", str(e))
 
@@ -5963,9 +6008,19 @@ class EbayTool(tk.Tk):
 
     def _launch_meli_login(self):
         """Open a visible browser window to log in to Mercado Libre and permanently preserve session cookies."""
-        self._log("🔑 Opening Mercado Libre authentication window in Microsoft Edge. Please log in or create an account—your authenticated session will be saved permanently!")
-        self.mercadolibre_scraper.launch_interactive_auth()
-        messagebox.showinfo("Mercado Libre Login", "A browser window is opening to Mercado Libre.\n\nPlease log in or create an account (you only need to do this once!).\n\nYour session cookies will be permanently stored for all future automated searches.")
+        meli_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
+        code_map = {
+            "mexico": "MLM", "brazil": "MLB", "argentina": "MLA", "colombia": "MCO",
+            "chile": "MLC", "peru": "MPE", "uruguay": "MLU"
+        }
+        site_code = "MLM"
+        for k, v in code_map.items():
+            if k in meli_c.lower():
+                site_code = v
+                break
+        self._log(f"🔑 Opening Mercado Libre ({meli_c} - {site_code}) authentication window in Microsoft Edge. Please log in—your authenticated session will be saved permanently!")
+        self.mercadolibre_scraper.launch_interactive_auth(site_code=site_code)
+        messagebox.showinfo("Mercado Libre Login", f"A browser window is opening to Mercado Libre ({meli_c}).\n\nPlease log in or create an account (you only need to do this once!).\n\nYour session cookies will be permanently stored for all future automated searches across this region.")
 
     def _launch_vinted_session(self):
         """Open a visible browser window to solve Cloudflare Turnstile challenge and save persistent clearance cookies."""
@@ -6174,7 +6229,8 @@ class EbayTool(tk.Tk):
 
         tk.Label(action_bar, text="🏷️ Brand Tag:", font=FONT_SM, bg=t["bg"], fg=t["accent"]).pack(side="left", padx=(14, 4))
         brand_var = tk.StringVar(value="⚡ Auto-Detect from Title")
-        all_library_brands = sorted(list(self.data_store.get_brands().keys())) if hasattr(self, "data_store") else []
+        ds = getattr(self, "data_store", None)
+        all_library_brands = sorted(list(ds.get_brands().keys())) if ds else []
         brand_choices = ["⚡ Auto-Detect from Title"] + all_library_brands
         brand_combo = ttk.Combobox(action_bar, textvariable=brand_var, values=brand_choices, width=22, state="readonly", font=FONT_SM)
         brand_combo.pack(side="left", padx=(0, 6))
@@ -6312,6 +6368,7 @@ class EbayTool(tk.Tk):
                 total_urls = len(urls)
 
                 self._log(f"🚀 Starting Adhoc Batch Harvest of {total_urls} URLs...")
+                self._status(f"🚀 Starting Adhoc Batch Harvest of {total_urls} URLs...")
 
                 for idx, u in enumerate(urls):
                     if batch_stop.is_set():
@@ -6322,10 +6379,12 @@ class EbayTool(tk.Tk):
                     pct = int(((idx + 1) / total_urls) * 100)
                     mkt = batch_importer.detect_platform(u)
                     
+                    self._status(f"📥 Batch Harvest [{idx+1}/{total_urls}]: Harvesting {mkt}...")
                     def _ui_prog(_idx=idx, _mkt=mkt, _pct=pct):
-                        status_lbl.config(text=f"[{_idx+1}/{total_urls}] Harvesting {_mkt} listing...", fg=t["text"])
-                        progress_var.set(_pct)
-                    win.after(0, _ui_prog)
+                        if self._win_importer and self._win_importer.winfo_exists():
+                            status_lbl.config(text=f"[{_idx+1}/{total_urls}] Harvesting {_mkt} listing...", fg=t["text"])
+                            progress_var.set(_pct)
+                    self.after(0, _ui_prog)
 
                     try:
                         # Check if we already have complete structured data from file
@@ -6335,9 +6394,22 @@ class EbayTool(tk.Tk):
                             if m_id:
                                 cached_item = structured_by_id.get(m_id.group(1))
 
-                        # If cached item has valid title and seller, use it without re-fetching
-                        if cached_item and cached_item.get("title") and cached_item.get("seller") not in ("Unknown", "eBay Seller", ""):
+                        # If cached item has valid title and seller, use it directly
+                        if cached_item and cached_item.get("title") and not str(cached_item.get("title")).startswith("Listing #") and not str(cached_item.get("title")).startswith("Imported Listing") and cached_item.get("seller") not in ("Unknown", "eBay Seller", ""):
                             item = dict(cached_item)
+                        elif cached_item and cached_item.get("title") and not str(cached_item.get("title")).startswith("Listing #") and not str(cached_item.get("title")).startswith("Imported Listing"):
+                            # File provided a valid title! Fetch live metadata (seller/price/photo) but strictly preserve file title
+                            fetched = batch_importer.fetch_single_listing(u, default_brand=override_brand, headless=is_headless)
+                            item = dict(cached_item)
+                            if fetched:
+                                if fetched.get("seller") and fetched.get("seller") not in ("Unknown", "eBay Seller", ""):
+                                    item["seller"] = fetched["seller"]
+                                if fetched.get("image_url") and not item.get("image_url"):
+                                    item["image_url"] = fetched["image_url"]
+                                if fetched.get("price") and item.get("price") in ("$0.00", "", "$0"):
+                                    item["price"] = fetched["price"]
+                                if fetched.get("seller_origin"):
+                                    item["seller_origin"] = fetched["seller_origin"]
                         else:
                             item = batch_importer.fetch_single_listing(u, default_brand=override_brand, headless=is_headless)
 
@@ -6361,17 +6433,19 @@ class EbayTool(tk.Tk):
 
                                 def _ui_add(_item=item, _cnt=scraped_count, _val=total_val):
                                     self._update_results_table([_item])
-                                    kpi_labels["success"].config(text=f"{_cnt:,}")
-                                    kpi_labels["val"].config(text=f"${_val:,.2f}")
-                                win.after(0, _ui_add)
+                                    if self._win_importer and self._win_importer.winfo_exists():
+                                        kpi_labels["success"].config(text=f"{_cnt:,}")
+                                        kpi_labels["val"].config(text=f"${_val:,.2f}")
+                                self.after(0, _ui_add)
                                 self._log(f"  ✓ [{mkt}] Harvested: '{item.get('title')[:55]}...' ({item.get('price')})")
                             elif not dedup_key:
                                 self.results.append(item)
                                 scraped_count += 1
                                 def _ui_add2(_item=item, _cnt=scraped_count):
                                     self._update_results_table([_item])
-                                    kpi_labels["success"].config(text=f"{_cnt:,}")
-                                win.after(0, _ui_add2)
+                                    if self._win_importer and self._win_importer.winfo_exists():
+                                        kpi_labels["success"].config(text=f"{_cnt:,}")
+                                self.after(0, _ui_add2)
                             else:
                                 self._log(f"  ℹ [{mkt}] Skipped duplicate Item ID: {iid}")
                     except Exception as e:
@@ -6381,23 +6455,26 @@ class EbayTool(tk.Tk):
 
                 def _ui_done(_scraped=scraped_count, _tot=total_urls):
                     batch_running[0] = False
-                    run_btn.config(state="normal")
-                    instant_import_btn.config(state="normal")
-                    stop_btn.config(state="disabled")
-                    status_lbl.config(text=f"Completed! Harvested {_scraped}/{_tot} listings.", fg=t["success"])
-                    progress_var.set(100)
+                    if self._win_importer and self._win_importer.winfo_exists():
+                        run_btn.config(state="normal")
+                        instant_import_btn.config(state="normal")
+                        stop_btn.config(state="disabled")
+                        status_lbl.config(text=f"Completed! Harvested {_scraped}/{_tot} listings.", fg=t["success"])
+                        progress_var.set(100)
 
                     # Sound alert if enabled
                     if self.sound_enabled_var.get():
                         try: winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
                         except Exception: pass
 
-                    self._log(f"🏁 Adhoc Batch Import Complete: Added {_scraped} listings to results table.")
+                    self._log(f"🏁 Adhoc Batch Import Complete: Successfully processed {_scraped} of {_tot} listings. Added to Results table.")
+                    self._status(f"🏁 Batch Import Complete: {_scraped}/{_tot} listings harvested.")
+                    target_parent = self._win_importer if (self._win_importer and self._win_importer.winfo_exists()) else self
                     messagebox.showinfo("Batch Harvest Complete",
                                         f"Harvest Complete!\n\nSuccessfully processed {_scraped} of {_tot} listings.\n\nAll listings have been added to your Main Results Table, Threat Intelligence Hub, and Excel export.",
-                                        parent=win)
+                                        parent=target_parent)
 
-                win.after(0, _ui_done)
+                self.after(0, _ui_done)
 
             t_thread = threading.Thread(target=_worker, daemon=True)
             t_thread.start()
@@ -6405,8 +6482,18 @@ class EbayTool(tk.Tk):
         def _stop_harvest():
             if batch_running[0]:
                 batch_stop.set()
-                status_lbl.config(text="Stopping batch harvest...")
-                stop_btn.config(state="disabled")
+                if self._win_importer and self._win_importer.winfo_exists():
+                    status_lbl.config(text="Stopping batch harvest...")
+                    stop_btn.config(state="disabled")
+                self._log("⏹ Stopping adhoc batch harvest...")
+
+        def _on_win_close():
+            if batch_running[0]:
+                self._log("ℹ️ Batch Importer window closed. Background scraping will continue running and notify when complete.")
+            self._win_importer = None
+            win.destroy()
+
+        win.protocol("WM_DELETE_WINDOW", _on_win_close)
 
         stop_btn = self._btn(exec_frame, "⏹ Stop", _stop_harvest, danger=True)
         stop_btn.pack(side="right", padx=(4, 0))
@@ -8036,8 +8123,10 @@ class MultiLocaleModal(tk.Toplevel):
             for item in self.target_items:
                 seller = item.get("seller") or "Unknown"
                 seller_items.setdefault(seller, []).append(item)
-            for seller, s_items in seller_items.items():
-                self.parent.data_store.record_enforcement_scan(seller, s_items)
+            ds = getattr(self.parent, "data_store", None)
+            if ds:
+                for seller, s_items in seller_items.items():
+                    ds.record_enforcement_scan(seller, s_items)
 
             self.parent._log(f"🌐 Multi-Locale Enforcement Pack exported: {total_rows} listings across {len(selected_locales)} domains → {path}")
             self.parent._log(f"🛡️ Logged {len(self.target_items)} verified listing(s) across {len(seller_items)} seller(s) into Enterprise Brand Enforcement Registry.")
@@ -8155,15 +8244,15 @@ class ConnectedNetworkModal(tk.Toplevel):
         self.match_filter_combo.pack(side="left", padx=(0, 10))
         self.match_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._populate_tree())
 
-        self.hide_same_seller_var = tk.BooleanVar(value=True)
-        same_seller_cb = tk.Checkbutton(f_row, text="☐ Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        self.hide_same_seller_var = tk.BooleanVar(value=False)
+        same_seller_cb = tk.Checkbutton(f_row, text="Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
         same_seller_cb.pack(side="left", padx=(0, 8))
 
-        self.hide_wl_var = tk.BooleanVar(value=True)
+        self.hide_wl_var = tk.BooleanVar(value=False)
         wl_cb = tk.Checkbutton(f_row, text="🛡️ Hide Whitelisted Dealers", variable=self.hide_wl_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
         wl_cb.pack(side="left", padx=(0, 8))
 
-        self.hide_targeted_var = tk.BooleanVar(value=True)
+        self.hide_targeted_var = tk.BooleanVar(value=False)
         targeted_cb = tk.Checkbutton(f_row, text="🎯 Hide Targeted / Harvested", variable=self.hide_targeted_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
         targeted_cb.pack(side="left", padx=(0, 8))
 
@@ -8186,7 +8275,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         self.tree.tag_configure("targeted", foreground=t["subtext"])
 
         self.tree.heading("#0", text="Photo Preview", anchor="center")
-        self.tree.column("#0", width=120, minwidth=100, anchor="center")
+        self.tree.column("#0", width=120, minwidth=100, anchor="center", stretch=False)
 
         self.col_cfg = {
             "similarity": ("Match Type / Visual Fingerprint", 185),
@@ -8199,7 +8288,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         }
         for c, (txt, w) in self.col_cfg.items():
             self.tree.heading(c, text=txt, command=lambda _c=c: self._sort_by_column(_c))
-            self.tree.column(c, width=w, minwidth=50)
+            self.tree.column(c, width=w, minwidth=50, stretch=False)
 
         vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
@@ -8281,15 +8370,22 @@ class ConnectedNetworkModal(tk.Toplevel):
                 pimg.thumbnail((96, 96), Image.Resampling.LANCZOS)
                 canvas = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
                 canvas.paste(pimg, ((96 - pimg.width)//2, (96 - pimg.height)//2))
-                photo = ImageTk.PhotoImage(canvas)
-                self.thumb_cache["source"] = photo
 
-                def _set():
-                    self.src_img_lbl.configure(image=photo, text="")
-                    self.src_img_lbl.image = photo
+                def _set(c=canvas):
+                    try:
+                        if self.winfo_exists():
+                            photo = ImageTk.PhotoImage(c, master=self)
+                            self.thumb_cache["source"] = photo
+                            self.src_img_lbl.configure(image=photo, text="")
+                            self.src_img_lbl.image = photo
+                    except Exception:
+                        self.src_img_lbl.configure(text="Photo\nUnavailable")
                 self.after(0, _set)
             except Exception:
-                self.after(0, lambda: self.src_img_lbl.configure(text="Photo\nUnavailable"))
+                try:
+                    self.after(0, lambda: self.src_img_lbl.configure(text="Photo\nUnavailable"))
+                except Exception:
+                    pass
         threading.Thread(target=_w, daemon=True).start()
 
     def _start_network_scan(self):
@@ -8316,30 +8412,26 @@ class ConnectedNetworkModal(tk.Toplevel):
                     results = scraper.find_connected_network(item_id, item_url, target_img)
 
                 self.discovered_items = results
-
-                # Batch resolve seller countries in parallel
-                unique_sellers = list(dict.fromkeys(r["seller"] for r in results if r.get("seller") and r.get("seller") not in ("Resolving...", "Unknown")))
-                if unique_sellers and hasattr(self.parent, "data_store"):
-                    uncached = [s for s in unique_sellers if not self.parent.data_store.get_seller_intel(s).get("country")]
-                    if uncached and hasattr(scraper, "batch_resolve_seller_countries"):
-                        resolved_intel = scraper.batch_resolve_seller_countries(uncached)
-                        for s, data in resolved_intel.items():
-                            c_val = data.get("country", "Unknown")
-                            if c_val and c_val != "Unknown":
-                                self.parent.data_store.set_seller_intel(s, c_val, member_since=data.get("member_since", ""))
-
+                scan_err = None
             except Exception as e:
                 logger.exception("Error in ConnectedNetworkModal scan")
                 results = []
                 self.discovered_items = []
+                scan_err = str(e)
 
             def _apply():
                 self.pbar.stop()
                 self.pbar.pack_forget()
 
+                if scan_err:
+                    self.status_lbl.configure(text=f"⚠️ Carousel Scan Error: {scan_err}", fg=self.t["danger"])
+                    self._populate_tree()
+                    return
+
+                ds = getattr(self.parent, "data_store", None)
                 unique_sellers = set(r["seller"] for r in self.discovered_items if r.get("seller"))
                 exact_matches = sum(1 for r in self.discovered_items if "Exact" in r.get("similarity", ""))
-                wl_count = sum(1 for r in self.discovered_items if self.parent.data_store.is_seller_whitelisted(r.get("seller", "")))
+                wl_count = sum(1 for r in self.discovered_items if (ds.is_seller_whitelisted(r.get("seller", "")) if ds else False))
 
                 status_txt = f"✅ Scan Complete: {len(self.discovered_items)} connected listings found ({exact_matches} exact photo matches, {len(unique_sellers)} resolved sellers)"
                 if wl_count > 0:
@@ -8347,6 +8439,25 @@ class ConnectedNetworkModal(tk.Toplevel):
                 self.status_lbl.configure(text=status_txt, fg=self.t["success"])
 
                 self._populate_tree()
+
+                # Asynchronously resolve seller country intelligence in background
+                def _bg_intel():
+                    try:
+                        unique_sellers = list(dict.fromkeys(r["seller"] for r in results if r.get("seller") and r.get("seller") not in ("Resolving...", "Unknown")))
+                        ds = getattr(self.parent, "data_store", None)
+                        if unique_sellers and ds:
+                            uncached = [s for s in unique_sellers if not ds.get_seller_intel(s).get("country")]
+                            if uncached and hasattr(scraper, "batch_resolve_seller_countries"):
+                                resolved_intel = scraper.batch_resolve_seller_countries(uncached)
+                                for s, data in resolved_intel.items():
+                                    c_val = data.get("country", "Unknown")
+                                    if c_val and c_val != "Unknown":
+                                        ds.set_seller_intel(s, c_val, member_since=data.get("member_since", ""))
+                                if self.winfo_exists():
+                                    self.after(0, self._populate_tree)
+                    except Exception:
+                        pass
+                threading.Thread(target=_bg_intel, daemon=True).start()
 
             self.after(0, _apply)
         threading.Thread(target=_worker, daemon=True).start()
@@ -8359,18 +8470,19 @@ class ConnectedNetworkModal(tk.Toplevel):
             self.sort_directions = {}
         descending = self.sort_directions.get(col, False)
         self.sort_directions[col] = not descending
+        ds = getattr(self.parent, "data_store", None)
 
         def get_sort_key(item):
             seller = (item.get("seller") or "").strip()
             if col == "origin":
-                intel = self.parent.data_store.get_seller_intel(seller) if hasattr(self.parent, "data_store") else {}
+                intel = ds.get_seller_intel(seller) if ds else {}
                 c_val = intel.get("country", "") if intel else ""
-                assessment = self.parent.data_store.compute_threat_assessment(c_val, "") if hasattr(self.parent, "data_store") else {}
+                assessment = ds.compute_threat_assessment(c_val, "") if ds else {}
                 return assessment.get("country", "Unknown").lower()
             elif col == "threat":
-                intel = self.parent.data_store.get_seller_intel(seller) if hasattr(self.parent, "data_store") else {}
+                intel = ds.get_seller_intel(seller) if ds else {}
                 c_val = intel.get("country", "") if intel else ""
-                assessment = self.parent.data_store.compute_threat_assessment(c_val, "") if hasattr(self.parent, "data_store") else {}
+                assessment = ds.compute_threat_assessment(c_val, "") if ds else {}
                 return assessment.get("score", 0)
             elif col == "price":
                 m = re.search(r"[\d,]+(?:\.\d+)?", str(item.get("price", "")))
@@ -8453,11 +8565,12 @@ class ConnectedNetworkModal(tk.Toplevel):
         img_size = cfg.get("img_size", 0)
         show_images = img_size > 0
 
+        ds = getattr(self.parent, "data_store", None)
         shown_count = 0
         for itm in self.discovered_items:
             seller = (itm.get("seller") or "Unknown").strip()
             seller_clean = seller.lower()
-            is_wl = self.parent.data_store.is_seller_whitelisted(seller) if hasattr(self.parent, "data_store") else False
+            is_wl = ds.is_seller_whitelisted(seller) if ds else False
             is_same = bool(src_seller and seller_clean == src_seller)
             is_targeted_or_harvested = bool(seller_clean in targeted_or_harvested)
 
@@ -8484,9 +8597,9 @@ class ConnectedNetworkModal(tk.Toplevel):
                 seller_display = f"⚡ {seller}"
 
             # Evaluate Threat Intel from DataStore
-            cached_intel = self.parent.data_store.get_seller_intel(seller) if hasattr(self.parent, "data_store") else {}
+            cached_intel = ds.get_seller_intel(seller) if ds else {}
             seller_country = cached_intel.get("country", "") if cached_intel else ""
-            assessment = self.parent.data_store.compute_threat_assessment(seller_country, "") if hasattr(self.parent, "data_store") else {}
+            assessment = ds.compute_threat_assessment(seller_country, "") if ds else {}
             orig_txt = f"{assessment.get('flag', '❓')} {assessment.get('country', 'Unknown')}" if assessment.get('country') != 'Unknown' else "❓ Unresolved"
             threat_txt = assessment.get("badge", "Unresolved")
 
@@ -8526,9 +8639,16 @@ class ConnectedNetworkModal(tk.Toplevel):
                     pimg.thumbnail((size, size), Image.Resampling.LANCZOS)
                     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
                     canvas.paste(pimg, ((size - pimg.width)//2, (size - pimg.height)//2))
-                    photo = ImageTk.PhotoImage(canvas)
-                    self.thumb_cache[url] = photo
-                    self.after(0, lambda: self.tree.exists(iid) and self.tree.item(iid, image=photo))
+                    
+                    def _update_ui(c=canvas):
+                        try:
+                            if self.winfo_exists() and self.tree.exists(iid):
+                                photo = ImageTk.PhotoImage(c, master=self)
+                                self.thumb_cache[url] = photo
+                                self.tree.item(iid, image=photo)
+                        except Exception:
+                            pass
+                    self.after(0, _update_ui)
                     break
                 except Exception:
                     if attempt == 0:
@@ -8605,7 +8725,9 @@ class ConnectedNetworkModal(tk.Toplevel):
                 if seller_handle in res:
                     c_val = res[seller_handle].get("country", "Unknown")
                     m_since = res[seller_handle].get("member_since", "")
-                    self.parent.data_store.set_seller_intel(seller_handle, c_val, member_since=m_since)
+                    ds = getattr(self.parent, "data_store", None)
+                    if ds:
+                        ds.set_seller_intel(seller_handle, c_val, member_since=m_since)
             self.after(0, self._populate_tree)
         threading.Thread(target=_w, daemon=True).start()
 
@@ -8653,7 +8775,8 @@ class ConnectedNetworkModal(tk.Toplevel):
             if not seller_handle or seller_handle in ("Resolving...", "Unknown"):
                 self.count_var.set("⚠️ No valid seller handle to whitelist.")
                 return
-            if self.parent.data_store.is_seller_whitelisted(seller_handle):
+            ds = getattr(self.parent, "data_store", None)
+            if ds and ds.is_seller_whitelisted(seller_handle):
                 self.count_var.set(f"🛡️ '{seller_handle}' is already Whitelisted.")
                 return
             d_name = simpledialog.askstring("Authorized Dealership", f"Enter Dealership Name for '{seller_handle}' (optional):", initialvalue="Authorized Dealership", parent=self)
@@ -8662,60 +8785,12 @@ class ConnectedNetworkModal(tk.Toplevel):
                 return
             notes = simpledialog.askstring("Analyst Notes", f"Notes for '{seller_handle}' (optional):", initialvalue="Client Approved Whitelist", parent=self) or ""
             b_val = self.target_item.get("brand") or "General / All Brands"
-            self.parent.data_store.add_to_whitelist(seller_handle, brand=b_val, dealer_name=d_name, notes=notes)
+            if ds:
+                ds.add_to_whitelist(seller_handle, brand=b_val, dealer_name=d_name, notes=notes)
             self.parent._log(f"🛡️ Added '{seller_handle}' to Authorized Whitelist ({b_val}).")
             self.count_var.set(f"🛡️ Whitelisted '{seller_handle}' ({b_val})!")
             self._populate_tree()
             self.lift()
-
-    def _sort_by_column(self, col):
-        """Sort discovered items by column and re-render tree."""
-        if not self.discovered_items:
-            return
-        if not hasattr(self, "sort_directions"):
-            self.sort_directions = {}
-        descending = self.sort_directions.get(col, False)
-        self.sort_directions[col] = not descending
-
-        def get_sort_key(item):
-            seller = (item.get("seller") or "").strip()
-            if col == "origin":
-                intel = self.parent.data_store.get_seller_intel(seller) if hasattr(self.parent, "data_store") else {}
-                c_val = intel.get("country", "") if intel else ""
-                assessment = self.parent.data_store.compute_threat_assessment(c_val, "") if hasattr(self.parent, "data_store") else {}
-                return assessment.get("country", "Unknown").lower()
-            elif col == "threat":
-                intel = self.parent.data_store.get_seller_intel(seller) if hasattr(self.parent, "data_store") else {}
-                c_val = intel.get("country", "") if intel else ""
-                assessment = self.parent.data_store.compute_threat_assessment(c_val, "") if hasattr(self.parent, "data_store") else {}
-                return assessment.get("score", 0)
-            elif col == "price":
-                m = re.search(r"[\d,]+(?:\.\d+)?", str(item.get("price", "")))
-                if m:
-                    try: return float(m.group(0).replace(",", ""))
-                    except ValueError: return 0.0
-                return 0.0
-            elif col == "item_id":
-                try: return int(item.get("item_id", 0))
-                except ValueError: return 0
-            elif col == "similarity":
-                return str(item.get("similarity", "")).lower()
-            elif col == "seller":
-                return seller.lower()
-            elif col == "title":
-                return str(item.get("title", "")).lower()
-            return str(item.get(col, "")).lower()
-
-        self.discovered_items.sort(key=get_sort_key, reverse=descending)
-        self._populate_tree()
-
-        # Update headings with sort arrows
-        for c, (txt, w) in self.col_cfg.items():
-            if c == col:
-                arrow = " ▼" if descending else " ▲"
-                self.tree.heading(c, text=f"{txt}{arrow}", command=lambda _c=c: self._sort_by_column(_c))
-            else:
-                self.tree.heading(c, text=txt, command=lambda _c=c: self._sort_by_column(_c))
 
     def _append_to_parent_stores(self, seller_handle: str):
         """Append seller handle to the main Stores/Sellers input box without fusion or duplicates."""
@@ -8823,7 +8898,8 @@ class ConnectedNetworkModal(tk.Toplevel):
             return
 
         parent = self.parent
-        whitelisted = [s for s in unique_sellers if parent.data_store.is_seller_whitelisted(s)]
+        ds = getattr(parent, "data_store", None)
+        whitelisted = [s for s in unique_sellers if (ds.is_seller_whitelisted(s) if ds else False)]
         if whitelisted:
             wl_msg = f"{len(whitelisted)} selected seller(s) are on your Authorized Whitelist:\n{', '.join(whitelisted)}\n\nDo you really want to target them?"
             if not messagebox.askyesno("Whitelisted Seller", wl_msg, parent=self):
@@ -8974,7 +9050,8 @@ class ConnectedNetworkModal(tk.Toplevel):
             return
 
         parent = self.parent
-        eligible_sellers = [s for s in unique_sellers if not parent.data_store.is_seller_whitelisted(s)]
+        ds = getattr(parent, "data_store", None)
+        eligible_sellers = [s for s in unique_sellers if not (ds.is_seller_whitelisted(s) if ds else False)]
         skipped_count = len(unique_sellers) - len(eligible_sellers)
 
         if not eligible_sellers:
@@ -9031,6 +9108,620 @@ class ConnectedNetworkModal(tk.Toplevel):
             msg += f" (Skipped {skipped_executed} already-completed searches)"
         parent._log(f"🎯 Enqueued {added_count} batch jobs across {len(eligible_sellers)} sellers on {platform_name} (Shielded {skipped_count} whitelisted dealers, skipped {skipped_executed} already run).")
         self.count_var.set(f"🎯 {msg}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  REVERSE VISUAL DREDGE RESULTS & THREAT CLONE DISCOVERY MODAL
+# ══════════════════════════════════════════════════════════════════════════════
+class ReverseVisualModal(tk.Toplevel):
+    """
+    Dedicated Discovery & Triage Modal for Reverse Visual Search / Visual Threat Catalog Clones.
+    Presents the reference photo alongside discovered marketplace listings with side-by-side
+    perceptual verification previews, seller intel, match similarity %, and 1-click batch actions.
+    """
+    def __init__(self, parent, hits: list, target_img, label: str = "Visual Reference", marketplace: str = "eBay", region: Optional[str] = None, target_phash: str = ""):
+        super().__init__(parent)
+        self.parent = parent
+        self.hits = hits or []
+        self.target_img = target_img
+        self.label = label
+        self.marketplace = marketplace or "eBay"
+        self.region = region
+        self.target_phash = target_phash
+        self.t = parent.theme
+        self.thumb_cache = {}
+        self.sort_directions = {}
+
+        loc_str = f" [{region}]" if region else ""
+        self.title(f"📸 Reverse Visual Dredge Discovery — {self.marketplace}{loc_str} ({len(self.hits)} Matches)")
+        self.geometry("1200x780")
+        self.configure(bg=self.t["bg"])
+        self.minsize(980, 620)
+        self.parent._apply_dark_titlebar(self)
+
+        # Center modal relative to parent window
+        self.update_idletasks()
+        p_x = parent.winfo_rootx()
+        p_y = parent.winfo_rooty()
+        p_w = parent.winfo_width()
+        p_h = parent.winfo_height()
+        w, h = 1200, 780
+        x = p_x + (p_w - w) // 2
+        y = p_y + (p_h - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.lift()
+        self.focus_force()
+
+        self._build_ui()
+        self._populate_tree()
+
+    def _build_ui(self):
+        t = self.t
+
+        # ── 1. Top Target Reference Listing Card ──────────────────────────────
+        hdr_frame = tk.Frame(self, bg=t["panel"], padx=16, pady=12, relief="flat", highlightbackground=t["border"], highlightthickness=1)
+        hdr_frame.pack(side="top", fill="x", padx=12, pady=(12, 6))
+
+        # Big Thumbnail preview container
+        img_box = tk.Frame(hdr_frame, bg=t["entry_bg"], width=104, height=104, highlightbackground=t["border"], highlightthickness=1)
+        img_box.pack_propagate(False)
+        img_box.pack(side="left", padx=(0, 16))
+
+        self.src_img_lbl = tk.Label(img_box, text="Loading\nPhoto...", bg=t["entry_bg"], fg=t["subtext"], font=FONT_SM)
+        self.src_img_lbl.pack(fill="both", expand=True)
+        self._load_source_image()
+
+        info_box = tk.Frame(hdr_frame, bg=t["panel"])
+        info_box.pack(side="left", fill="both", expand=True)
+
+        badge_row = tk.Frame(info_box, bg=t["panel"])
+        badge_row.pack(anchor="w", pady=(0, 4))
+
+        tag_lbl = tk.Label(badge_row, text="📸 TARGET REFERENCE PHOTO", font=("Segoe UI", 8, "bold"), bg=t["accent"], fg="white", padx=8, pady=2)
+        tag_lbl.pack(side="left", padx=(0, 8))
+
+        loc_str = f" [{self.region}]" if self.region else ""
+        tk.Label(badge_row, text=f"Marketplace: {self.marketplace}{loc_str}", font=("Segoe UI", 8, "bold"), bg=t["entry_bg"], fg=t["subtext"], padx=8, pady=2).pack(side="left", padx=(0, 8))
+
+        title_lbl = tk.Label(info_box, text=f"Target: {self.label}", font=FONT_HEAD, bg=t["panel"], fg=t["text"], wraplength=820, justify="left")
+        title_lbl.pack(anchor="w")
+
+        sub_text = f"⚡ Total Matches: {len(self.hits)} listings discovered across multiple merchant accounts"
+        sub_lbl = tk.Label(info_box, text=sub_text, font=FONT_SM, bg=t["panel"], fg=t["subtext"])
+        sub_lbl.pack(anchor="w", pady=(4, 0))
+
+        # ── 2. Filters toolbar ────────────────────────────────────────────────
+        f_row = tk.Frame(self, bg=t["panel"], padx=12, pady=5, relief="flat", highlightbackground=t["border"], highlightthickness=1)
+        f_row.pack(side="top", fill="x", padx=12, pady=(2, 4))
+
+        tk.Label(f_row, text="Thumbnails:", font=FONT_SM, bg=t["panel"], fg=t["subtext"]).pack(side="left", padx=(0, 4))
+        self.thumb_size_var = tk.StringVar(value="Medium (100px)")
+        self.thumb_size_combo = ttk.Combobox(f_row, textvariable=self.thumb_size_var, values=list(THUMB_CONFIG.keys()), width=14, state="readonly", font=FONT_SM)
+        self.thumb_size_combo.pack(side="left", padx=(0, 10))
+        self.thumb_size_combo.bind("<<ComboboxSelected>>", self._on_thumb_size_changed)
+
+        tk.Label(f_row, text="Match Filter:", font=FONT_SM, bg=t["panel"], fg=t["subtext"]).pack(side="left", padx=(0, 4))
+        self.match_filter_var = tk.StringVar(value="(All Discovered)")
+        match_filters = ["(All Discovered)", "🎯 Exact Matches Only (100%)", "🖼️ Visual Matches Only"]
+        self.match_filter_combo = ttk.Combobox(f_row, textvariable=self.match_filter_var, values=match_filters, width=24, state="readonly", font=FONT_SM)
+        self.match_filter_combo.pack(side="left", padx=(0, 10))
+        self.match_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._populate_tree())
+
+        self.hide_same_seller_var = tk.BooleanVar(value=False)
+        same_seller_cb = tk.Checkbutton(f_row, text="Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        same_seller_cb.pack(side="left", padx=(0, 8))
+
+        self.hide_wl_var = tk.BooleanVar(value=False)
+        wl_cb = tk.Checkbutton(f_row, text="🛡️ Hide Whitelisted Dealers", variable=self.hide_wl_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        wl_cb.pack(side="left", padx=(0, 8))
+
+        # ── 3. Action Toolbar (Pack bottom first to prevent table overflow clipping) ──
+        btn_bar = tk.Frame(self, bg=t["panel"], padx=16, pady=12, relief="flat", highlightbackground=t["border"], highlightthickness=1)
+        btn_bar.pack(side="bottom", fill="x", padx=12, pady=(6, 12))
+
+        self.count_var = tk.StringVar(value=f"{len(self.hits)} photo clone listings discovered")
+        count_lbl = tk.Label(btn_bar, textvariable=self.count_var, bg=t["panel"], fg=t["text"], font=FONT_HEAD)
+        count_lbl.pack(side="left")
+
+        tk.Button(btn_bar, text="✕ Close", command=self.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="📋 Copy Seller Handles", command=self._copy_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="🏪 Add to Stores Box", command=self._add_all_to_stores, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="📥 Add to Results Table", command=self._add_to_results, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="➕ Add Sellers to Queue", command=self._add_sellers_to_queue, bg=t["accent"], fg="white", relief="flat", padx=14, pady=6, font=("Segoe UI", 9, "bold")).pack(side="right", padx=4)
+
+        # ── 4. Discovered Network Table ───────────────────────────────────────
+        table_frame = tk.Frame(self, bg=t["bg"])
+        table_frame.pack(side="top", fill="both", expand=True, padx=12, pady=4)
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        cols = ("similarity", "seller", "origin", "threat", "price", "title", "item_id")
+        self.tree = ttk.Treeview(table_frame, columns=cols, show="tree headings", selectmode="extended", style="ReverseVisual.Treeview")
+
+        style = ttk.Style()
+        style.configure("ReverseVisual.Treeview", background=t["entry_bg"], foreground=t["text"], fieldbackground=t["entry_bg"], rowheight=108, font=FONT_SM)
+        style.configure("ReverseVisual.Treeview.Heading", background=t["panel"], foreground=t["text"], font=("Segoe UI", 9, "bold"))
+        style.map("ReverseVisual.Treeview", background=[("selected", t["select_bg"])], foreground=[("selected", t["select_fg"])])
+
+        self.tree.tag_configure("whitelisted", foreground=t["success"])
+        self.tree.tag_configure("clone", foreground=t.get("danger", "#E63946"))
+
+        self.tree.heading("#0", text="Photo Preview", anchor="center")
+        self.tree.column("#0", width=120, minwidth=100, anchor="center", stretch=False)
+
+        self.col_cfg = {
+            "similarity": ("Match Type / Visual Fingerprint", 185),
+            "seller": ("Discovered Seller", 140),
+            "origin": ("Origin", 85),
+            "threat": ("Threat Assessment", 175),
+            "price": ("Price", 75),
+            "title": ("Discovered Listing Title", 360),
+            "item_id": ("Item ID", 105)
+        }
+        for c, (txt, w) in self.col_cfg.items():
+            self.tree.heading(c, text=txt, command=lambda _c=c: self._sort_by_column(_c))
+            self.tree.column(c, width=w, minwidth=50, stretch=False)
+
+        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+
+        self.tree.bind("<Double-1>", self._open_selected_url)
+        self.tree.bind("<Button-3>", self._show_row_context_menu)
+        self.tree.bind("<Control-a>", self._select_all_rows)
+        self.tree.bind("<Control-A>", self._select_all_rows)
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
+
+    def _load_source_image(self):
+        img_src = self.target_img
+        if not img_src:
+            self.src_img_lbl.configure(text="No Photo\nAvailable")
+            return
+
+        def _w():
+            try:
+                if isinstance(img_src, Image.Image):
+                    pimg = img_src.copy()
+                elif isinstance(img_src, str) and os.path.exists(img_src):
+                    pimg = Image.open(img_src).convert("RGBA")
+                elif isinstance(img_src, str) and img_src.startswith("http"):
+                    req = urllib.request.Request(img_src, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                    with urllib.request.urlopen(req, timeout=8) as r:
+                        pimg = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                else:
+                    self.after(0, lambda: self.src_img_lbl.configure(text="Photo\nUnavailable"))
+                    return
+
+                pimg.thumbnail((96, 96), Image.Resampling.LANCZOS)
+                canvas = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
+                canvas.paste(pimg, ((96 - pimg.width)//2, (96 - pimg.height)//2))
+                photo = ImageTk.PhotoImage(canvas)
+                self.thumb_cache["source"] = photo
+
+                def _set():
+                    self.src_img_lbl.configure(image=photo, text="")
+                    self.src_img_lbl.image = photo
+                self.after(0, _set)
+            except Exception:
+                self.after(0, lambda: self.src_img_lbl.configure(text="Photo\nUnavailable"))
+        threading.Thread(target=_w, daemon=True).start()
+
+    def _on_thumb_size_changed(self, event=None):
+        size_key = self.thumb_size_var.get()
+        cfg = THUMB_CONFIG.get(size_key, THUMB_CONFIG["Medium (100px)"])
+        style = ttk.Style()
+        style.configure("ReverseVisual.Treeview", rowheight=cfg["rowheight"])
+        self.tree.configure(show=cfg["show"], style="ReverseVisual.Treeview")
+        self.tree.column("#0", width=cfg["col_width"], minwidth=cfg["col_width"], anchor="center", stretch=False)
+        self.tree.heading("#0", text="Photo Preview" if cfg["img_size"] > 0 else "", anchor="center")
+        self.thumb_cache.clear()
+        self._populate_tree()
+
+    def _select_all_rows(self, event=None):
+        ch = self.tree.get_children()
+        if ch:
+            self.tree.selection_set(ch)
+            self._on_tree_select()
+        return "break"
+
+    def _on_tree_select(self, event=None):
+        sel_count = len(self.tree.selection())
+        vis_count = len(self.tree.get_children())
+        total_count = len(self.hits)
+        if sel_count > 0:
+            self.count_var.set(f"{vis_count} listings shown ({sel_count} selected) | {total_count} total matches")
+        else:
+            self.count_var.set(f"{vis_count} listings shown | {total_count} total matches")
+
+    def _populate_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        hide_wl = self.hide_wl_var.get()
+        hide_same_seller = self.hide_same_seller_var.get()
+        match_filter = self.match_filter_var.get()
+
+        size_name = self.thumb_size_var.get()
+        cfg = THUMB_CONFIG.get(size_name, THUMB_CONFIG.get("Medium (100px)", {"rowheight": 110, "img_size": 100, "col_width": 116}))
+        img_size = cfg.get("img_size", 0)
+        show_images = img_size > 0
+
+        ds = getattr(self.parent, "data_store", None)
+        shown_count = 0
+        seen_sellers = set()
+
+        for itm in self.hits:
+            seller = (itm.get("seller") or "Unknown").strip()
+            seller_clean = seller.lower()
+            is_wl = ds.is_seller_whitelisted(seller) if ds else False
+            is_same = bool(seller_clean in seen_sellers)
+
+            if hide_wl and is_wl:
+                continue
+            if hide_same_seller and is_same:
+                continue
+
+            seen_sellers.add(seller_clean)
+
+            sim_txt = itm.get("match_type") or itm.get("threat_badge") or "🎯 Exact Photo Match (100%)"
+            if "Exact" in match_filter and "100%" not in sim_txt and "Exact" not in sim_txt:
+                continue
+            if "Visual" in match_filter and not any(k in sim_txt for k in ("Exact", "Visual", "Clone", "100%")):
+                continue
+
+            if is_wl:
+                seller_display = f"🛡️ {seller} (Authorized)"
+            else:
+                seller_display = f"⚡ {seller}"
+
+            # Threat Intel from DataStore
+            cached_intel = ds.get_seller_intel(seller) if ds else {}
+            seller_country = cached_intel.get("country", "") if cached_intel else ""
+            assessment = ds.compute_threat_assessment(seller_country, "") if ds else {}
+            orig_txt = f"{assessment.get('flag', '❓')} {assessment.get('country', 'Unknown')}" if assessment.get('country') != 'Unknown' else "❓ Unresolved"
+            threat_txt = assessment.get("badge", "🚨 Rogue Photo Clone")
+
+            price_txt = str(itm.get("price", "N/A"))
+            title_txt = str(itm.get("title", "Unknown Title"))
+            item_id_txt = str(itm.get("item_id", "N/A"))
+
+            row_tag = "whitelisted" if is_wl else "clone"
+            iid = self.tree.insert("", "end", text="", values=(
+                sim_txt,
+                seller_display,
+                orig_txt,
+                threat_txt,
+                price_txt,
+                title_txt,
+                item_id_txt
+            ), tags=(row_tag,))
+
+            shown_count += 1
+
+            if show_images and itm.get("image_url"):
+                self._load_row_thumbnail(iid, itm["image_url"], img_size)
+
+        self.count_var.set(f"{shown_count} matching listings shown across {len(seen_sellers)} seller account(s)")
+
+    def _load_row_thumbnail(self, iid, url, img_size):
+        if not url:
+            return
+        if iid in self.thumb_cache:
+            try:
+                self.tree.item(iid, image=self.thumb_cache[iid])
+            except Exception:
+                pass
+            return
+
+        def _w():
+            try:
+                if hasattr(self.parent, "raw_img_cache") and url in self.parent.raw_img_cache:
+                    pimg = self.parent.raw_img_cache[url].copy()
+                else:
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        pimg = Image.open(io.BytesIO(r.read())).convert("RGBA")
+
+                pimg.thumbnail((img_size, img_size), Image.Resampling.LANCZOS)
+                canvas = Image.new("RGBA", (img_size, img_size), (0, 0, 0, 0))
+                canvas.paste(pimg, ((img_size - pimg.width)//2, (img_size - pimg.height)//2))
+
+                def _set(c=canvas):
+                    try:
+                        if self.winfo_exists() and self.tree.exists(iid):
+                            photo = ImageTk.PhotoImage(c, master=self)
+                            self.thumb_cache[iid] = photo
+                            self.tree.item(iid, image=photo)
+                    except Exception:
+                        pass
+                self.after(0, _set)
+            except Exception:
+                pass
+        threading.Thread(target=_w, daemon=True).start()
+
+    def _sort_by_column(self, col):
+        if not self.hits:
+            return
+        descending = self.sort_directions.get(col, False)
+        self.sort_directions[col] = not descending
+        ds = getattr(self.parent, "data_store", None)
+
+        def get_sort_key(item):
+            seller = (item.get("seller") or "").strip()
+            if col == "origin":
+                intel = ds.get_seller_intel(seller) if ds else {}
+                c_val = intel.get("country", "") if intel else ""
+                assessment = ds.compute_threat_assessment(c_val, "") if ds else {}
+                return assessment.get("country", "Unknown").lower()
+            elif col == "threat":
+                intel = ds.get_seller_intel(seller) if ds else {}
+                c_val = intel.get("country", "") if intel else ""
+                assessment = ds.compute_threat_assessment(c_val, "") if ds else {}
+                return assessment.get("score", 0)
+            elif col == "price":
+                m = re.search(r"[\d,]+(?:\.\d+)?", str(item.get("price", "")))
+                if m:
+                    try: return float(m.group(0).replace(",", ""))
+                    except ValueError: return 0.0
+                return 0.0
+            elif col == "item_id":
+                try: return int(item.get("item_id", 0))
+                except ValueError: return 0
+            elif col == "similarity":
+                return str(item.get("similarity", "")).lower()
+            elif col == "seller":
+                return seller.lower()
+            elif col == "title":
+                return str(item.get("title", "")).lower()
+            return str(item.get(col, "")).lower()
+
+        self.hits.sort(key=get_sort_key, reverse=descending)
+        self._populate_tree()
+
+    def _clean_seller_handle(self, raw_str: str) -> str:
+        s = str(raw_str).strip()
+        for prefix in ("⚡", "🏠", "🛡️", "🎯", "🔗", "👤"):
+            s = s.replace(prefix, "")
+        for suffix in ("(Authorized)", "(Source Seller)", "(Targeted/Harvested)"):
+            s = s.replace(suffix, "")
+        return s.strip()
+
+    def _append_to_parent_stores(self, seller_handle: str):
+        parent = self.parent
+        if not hasattr(parent, "store_text") or not seller_handle:
+            return
+        curr = parent.store_text.get("1.0", "end").strip()
+        ph = getattr(parent, "store_placeholder", "").strip()
+        if not curr or curr == ph:
+            parent.store_text.delete("1.0", "end")
+            parent.store_text.insert("1.0", seller_handle + "\n")
+            parent.store_text.config(fg=parent.theme["text"])
+        else:
+            lines = [l.strip() for l in curr.splitlines() if l.strip()]
+            existing_lowers = [l.lower() for l in lines]
+            if seller_handle.lower() not in existing_lowers:
+                lines.append(seller_handle)
+                parent.store_text.delete("1.0", "end")
+                parent.store_text.insert("1.0", "\n".join(lines) + "\n")
+                parent.store_text.config(fg=parent.theme["text"])
+
+    def _add_all_to_stores(self):
+        selected_iids = self.tree.selection()
+        sellers = []
+        if selected_iids:
+            for iid in selected_iids:
+                vals = self.tree.item(iid)["values"]
+                s_clean = self._clean_seller_handle(vals[1]) if len(vals) > 1 else ""
+                if s_clean and s_clean not in ("Resolving...", "Unknown", ""):
+                    sellers.append(s_clean)
+        else:
+            for r in self.hits:
+                s = r.get("seller")
+                if s and s not in ("Resolving...", "Unknown", ""):
+                    sellers.append(s)
+
+        unique_sellers = list(dict.fromkeys(sellers))
+        if not unique_sellers:
+            self.count_var.set("⚠️ No resolved seller handles to add.")
+            return
+
+        for s in unique_sellers:
+            self._append_to_parent_stores(s)
+
+        if hasattr(self.parent, "store_full_sweep_var"):
+            self.parent.store_full_sweep_var.set(True)
+
+        self.count_var.set(f"🏪 Added {len(unique_sellers)} seller(s) to Stores box & enabled Full Store Sweep!")
+        self.parent._log(f"🏪 Added {len(unique_sellers)} discovered visual clone sellers to Stores box: {', '.join(unique_sellers)}")
+
+    def _add_to_results(self):
+        selected_iids = self.tree.selection()
+        target_records = []
+        if selected_iids:
+            for iid in selected_iids:
+                vals = self.tree.item(iid)["values"]
+                for r in self.hits:
+                    target_id = str(vals[6]).strip() if len(vals) > 6 else ""
+                    if target_id and str(r.get("item_id")) == target_id:
+                        target_records.append(r)
+                        break
+        else:
+            target_records = self.hits
+
+        added = 0
+        brand_name = self.label or "Visual Sweep"
+        for itm in target_records:
+            row = {
+                "brand": brand_name,
+                "product_type": "Visual Clone",
+                "title": itm.get("title", ""),
+                "item_id": str(itm.get("item_id", "")),
+                "price": itm.get("price", ""),
+                "seller": itm.get("seller", ""),
+                "location": itm.get("location", ""),
+                "image_url": itm.get("image_url", ""),
+                "threat_badge": itm.get("threat_badge", "🚨 Visual Clone (100%)"),
+                "threat_score": max(itm.get("threat_score", 0), 95),
+                "url": itm.get("url", f"https://www.ebay.com/itm/{itm.get('item_id', '')}"),
+                "marketplace": self.marketplace
+            }
+            if row["item_id"] and row["item_id"] not in self.parent.seen_item_ids:
+                self.parent.seen_item_ids.add(row["item_id"])
+                self.parent.results.append(row)
+                added += 1
+            else:
+                # Update existing row with threat badge
+                for r_item in self.parent.results:
+                    if str(r_item.get("item_id")) == row["item_id"]:
+                        r_item["threat_badge"] = row["threat_badge"]
+                        r_item["threat_score"] = row["threat_score"]
+                        break
+
+        if hasattr(self.parent, "_repopulate_results_table"):
+            self.parent._repopulate_results_table()
+        if hasattr(self.parent, "_log"):
+            self.parent._log(f"📸 Added/updated {len(target_records)} visual clone listings in Results table ({added} newly added).")
+        self.count_var.set(f"✓ Added/updated {len(target_records)} visual clone listings in Results table!")
+
+    def _add_sellers_to_queue(self):
+        selected_iids = self.tree.selection()
+        sellers = []
+        if selected_iids:
+            for iid in selected_iids:
+                vals = self.tree.item(iid)["values"]
+                s_clean = self._clean_seller_handle(vals[1]) if len(vals) > 1 else ""
+                if s_clean and s_clean not in ("Resolving...", "Unknown", ""):
+                    sellers.append(s_clean)
+        else:
+            for r in self.hits:
+                s = r.get("seller")
+                if s and s not in ("Resolving...", "Unknown", ""):
+                    sellers.append(s)
+
+        unique_sellers = list(dict.fromkeys(sellers))
+        if not unique_sellers:
+            self.count_var.set("⚠️ No valid seller handles to queue.")
+            return
+
+        parent = self.parent
+        ds = getattr(parent, "data_store", None)
+        eligible_sellers = [s for s in unique_sellers if not (ds.is_seller_whitelisted(s) if ds else False)]
+        skipped_count = len(unique_sellers) - len(eligible_sellers)
+
+        if not eligible_sellers:
+            self.count_var.set(f"🛡️ All {len(unique_sellers)} sellers are Authorized Dealerships (Skipped).")
+            return
+
+        target_brands = [k.split("/")[0] for k, v in parent.brand_states.items() if v == "target"]
+        target_brands = list(dict.fromkeys(target_brands))
+        if not target_brands:
+            target_brands = [self.label or "General Brand"]
+
+        custom_includes = [l.strip() for l in parent.include_text.get("1.0", "end").splitlines() if l.strip()]
+        generic_excludes = parent._get_active_exclusions() if hasattr(parent, "_get_active_exclusions") else []
+        condition = parent.condition_var.get() if hasattr(parent, "condition_var") else "all"
+        platform_name = self.marketplace or "eBay"
+
+        added_count = 0
+        skipped_executed = 0
+        for s in eligible_sellers:
+            self._append_to_parent_stores(s)
+            for b_name in target_brands:
+                if any(q.get("store", "").strip().lower() == s.strip().lower() and 
+                       q.get("brand", "").strip().lower() == b_name.strip().lower() and 
+                       q.get("marketplace", "eBay").lower() == platform_name.lower() 
+                       for q in parent.queue):
+                    continue
+                if any(ex.get("store", "").strip().lower() == s.strip().lower() and 
+                       ex.get("brand", "").strip().lower() == b_name.strip().lower() and 
+                       ex.get("marketplace", "eBay").lower() == platform_name.lower() 
+                       for ex in parent.executed_jobs):
+                    skipped_executed += 1
+                    continue
+
+                b_terms = [k.split("/")[-1] for k, v in parent.brand_states.items() if v == "target" and k.split("/")[0] == b_name]
+                includes = b_terms if b_terms else (custom_includes if custom_includes else [b_name.lower()])
+
+                entry = {
+                    "store": s,
+                    "brand": b_name,
+                    "marketplace": platform_name,
+                    "includes": list(includes),
+                    "excludes": list(generic_excludes),
+                    "condition": condition
+                }
+                parent.queue.append(entry)
+                lbl = f"{parent._store_label(s, platform=platform_name)} ▸ {b_name} ({len(includes)} terms | {len(generic_excludes)} excl)"
+                parent.queue_list.insert("end", lbl)
+                added_count += 1
+
+        msg = f"Enqueued {added_count} job(s) for {len(eligible_sellers)} seller(s)"
+        if skipped_count > 0:
+            msg += f" (Shielded {skipped_count} Whitelisted Dealers)"
+        if skipped_executed > 0:
+            msg += f" (Skipped {skipped_executed} already-completed searches)"
+        parent._log(f"🎯 Enqueued {added_count} batch jobs across {len(eligible_sellers)} visual clone sellers on {platform_name}.")
+        self.count_var.set(f"🎯 {msg}")
+
+    def _copy_sellers(self):
+        selected_iids = self.tree.selection()
+        sellers = []
+        if selected_iids:
+            for iid in selected_iids:
+                vals = self.tree.item(iid)["values"]
+                s_clean = self._clean_seller_handle(vals[1]) if len(vals) > 1 else ""
+                if s_clean and s_clean not in ("Resolving...", "Unknown", ""):
+                    sellers.append(s_clean)
+        else:
+            for r in self.hits:
+                s = r.get("seller")
+                if s and s not in ("Resolving...", "Unknown", ""):
+                    sellers.append(s)
+
+        unique_sellers = list(dict.fromkeys(sellers))
+        if not unique_sellers:
+            self.count_var.set("⚠️ No resolved seller handles to copy.")
+            return
+        text = ", ".join(unique_sellers)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.count_var.set(f"📋 Copied {len(unique_sellers)} seller handles to clipboard!")
+        self.parent._log(f"📋 Copied {len(unique_sellers)} seller handles to clipboard: {text}")
+
+    def _open_selected_url(self, event=None):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        vals = self.tree.item(sel[0])["values"]
+        item_id = str(vals[6]).strip() if len(vals) > 6 else ""
+        for r in self.hits:
+            if str(r.get("item_id")) == item_id:
+                u = r.get("url")
+                if u:
+                    webbrowser.open(u)
+                return
+        if item_id:
+            webbrowser.open(f"https://www.ebay.com/itm/{item_id}")
+
+    def _show_row_context_menu(self, event):
+        row_id = self.tree.identify_row(event.y)
+        if not row_id:
+            return
+        self.tree.selection_set(row_id)
+        vals = self.tree.item(row_id)["values"]
+        seller_clean = self._clean_seller_handle(vals[1]) if len(vals) > 1 else ""
+        item_id = str(vals[6]).strip() if len(vals) > 6 else ""
+
+        menu = tk.Menu(self, tearoff=0, bg=self.t["panel"], fg=self.t["text"], activebackground=self.t["select_bg"], activeforeground=self.t["select_fg"])
+        menu.add_command(label="🌐 Open Listing in Browser", command=self._open_selected_url)
+        if seller_clean and seller_clean not in ("Resolving...", "Unknown", ""):
+            menu.add_command(label=f"🏪 Add '{seller_clean}' to Stores Box", command=lambda: self._append_to_parent_stores(seller_clean))
+            menu.add_command(label=f"📋 Copy Seller '{seller_clean}'", command=lambda: [self.clipboard_clear(), self.clipboard_append(seller_clean)])
+        menu.add_separator()
+        menu.add_command(label="📥 Add This Listing to Results", command=self._add_to_results)
+        menu.tk_popup(event.x_root, event.y_root)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -9206,6 +9897,7 @@ class WhitelistManagerModal(tk.Toplevel):
         dlg.transient(self)
         dlg.grab_set()
         self.parent._apply_dark_titlebar(dlg)
+        self.parent._center_window(dlg, 460, 340)
 
         t = self.t
         f = tk.Frame(dlg, bg=t["panel"], padx=16, pady=16)
@@ -9230,6 +9922,12 @@ class WhitelistManagerModal(tk.Toplevel):
         n_entry = tk.Entry(f, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], font=FONT_SM, width=32)
         n_entry.grid(row=3, column=1, sticky="w", pady=4)
 
+        def _close_dlg():
+            try: dlg.grab_release()
+            except Exception: pass
+            dlg.destroy()
+        dlg.protocol("WM_DELETE_WINDOW", _close_dlg)
+
         def _save():
             handle = h_entry.get().strip()
             if not handle:
@@ -9241,11 +9939,11 @@ class WhitelistManagerModal(tk.Toplevel):
             self.data_store.add_to_whitelist(handle, brand=b, dealer_name=d, notes=n)
             self.parent._log(f"🛡️ Whitelisted authorized dealer '{handle}' ({b}).")
             self._refresh_table()
-            dlg.destroy()
+            _close_dlg()
 
         btn_box = tk.Frame(f, bg=t["panel"])
         btn_box.grid(row=4, column=0, columnspan=2, pady=(16, 0), sticky="e")
-        tk.Button(btn_box, text="Cancel", command=dlg.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=10, pady=4).pack(side="right", padx=4)
+        tk.Button(btn_box, text="Cancel", command=_close_dlg, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=10, pady=4).pack(side="right", padx=4)
         tk.Button(btn_box, text="💾 Save Dealer", command=_save, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=4).pack(side="right")
 
     def _bulk_import_dialog(self):
@@ -9256,6 +9954,13 @@ class WhitelistManagerModal(tk.Toplevel):
         dlg.transient(self)
         dlg.grab_set()
         self.parent._apply_dark_titlebar(dlg)
+        self.parent._center_window(dlg, 560, 480)
+
+        def _close_bulk():
+            try: dlg.grab_release()
+            except Exception: pass
+            dlg.destroy()
+        dlg.protocol("WM_DELETE_WINDOW", _close_bulk)
 
         t = self.t
         f = tk.Frame(dlg, bg=t["panel"], padx=16, pady=14)

@@ -42,12 +42,19 @@ class EbayScraper:
         os.makedirs(self.profile_dir, exist_ok=True)
 
     def _find_edge_path(self):
-        edge_paths = [
+        browser_paths = [
             r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
             r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
             os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
         ]
-        return next((p for p in edge_paths if os.path.exists(p)), None)
+        return next((p for p in browser_paths if os.path.exists(p)), None)
 
     def search(self, store_url: str, include_term: str,
                exclude_terms: list[str] = None,
@@ -92,8 +99,12 @@ class EbayScraper:
 
             cand_info = dict(store_info)
             if cand:
-                cand_info["seller"] = cand
-                cand_info["store_name"] = cand
+                if store_info.get("is_store") and not store_info.get("seller"):
+                    cand_info["store_name"] = cand
+                    cand_info["seller"] = ""
+                else:
+                    cand_info["seller"] = cand
+                    cand_info["store_name"] = cand
 
             url = self._build_url(cand_info, include_term, cleaned_excludes, 1, condition)
             html = self._fetch_via_requests(url)
@@ -163,24 +174,27 @@ class EbayScraper:
                 ]
                 ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
                 edge_path = self._find_edge_path()
+                launch_kwargs = {
+                    "headless": self.headless,
+                    "user_agent": ua,
+                    "viewport": {"width": 1440, "height": 900},
+                    "args": launch_args
+                }
+                if edge_path:
+                    launch_kwargs["executable_path"] = edge_path
+                else:
+                    launch_kwargs["channel"] = "msedge"
+
                 try:
-                    context = p.chromium.launch_persistent_context(
-                        temp_worker_dir,
-                        executable_path=edge_path if edge_path else None,
-                        channel="msedge" if not edge_path else None,
-                        headless=self.headless,
-                        user_agent=ua,
-                        viewport={"width": 1440, "height": 900},
-                        args=launch_args
-                    )
+                    context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
                 except Exception:
-                    context = p.chromium.launch_persistent_context(
-                        temp_worker_dir,
-                        headless=self.headless,
-                        user_agent=ua,
-                        viewport={"width": 1440, "height": 900},
-                        args=launch_args
-                    )
+                    try:
+                        launch_kwargs.pop("executable_path", None)
+                        launch_kwargs["channel"] = "msedge"
+                        context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+                    except Exception:
+                        launch_kwargs["channel"] = "chrome"
+                        context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
 
                 context.add_init_script("""
                     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -259,8 +273,12 @@ class EbayScraper:
 
                     cand_info = dict(store_info)
                     if cand:
-                        cand_info["seller"] = cand
-                        cand_info["store_name"] = cand
+                        if store_info.get("is_store") and not store_info.get("seller"):
+                            cand_info["store_name"] = cand
+                            cand_info["seller"] = ""
+                        else:
+                            cand_info["seller"] = cand
+                            cand_info["store_name"] = cand
 
                     url = self._build_url(cand_info, include_term, excludes, 1, condition)
                     try:
@@ -527,7 +545,6 @@ class EbayScraper:
 
         store_name = store_info.get("store_name", "")
         seller = store_info.get("seller", "")
-        target = seller if seller else store_name
 
         params = {
             "_from": "R40",
@@ -535,8 +552,9 @@ class EbayScraper:
             "_ipg": PAGE_SIZE
         }
 
-        if target:
-            params["_ssn"] = target
+        target_handle = seller or store_name
+        if target_handle:
+            params["_ssn"] = target_handle
             if nkw:
                 params["_nkw"] = nkw
             else:
@@ -679,31 +697,20 @@ class EbayScraper:
 
             # 5. Seller Extraction (Multi-Tier 2026 Modern & Classic Engine)
             seller = ""
-            # Strategy A: Modern Design System (Span preceding feedback rating '% positive')
-            all_spans = card.select("span")
-            for i, span in enumerate(all_spans):
-                txt = span.get_text(strip=True)
-                if "%" in txt and "positive" in txt.lower():
-                    if i > 0:
-                        prev_txt = all_spans[i-1].get_text(strip=True)
-                        if prev_txt and len(prev_txt) < 50 and not any(k in prev_txt.lower() for k in ("returns", "delivery", "located", "sponsored", "brand new", "buy it now", "opens in", "new listing", "save")):
-                            seller = prev_txt.strip()
-                            break
-                    m = re.match(r"^([a-zA-Z0-9_\-\.]+)\s*(?:\([^\)]+\))?\s*\d+(?:\.\d+)?%", txt)
-                    if m:
-                        seller = m.group(1).strip()
-                        break
 
-            # Strategy B: Regex across card text
-            if not seller:
-                card_text = card.get_text(" ", strip=True)
-                m_fb = re.search(r'([a-zA-Z0-9_\-\.]{2,35})\s+\d{1,3}(?:\.\d+)?%\s+positive', card_text, re.IGNORECASE)
-                if m_fb:
-                    cand = m_fb.group(1).strip()
-                    if cand.lower() not in ("free", "returns", "delivery", "located", "states", "united", "brand"):
-                        seller = cand
+            # Strategy A: Profile / Store Link directly on the card (Most accurate)
+            for a in card.select("a[href*='/usr/'], a[href*='/str/']"):
+                href = a.get("href", "")
+                m_usr = re.search(r'/usr/([^/?&#]+)', href)
+                if m_usr and not any(k in m_usr.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                    seller = m_usr.group(1).strip()
+                    break
+                m_str = re.search(r'/str/([^/?&#]+)', href)
+                if m_str and not any(k in m_str.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                    seller = m_str.group(1).strip()
+                    break
 
-            # Strategy C: Classic eBay selectors
+            # Strategy B: Classic eBay selectors
             if not seller:
                 seller_el = (
                     card.select_one(".s-item__seller-info-text") or
@@ -711,29 +718,67 @@ class EbayScraper:
                     card.select_one(".s-card__seller-info") or
                     card.select_one(".str-seller-info") or
                     card.select_one(".s-card__subtitle") or
-                    card.select_one("span[class*='seller-info']")
+                    card.select_one("span[class*='seller-info']") or
+                    card.select_one("span[class*='seller']")
                 )
                 if seller_el:
-                    s_txt = seller_el.get_text(strip=True)
-                    if s_txt:
-                        if "(" in s_txt:
-                            s_txt = s_txt.split("(")[0].strip()
-                        seller = s_txt
+                    usr_a = seller_el.select_one("a[href*='/usr/'], a[href*='/str/']")
+                    if usr_a:
+                        href = usr_a.get("href", "")
+                        m_u = re.search(r'/(?:usr|str)/([^/?&#]+)', href)
+                        if m_u and not any(k in m_u.group(1).lower() for k in ("help", "about", "contact")):
+                            seller = m_u.group(1).strip()
 
-            # Strategy D: Profile / Store Link
-            if not seller:
-                for a in card.select("a[href*='/usr/'], a[href*='/str/']"):
-                    href = a.get("href", "")
-                    m_usr = re.search(r'/usr/([^/?&#]+)', href)
-                    if m_usr:
-                        seller = m_usr.group(1)
-                        break
-                    m_str = re.search(r'/str/([^/?&#]+)', href)
-                    if m_str:
-                        seller = m_str.group(1)
-                        break
+                    if not seller:
+                        tokens = [t.strip() for t in seller_el.get_text(" ", strip=True).split() if t.strip()]
+                        for tok in tokens:
+                            if "(" in tok:
+                                tok = tok.split("(")[0].strip()
+                            if not tok or "%" in tok or "positive" in tok.lower() or tok.startswith("(") or tok.endswith(")"):
+                                continue
+                            if len(tok) >= 3 and not any(k in tok.lower() for k in ("returns", "delivery", "located", "sponsored", "brand", "opens", "save", "free", "seller", "new", "used", "pre-owned", "refurbished", "parts", "remanufactured")):
+                                seller = tok
+                                break
 
+            # Strategy C: Modern Design System (Span preceding feedback rating '% positive', skipping single-character avatar badges and condition tags)
+            INVALID_SELLER_WORDS = {
+                "new", "used", "pre-owned", "refurbished", "remanufactured", "returns", "delivery", "located", "sponsored", 
+                "brand new", "buy it now", "opens in", "new listing", "save", "free", "seller", "top rated", 
+                "top-rated", "open box", "parts only", "other", "watch", "authenticity", "guarantee", "feedback",
+                "star", "stars", "seller info", "shop on ebay", "save this seller"
+            }
             if not seller:
+                all_spans = card.select("span")
+                for i, span in enumerate(all_spans):
+                    txt = span.get_text(strip=True)
+                    if "%" in txt and "positive" in txt.lower():
+                        if i > 0:
+                            for back_idx in range(i-1, max(-1, i-4), -1):
+                                cand_txt = all_spans[back_idx].get_text(strip=True)
+                                if cand_txt and len(cand_txt) >= 3:
+                                    c_low = cand_txt.lower()
+                                    if c_low not in INVALID_SELLER_WORDS and not any(c_low.startswith(p) for p in ("new ", "pre-owned", "refurbished", "returns", "free ", "top rated", "sponsored")):
+                                        seller = cand_txt.strip()
+                                        break
+                            if seller:
+                                break
+                        m = re.match(r"^([a-zA-Z0-9_\-\.]{3,35})\s*(?:\([^\)]+\))?\s*\d+(?:\.\d+)?%", txt)
+                        if m:
+                            cand = m.group(1).strip()
+                            if cand.lower() not in INVALID_SELLER_WORDS:
+                                seller = cand
+                                break
+
+            # Strategy D: Regex across card text
+            if not seller:
+                card_text = card.get_text(" ", strip=True)
+                m_fb = re.search(r'([a-zA-Z0-9_\-\.]{3,35})\s+\d{1,3}(?:\.\d+)?%\s+positive', card_text, re.IGNORECASE)
+                if m_fb:
+                    cand = m_fb.group(1).strip()
+                    if cand.lower() not in INVALID_SELLER_WORDS and cand.lower() not in ("free", "returns", "delivery", "located", "states", "united", "brand"):
+                        seller = cand
+
+            if not seller or seller.lower() in INVALID_SELLER_WORDS or seller.lower() in ("unknown", "ebay seller", "top rated", "free shipping", "returns", "located", "sponsored", "brand", "states", "united"):
                 seller = fallback_seller
 
             # 6. Item Location / Origin
@@ -826,70 +871,128 @@ class EbayScraper:
             return discovered
 
         edge_path = self._find_edge_path()
-        with sync_playwright() as p:
-            try:
-                context = p.chromium.launch_persistent_context(
-                    self.profile_dir,
-                    executable_path=edge_path if edge_path else None,
-                    channel="msedge" if not edge_path else None,
-                    headless=self.headless,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                    viewport={"width": 1440, "height": 900},
-                    args=["--disable-blink-features=AutomationControlled"]
-                )
-            except Exception:
-                context = p.chromium.launch_persistent_context(
-                    self.profile_dir,
-                    headless=self.headless,
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                    viewport={"width": 1440, "height": 900},
-                    args=["--disable-blink-features=AutomationControlled"]
-                )
+        launch_kwargs = {
+            "headless": self.headless,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "viewport": {"width": 1440, "height": 900},
+            "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            "ignore_default_args": ["--enable-automation"]
+        }
+        if edge_path:
+            launch_kwargs["executable_path"] = edge_path
+        else:
+            launch_kwargs["channel"] = "msedge"
 
-            page = context.pages[0] if context.pages else context.new_page()
-            try:
-                page.goto(item_url, wait_until="load", timeout=30000)
+        temp_worker_dir = tempfile.mkdtemp(prefix="apollo_network_")
+        try:
+            with sync_playwright() as p:
                 try:
-                    page.wait_for_selector('div[class*="carousel"], div[class*="merch"], a[href*="/itm/"]', timeout=5000)
+                    context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+                except Exception:
+                    try:
+                        launch_kwargs.pop("executable_path", None)
+                        launch_kwargs["channel"] = "msedge"
+                        context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+                    except Exception:
+                        launch_kwargs["channel"] = "chrome"
+                        context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+
+                page = context.pages[0] if context.pages else context.new_page()
+                page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+                try:
+                    page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=12000)
+                    time.sleep(0.5)
                 except Exception:
                     pass
+                try:
+                    page.goto(item_url, wait_until="domcontentloaded", timeout=20000)
+                except Exception as e:
+                    logger.debug(f"Initial goto notice for {item_url}: {e}")
+                
+                time.sleep(1.5)
 
                 # Scroll in stages to trigger lazy-loaded carousels (Similar items, Explore related, Compare)
-                for _ in range(4):
-                    page.evaluate("window.scrollBy(0, 800);")
+                for _ in range(5):
+                    try:
+                        page.evaluate("window.scrollBy(0, 800);")
+                    except Exception:
+                        pass
                     time.sleep(0.4)
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight);")
+                except Exception:
+                    pass
                 time.sleep(0.6)
+
+                # Auto-recover target image hash if not provided initially
+                if not target_hash:
+                    try:
+                        target_img_src = page.evaluate("""() => {
+                            const meta = document.querySelector('meta[property="og:image"]');
+                            if (meta && meta.content) return meta.content;
+                            const img = document.querySelector('#icImg, .ux-image-magnify img, .ux-image-filmstrip img, .filmstrip img, img[class*="picture"]');
+                            return img ? (img.src || img.getAttribute('data-src') || '') : '';
+                        }""")
+                        if target_img_src and str(target_img_src).startswith("http"):
+                            req = urllib.request.Request(str(target_img_src), headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                            with urllib.request.urlopen(req, timeout=5) as r:
+                                t_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                                target_hash = self.compute_dhash(t_img)
+                    except Exception:
+                        pass
 
                 raw_data = page.evaluate("""() => {
                     const res = [];
+                    const seen = new Set();
                     document.querySelectorAll('a[href*="/itm/"]').forEach(a => {
                         const m = a.href.match(/\\/itm\\/(\\d+)/);
-                        if (m) {
-                            const parent = a.closest('li, div[class*="item"], div[class*="card"], div[class*="merch"], div[class*="carousel"], div[class*="slider"]');
-                            const title = a.innerText || a.getAttribute('title') || (parent ? parent.querySelector('h3, [class*="title"]')?.innerText : '');
-                            const imgEl = parent ? parent.querySelector('img') : a.querySelector('img');
+                        if (m && !seen.has(m[1])) {
+                            seen.add(m[1]);
+                            const card = a.closest('li, div[class*="item"], div[class*="card"], div[class*="merch"], div[class*="carousel"], div[class*="slider"]') || a.parentElement;
+                            let title = '';
+                            if (a.innerText && a.innerText.trim().length > 5) {
+                                title = a.innerText.trim();
+                            } else if (a.getAttribute('title')) {
+                                title = a.getAttribute('title').trim();
+                            } else if (a.getAttribute('aria-label')) {
+                                title = a.getAttribute('aria-label').trim();
+                            } else if (card) {
+                                const tEl = card.querySelector('h3, [class*="title"], [class*="desc"], [class*="text"], span');
+                                if (tEl) title = tEl.innerText.trim();
+                            }
+                            if (!title) title = 'Discovered Listing ' + m[1];
+                            
                             let img = '';
+                            const imgEl = card ? card.querySelector('img') : a.querySelector('img');
                             if (imgEl) {
                                 img = imgEl.getAttribute('data-defer-src') || 
                                       imgEl.getAttribute('data-highres-src') || 
                                       imgEl.getAttribute('data-retina-src') || 
                                       imgEl.getAttribute('data-src') || 
                                       imgEl.getAttribute('data-lazy-src') || 
-                                      imgEl.src || 
-                                      imgEl.getAttribute('srcset') || '';
+                                      imgEl.src || '';
                                 if (img.includes(' ')) img = img.split(' ')[0];
                             }
-                            const price = parent ? parent.querySelector('[class*="price"], [class*="Price"]')?.innerText : '';
-                            const sellerEl = parent ? parent.querySelector('span[class*="seller"], a[href*="/usr/"], [class*="subtitle"]') : null;
-                            const seller = sellerEl ? sellerEl.innerText : '';
+                            
+                            let price = '';
+                            if (card) {
+                                const pEl = card.querySelector('[class*="price"], [class*="Price"], span[class*="bold"]');
+                                if (pEl) price = pEl.innerText.trim();
+                            }
+                            
+                            let seller = '';
+                            if (card) {
+                                const sEl = card.querySelector('span[class*="seller"], a[href*="/usr/"], [class*="subtitle"]');
+                                if (sEl) seller = sEl.innerText.trim();
+                            }
+                            
                             res.push({
                                 id: m[1],
-                                url: a.href,
-                                title: (title||'').trim(),
-                                img: img||'',
-                                price: (price||'').trim(),
-                                seller: (seller||'').trim()
+                                url: 'https://www.ebay.com/itm/' + m[1],
+                                title: title,
+                                img: img,
+                                price: price,
+                                seller: seller
                             });
                         }
                     });
@@ -938,7 +1041,7 @@ class EbayScraper:
 
                 for itm in raw_data:
                     iid = itm['id']
-                    if iid in seen_ids or not itm['title']:
+                    if iid in seen_ids:
                         continue
                     seen_ids.add(iid)
 
@@ -946,18 +1049,19 @@ class EbayScraper:
                     dist_val = 99
                     if target_hash and itm['img'] and str(itm['img']).startswith("http"):
                         try:
-                            req = urllib.request.Request(str(itm['img']), headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                            img_hi = str(itm['img']).replace("s-l96.jpg", "s-l500.jpg").replace("s-l140.jpg", "s-l500.jpg").replace("s-l225.jpg", "s-l500.jpg")
+                            req = urllib.request.Request(img_hi, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
                             with urllib.request.urlopen(req, timeout=4) as r:
                                 c_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
                                 c_hash = self.compute_dhash(c_img)
                                 dist_val = self.hamming_distance(target_hash, c_hash)
-                                if dist_val <= 3:
+                                if dist_val <= 4:
                                     sim_label = "🎯 Exact Photo Match (100%)"
-                                elif dist_val <= 7:
+                                elif dist_val <= 8:
                                     sim_label = "🔍 Near-Exact Photo (~90%)"
-                                elif dist_val <= 12:
+                                elif dist_val <= 14:
                                     sim_label = "🖼️ High Visual Similarity (~75%)"
-                                elif dist_val <= 18:
+                                elif dist_val <= 20:
                                     sim_label = "📷 Similar Photo Theme"
                         except Exception:
                             pass
@@ -974,10 +1078,15 @@ class EbayScraper:
                         "distance": dist_val,
                         "url": f"https://www.ebay.com/itm/{iid}"
                     })
+                try:
+                    context.close()
+                except Exception:
+                    pass
+        finally:
+            try:
+                shutil.rmtree(temp_worker_dir, ignore_errors=True)
             except Exception:
                 pass
-            finally:
-                context.close()
 
         # Sort: Exact photo matches first, then near-exact, then related
         discovered.sort(key=lambda x: x.get("distance", 99))

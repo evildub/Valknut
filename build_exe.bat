@@ -25,7 +25,6 @@ copy /Y "data.json" "dist\Apollo Brand Intelligence\data.json" >nul
 echo [4/5] Bundling Security Audit and Analyst Documentation...
 copy /Y "SECURITY_AUDIT.md" "dist\Apollo Brand Intelligence\SECURITY_AUDIT.md" >nul
 copy /Y "EXE_README.md" "dist\Apollo Brand Intelligence\README.md" >nul
-copy /Y "APOLLO_BRAND_VISION.txt" "dist\Apollo Brand Intelligence\APOLLO_BRAND_VISION.txt" >nul
 
 echo [5/5] Build complete! Starting application...
 start "" "dist\Apollo Brand Intelligence\Apollo Brand Intelligence.exe"

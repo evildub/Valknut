@@ -134,13 +134,21 @@ class MercadoLibreScraper:
         """Safely close browser context and Playwright instance."""
         try:
             if self._context:
-                self._context.close()
+                try:
+                    self._context.close()
+                except Exception:
+                    pass
                 self._context = None
             if self._pw:
-                self._pw.stop()
+                try:
+                    self._pw.stop()
+                except Exception:
+                    pass
                 self._pw = None
         except Exception as e:
             logger.debug(f"Error closing Mercado Libre browser context: {e}")
+        finally:
+            self._clean_profile_locks()
 
     def launch_interactive_auth(self, site_code: str = "MLM"):
         """
@@ -150,13 +158,36 @@ class MercadoLibreScraper:
         def _run():
             try:
                 self.close()
+                self._clean_profile_locks()
                 context = self._get_context(force_visible=True)
+                
+                # Close duplicate restored tabs
+                while len(context.pages) > 1:
+                    try:
+                        context.pages[-1].close()
+                    except Exception:
+                        break
+
                 page = context.pages[0] if context.pages else context.new_page()
-                site_info = REGIONAL_DOMAINS.get(site_code, REGIONAL_DOMAINS["MLM"])
-                home_url = site_info["home"]
-                page.goto(home_url, wait_until="domcontentloaded")
+                site_info = REGIONAL_DOMAINS.get(site_code, REGIONAL_DOMAINS.get("MLM", {}))
+                home_url = site_info.get("home", "https://www.mercadolibre.com.mx")
+                login_url = f"https://www.mercadolibre.com/jms/{site_code.lower()}/lgz/login"
+
+                try:
+                    page.goto(login_url, wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    page.goto(home_url, wait_until="domcontentloaded")
+
+                # Wait for user to interact or close browser window
+                try:
+                    page.wait_for_event("close", timeout=600000)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"Error launching interactive auth for Mercado Libre: {e}")
+            finally:
+                self.close()
+                self._clean_profile_locks()
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()

@@ -512,6 +512,13 @@ class VintedScraper:
                 from playwright.sync_api import sync_playwright
                 profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Apollo_Vinted_Session")
                 os.makedirs(profile_dir, exist_ok=True)
+                for lock_name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+                    lock_f = os.path.join(profile_dir, lock_name)
+                    if os.path.exists(lock_f):
+                        try:
+                            os.remove(lock_f)
+                        except Exception:
+                            pass
                 with sync_playwright() as p:
                     try:
                         browser = p.chromium.launch_persistent_context(

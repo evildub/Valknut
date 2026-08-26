@@ -14,11 +14,13 @@ dist/
 Valknut_*_Session/
 .playwright/
 
-# Local logs & scratch files
+# Local logs, test files & scratch files
 *.log
 .system_generated/
 STRATEGY_AND_CAREER_ROADMAP.md
 *ROADMAP*.md
+APOLLO_BRAND_VISION.txt
+Test Files/
 
 # OS metadata
 .DS_Store

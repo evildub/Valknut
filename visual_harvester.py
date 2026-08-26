@@ -30,7 +30,7 @@ class VisualHarvester:
 
     def search_by_image(self, image_source, label: str = "", marketplace: str = "eBay",
                         region: Optional[str] = None,
-                        max_distance: int = 6, max_results: int = 50, log_callback=None) -> List[Dict]:
+                        max_distance: int = 10, max_results: int = 50, log_callback=None) -> List[Dict]:
         """
         Search for marketplace listings matching the target photo.
         Strictly filters out any candidate whose image pHash does not match within max_distance.
@@ -78,12 +78,15 @@ class VisualHarvester:
             query_terms.extend(part_nums)
 
         clean_label = re.sub(r'[^a-zA-Z0-9\s\-]', '', label).strip()
-        words = [w for w in clean_label.split() if len(w) >= 3 and w.lower() not in ("genuine", "original", "oem", "brand", "packaging", "photo", "known", "counterfeit", "benign", "selected", "listing")]
+        words = [w for w in clean_label.split() if len(w) >= 3 and w.lower() not in ("genuine", "original", "oem", "brand", "packaging", "photo", "known", "counterfeit", "benign", "selected", "listing", "visual", "reference", "entry")]
         if words:
             query_terms.append(" ".join(words[:4]))
 
         if not query_terms:
-            query_terms = [label[:30] if label else "Nike"]
+            if clean_label and len(clean_label) >= 3:
+                query_terms = [clean_label[:35]]
+            else:
+                query_terms = ["Toyota OEM", "Denso", "Spark Plug"]
 
         mkt_name = marketplace or "eBay"
         loc_str = f" [{region}]" if region else ""
@@ -143,9 +146,13 @@ class VisualHarvester:
                 dist = hamming_distance(target_phash, cand_phash)
                 if dist <= max_distance:
                     sim_pct = max(0, int((1.0 - (dist / 64.0)) * 100))
+                    match_label = f"🎯 Exact Match ({sim_pct}%)" if sim_pct >= 98 else f"🖼️ Visual Clone ({sim_pct}%)"
+                    cand["similarity"] = match_label
+                    cand["match_type"] = match_label
                     cand["threat_badge"] = f"🚨 Visual Clone ({sim_pct}%)"
                     cand["threat_score"] = max(cand.get("threat_score", 0), 95)
                     cand["visual_counterfeit"] = True
+                    cand["distance"] = dist
                     cand["condition"] = f"📸 Visual Clone (Dist {dist})"
                     return (cand, dist, sim_pct)
             except Exception:
