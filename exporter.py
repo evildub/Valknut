@@ -293,7 +293,8 @@ class ExcelExporter:
     def export_multi_locale(self, results: list[dict], selected_locales: list[dict], file_path: str):
         """
         Export verified multi-locale compliance sheet for enterprise client enforcement.
-        Expands each item into its corresponding active international eBay locale URLs.
+        Adheres strictly to the canonical Genesis upload column layout (Columns A-R)
+        with Thumbnail in Col C and extended locale metadata starting in Column S.
         """
         import re
         wb = openpyxl.Workbook()
@@ -304,30 +305,40 @@ class ExcelExporter:
         ws.title = "Global Locale Enforcement"
         ws.views.sheetView[0].showGridLines = True
 
-        headers = [
-            "Locale Country",
-            "Locale Domain",
-            "Region",
-            "Full Locale Listing URL",
-            "Item ID",
-            "Seller Name",
-            "Brand",
-            "Product Type",
-            "Price",
-            "Listing Title",
-            "Seller Origin",
-            "Threat Assessment",
-            "Item Location"
-        ]
+        # Exact Genesis Canonical Headers A-R + Extended Multi-Locale Columns S-U
+        headers_map = {
+            "A": "Title",
+            "B": "URL",
+            "C": "Thumbnail",
+            "D": "",
+            "E": "Item ID",
+            "F": "",
+            "G": "",
+            "H": "Marketplace",
+            "I": "",
+            "J": "Seller Name",
+            "K": "",
+            "L": "",
+            "M": "Brand",
+            "N": "Price",
+            "O": "Item Location",
+            "P": "Product Type",
+            "Q": "Seller Origin (Registered)",
+            "R": "Threat Assessment (3PL Hub / Origin)",
+            "S": "Locale Country",
+            "T": "Locale Domain",
+            "U": "Region"
+        }
 
-        ws.append(headers)
-        for col_num in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_num)
-            cell.fill = PatternFill("solid", fgColor="1E293B")
-            cell.font = Font(bold=True, color="FFFFFF", name="Segoe UI", size=10)
-            cell.alignment = Alignment(horizontal="center" if col_num in (1, 2, 3, 5) else "left", vertical="center")
+        # Write Header Row
+        for col_letter, header_text in headers_map.items():
+            col_idx = openpyxl.utils.column_index_from_string(col_letter)
+            cell = ws.cell(row=1, column=col_idx, value=header_text)
+            cell.font = HEADER_FONT
+            cell.fill = HEADER_FILL
+            cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        ws.row_dimensions[1].height = 24
+        ws.row_dimensions[1].height = 22
 
         row_idx = 2
         for it in results:
@@ -360,42 +371,90 @@ class ExcelExporter:
 
                 fill = ROW_FILL_A if row_idx % 2 == 0 else ROW_FILL_B
                 
-                ws.append([
-                    f"{flag} {country}",
-                    domain,
-                    region,
-                    locale_url,
-                    item_id,
-                    it.get("seller", ""),
-                    it.get("brand", ""),
-                    it.get("product_type", ""),
-                    it.get("price", ""),
-                    it.get("title", ""),
-                    it.get("seller_origin", it.get("country", "")),
-                    it.get("threat_badge", it.get("threat_intel", "")),
-                    it.get("location", "")
-                ])
-
-                # Hyperlink the URL cell
-                url_cell = ws.cell(row=row_idx, column=4)
-                url_cell.hyperlink = locale_url
-                url_cell.font = Font(color="0563C1", underline="single", name="Segoe UI", size=9)
-
-                for col_num in range(1, len(headers) + 1):
-                    c = ws.cell(row=row_idx, column=col_num)
+                def set_cell(col_letter, val):
+                    idx = openpyxl.utils.column_index_from_string(col_letter)
+                    c = ws.cell(row=row_idx, column=idx, value=val)
                     c.fill = fill
-                    if col_num != 4:
-                        c.font = Font(name="Segoe UI", size=9)
+                    c.alignment = Alignment(vertical="center", wrap_text=False)
                     c.border = THIN_BORDER
+                    c.font = Font(name="Segoe UI", size=9)
+                    return c
+
+                # A: Title
+                set_cell("A", it.get("title", ""))
+
+                # B: Full Expanded Locale URL (Hyperlinked)
+                url_cell = set_cell("B", locale_url)
+                if locale_url:
+                    url_cell.hyperlink = locale_url
+                    url_cell.font = Font(color="0563C1", underline="single", name="Segoe UI", size=9)
+
+                # C: Thumbnail Image URL (Hyperlinked)
+                img_url = it.get("image_url", "")
+                img_cell = set_cell("C", img_url)
+                if img_url:
+                    img_cell.hyperlink = img_url
+                    img_cell.font = Font(color="0563C1", underline="single", name="Segoe UI", size=9)
+
+                # D: Blank spacer
+                set_cell("D", "")
+
+                # E: Item ID
+                set_cell("E", item_id)
+
+                # F, G: Blank
+                set_cell("F", "")
+                set_cell("G", "")
+
+                # H: Marketplace Locale
+                mkt_label = f"eBay ({country})" if "ebay" in domain.lower() else f"Mercado Libre ({country})"
+                set_cell("H", mkt_label)
+
+                # I: Blank
+                set_cell("I", "")
+
+                # J: Seller Name
+                set_cell("J", it.get("seller", ""))
+
+                # K, L: Blank
+                set_cell("K", "")
+                set_cell("L", "")
+
+                # M: Brand
+                set_cell("M", it.get("brand", ""))
+
+                # N: Price
+                set_cell("N", it.get("price", ""))
+
+                # O: Item Location
+                set_cell("O", it.get("location", ""))
+
+                # P: Product Type
+                set_cell("P", it.get("product_type", ""))
+
+                # Q: Seller Origin
+                set_cell("Q", it.get("seller_origin", it.get("country", "")))
+
+                # R: Threat Assessment
+                set_cell("R", it.get("threat_badge", it.get("threat_intel", "")))
+
+                # Extended Multi-Locale Metadata (S, T, U)
+                set_cell("S", f"{flag} {country}")
+                set_cell("T", domain)
+                set_cell("U", region)
 
                 row_idx += 1
 
-        col_widths = [22, 18, 16, 48, 16, 20, 16, 20, 12, 45, 20, 32, 22]
-        for idx, w in enumerate(col_widths, 1):
-            ws.column_dimensions[get_column_letter(idx)].width = w
-        ws.freeze_panes = "A2"
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
+        # Column widths matching standard template + extensions
+        col_widths = {
+            "A": 55, "B": 50, "C": 45, "D": 4, "E": 16, "F": 4, "G": 4,
+            "H": 18, "I": 4, "J": 22, "K": 4, "L": 4, "M": 18, "N": 12,
+            "O": 24, "P": 20, "Q": 20, "R": 30, "S": 22, "T": 18, "U": 16
+        }
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
 
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = "A1:U1"
         wb.save(file_path)
         return max(0, row_idx - 2)
-

@@ -1202,7 +1202,11 @@ class EbayScraper:
 
         # ── Tier 2: Storefront & User Profile Bridge Fallback ──────────────────
         for cand in candidates:
-            store_urls = [f"https://www.ebay.com/str/{cand}", f"https://www.ebay.com/usr/{cand}"]
+            store_urls = [
+                f"https://www.ebay.com/str/{cand}/about",
+                f"https://www.ebay.com/str/{cand}",
+                f"https://www.ebay.com/usr/{cand}"
+            ]
             for s_url in store_urls:
                 try:
                     if HAS_CURL_CFFI:
@@ -1212,8 +1216,18 @@ class EbayScraper:
                         r_store = curl_requests.get(s_url, headers=headers, timeout=6)
 
                     if r_store.status_code == 200 and len(r_store.text) > 1000:
-                        # Check direct "Based in <Country>" on store/user page
-                        m_based = re.search(r"(?:Based in|Located in)\s+([A-Za-z\s]+?)(?:<|\n|\t|&|\.|,|$)", r_store.text, re.I)
+                        # Check JSON country metadata in store page
+                        m_cjson = re.search(r'"country":\s*"([A-Za-z\s]+?)"', r_store.text, re.I)
+                        if m_cjson and m_cjson.group(1).strip().lower() not in ("the", "this", "our", "all", "unknown", "null"):
+                            return {"seller": clean, "country": m_cjson.group(1).strip(), "member_since": ""}
+
+                        # Check DOM location nodes
+                        m_dom = re.search(r'(?:str-about-description__location|seller-location)[^>]*>([^<]+)<', r_store.text, re.I)
+                        if m_dom and len(m_dom.group(1).strip()) >= 2:
+                            return {"seller": clean, "country": m_dom.group(1).strip(), "member_since": ""}
+
+                        # Check direct "Based in <Country>" or "Located in <Country>" on store/user page
+                        m_based = re.search(r"(?:Based in|Located in|Registered in)\s+([A-Za-z\s]+?)(?:<|\n|\t|&|\.|,|$)", r_store.text, re.I)
                         if m_based and m_based.group(1).strip().lower() not in ("the", "this", "our", "all"):
                             c_name = m_based.group(1).strip()
                             return {

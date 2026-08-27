@@ -293,7 +293,14 @@ class DataStore:
             "last_scanned": now_str,
             "total_infringements": 0,
             "total_clean_items": 0,
+            "total_value": 0.0,
+            "total_listings": 0,
+            "items": [],
             "brands_targeted": [],
+            "product_types": [],
+            "locations": [],
+            "country": "Unresolved",
+            "threat_badge": "",
             "risk_tier": "Low",
             "historical_scan_count": 0,
             "strike_history": []
@@ -305,15 +312,32 @@ class DataStore:
         if brand_name and brand_name not in entry.get("brands_targeted", []):
             entry.setdefault("brands_targeted", []).append(brand_name)
 
+        existing_items = entry.setdefault("items", [])
+        existing_ids = {it.get("item_id") for it in existing_items if it.get("item_id")}
+        
+        entry_brands = set(entry.get("brands_targeted", []))
+        entry_pts = set(entry.get("product_types", []))
+        entry_locs = set(entry.get("locations", []))
+        
+        try:
+            current_total_value = float(entry.get("total_value", 0.0) or 0.0)
+        except (ValueError, TypeError):
+            current_total_value = 0.0
+
         flagged_items = []
         for itm in items:
-            t_score = itm.get("threat_score", 0)
+            raw_score = itm.get("threat_score", 0)
+            try:
+                t_score = float(raw_score) if raw_score not in (None, "", "None", "N/A") else 0.0
+            except (ValueError, TypeError):
+                t_score = 0.0
+
             is_cf = (
                 itm.get("high_risk") or 
                 itm.get("counterfeit") or 
                 itm.get("visual_counterfeit") or
-                t_score >= 70 or 
-                any(kw in str(itm.get("threat_badge", "")).lower() for kw in ("counterfeit", "syndicate", "flagged"))
+                t_score >= 70.0 or 
+                any(kw in str(itm.get("threat_badge", "")).lower() for kw in ("counterfeit", "syndicate", "flagged", "3pl", "high"))
             )
             if is_cf:
                 entry["total_infringements"] = entry.get("total_infringements", 0) + 1
@@ -327,6 +351,42 @@ class DataStore:
                 })
             else:
                 entry["total_clean_items"] = entry.get("total_clean_items", 0) + 1
+
+            # Aggregate item cards, prices, and locations
+            iid = itm.get("item_id")
+            if iid and iid not in existing_ids:
+                existing_ids.add(iid)
+                existing_items.append(dict(itm))
+                
+                # Parse numeric price
+                p_str = str(itm.get("price", "0"))
+                m_p = re.search(r"[\d,]+(?:\.\d+)?", p_str)
+                if m_p:
+                    try:
+                        p_val = float(m_p.group(0).replace(",", ""))
+                        current_total_value += p_val
+                    except Exception:
+                        pass
+
+            b = itm.get("brand")
+            if b and b not in ("Unknown", ""): entry_brands.add(b)
+            pt = itm.get("product_type")
+            if pt and pt not in ("Accessories", ""): entry_pts.add(pt)
+            loc = itm.get("location")
+            if loc: entry_locs.add(loc)
+            
+            orig = itm.get("seller_origin") or itm.get("country")
+            if orig and orig != "Unknown" and (not entry.get("country") or entry.get("country") == "Unresolved"):
+                entry["country"] = orig
+            tb = itm.get("threat_badge")
+            if tb and not entry.get("threat_badge"):
+                entry["threat_badge"] = tb
+
+        entry["total_value"] = round(current_total_value, 2)
+        entry["total_listings"] = len(existing_items)
+        entry["brands_targeted"] = sorted(list(entry_brands))
+        entry["product_types"] = sorted(list(entry_pts))
+        entry["locations"] = sorted(list(entry_locs))
 
         total_bad = entry.get("total_infringements", 0)
         total_good = entry.get("total_clean_items", 0)
@@ -407,12 +467,18 @@ class DataStore:
             is_3pl = True
 
         country_resolved = "Unknown"
+        # Prioritize origin over item shipping location
         for cname in self.COUNTRY_FLAGS.keys():
-            if cname in orig_clean or cname in loc_clean:
+            if cname in orig_clean:
                 country_resolved = cname.title()
                 break
+        if country_resolved == "Unknown":
+            for cname in self.COUNTRY_FLAGS.keys():
+                if cname in loc_clean:
+                    country_resolved = cname.title()
+                    break
 
-        badge = "Unresolved"
+        badge = "❓ Unresolved"
         is_high = False
 
         if is_3pl:
@@ -421,17 +487,24 @@ class DataStore:
         elif is_china:
             badge = "⚠️ Cross-Border Direct"
             is_high = True
-        elif any(c in orig_clean or c in loc_clean for c in ("mexico", "brazil", "argentina", "colombia", "chile", "peru")):
+        elif any(c in orig_clean for c in ("mexico", "brazil", "argentina", "colombia", "chile", "peru")):
             badge = "🌎 Latin America Hub"
             is_high = False
-        elif any(c in orig_clean or c in loc_clean for c in ("united kingdom", "uk", "france", "germany", "spain", "italy", "poland", "netherlands", "belgium")):
+        elif any(c in orig_clean for c in ("united kingdom", "uk", "france", "germany", "spain", "italy", "poland", "netherlands", "belgium")):
             badge = "🇪🇺 European Direct"
             is_high = False
-        elif any(c in orig_clean or c in loc_clean for c in ("united states", "usa", "us")):
+        elif any(c in orig_clean for c in ("united states", "usa", "us")):
             badge = "🇺🇸 Domestic Verified"
             is_high = False
+        elif orig_clean and orig_clean not in ("unknown", "unresolved", ""):
+            badge = f"🌍 {country_resolved}"
+            is_high = False
+        elif loc_clean:
+            badge = "❓ Warehouse (Unresolved Origin)"
+            is_high = False
+
         return {
-            "country": country_resolved if country_resolved != "Unknown" else (origin or location or "Unresolved"),
+            "country": country_resolved if country_resolved != "Unknown" else (origin or "Unresolved"),
             "badge": badge,
             "is_high_risk": is_high,
             "is_3pl_hub": is_3pl

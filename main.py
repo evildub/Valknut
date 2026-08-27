@@ -675,7 +675,7 @@ CONTINENTAL_QUOTES = [
 ]
 
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 
 
 class EbayTool(tk.Tk):
@@ -1533,6 +1533,8 @@ class EbayTool(tk.Tk):
         self._btn(toolbar, "📋 Copy", self._copy_all_listing_urls).pack(side="right", padx=2)
         self._btn(toolbar, "🌍 Threat", self._enrich_seller_threat_intel, accent=False).pack(side="right", padx=2)
         self._btn(toolbar, "🔗 Network", self._open_connected_network_scanner, accent=False).pack(side="right", padx=2)
+        self._btn(toolbar, "🔄 Rescrape", self._rescrape_selected_listings).pack(side="right", padx=2)
+        self._btn(toolbar, "✏️ Edit", self._edit_selected_listing).pack(side="right", padx=2)
         self._btn(toolbar, "🏪 Enrich", self._enrich_sellers).pack(side="right", padx=2)
         self._btn(toolbar, "✕ Remove", self._remove_selected_results).pack(side="right", padx=2)
         self._btn(toolbar, "🗑 Clear", self._clear_results, danger=True).pack(side="right", padx=2)
@@ -1569,10 +1571,11 @@ class EbayTool(tk.Tk):
         self.hr_cb.pack(side="left", padx=(2, 2))
         self.themed_widgets["checks"].append(self.hr_cb)
 
-        self.hb_cb = tk.Checkbutton(filter_bar, text="🛡️ Hide Benign", variable=self.filter_hide_benign_var,
+        self.hb_cb = tk.Checkbutton(filter_bar, text="🛡 Hide Benign", variable=self.filter_hide_benign_var,
                                     command=self._on_hide_benign_toggled, bg=t["panel"], fg=t["success"],
                                     selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
         self.hb_cb.pack(side="left", padx=(2, 2))
+        self.themed_widgets["checks"].append(self.hb_cb)
         self.themed_widgets["checks"].append(self.hb_cb)
 
         self.ob_cb = tk.Checkbutton(filter_bar, text="🟢 Benign Only", variable=self.filter_only_benign_var,
@@ -1713,7 +1716,9 @@ class EbayTool(tk.Tk):
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
 
-        self.result_tree.bind("<Double-1>", self._open_url)
+        self.result_tree.bind("<Double-1>", self._on_result_tree_double_click)
+        self.result_tree.bind("<F2>", lambda e: self._edit_selected_listing())
+        self.result_tree.bind("<Return>", self._open_url)
         self.result_tree.bind("<Button-3>", self._show_result_context_menu)
         self.result_tree.bind("<Delete>", lambda e: self._remove_selected_results())
         self.result_tree.bind("<BackSpace>", lambda e: self._remove_selected_results())
@@ -3105,7 +3110,10 @@ class EbayTool(tk.Tk):
         win.geometry(f"460x240+{max(0, x)}+{max(0, y)}")
         self._apply_dark_titlebar(win)
         win.transient(self)
-        win.grab_set()
+        try:
+            win.grab_set()
+        except Exception:
+            pass
 
         tk.Label(win, text="💾 Save or Update Portfolio Preset", bg=t["bg"], fg=t["accent"],
                  font=("Segoe UI", 11, "bold")).pack(pady=(14, 4))
@@ -3140,10 +3148,19 @@ class EbayTool(tk.Tk):
         def _do_save():
             chosen_name = name_var.get().strip()
             if not chosen_name:
+                try: win.grab_release()
+                except Exception: pass
                 messagebox.showwarning("Name Required", "Please enter or select a preset name.", parent=win)
+                try: win.grab_set()
+                except Exception: pass
                 return
             if chosen_name in presets:
-                if not messagebox.askyesno("Overwrite Preset", f"Portfolio Preset '{chosen_name}' already exists.\n\nOverwrite and update with current workspace snapshot?", parent=win):
+                try: win.grab_release()
+                except Exception: pass
+                overwrite_ok = messagebox.askyesno("Overwrite Preset", f"Portfolio Preset '{chosen_name}' already exists.\n\nOverwrite and update with current workspace snapshot?", parent=win)
+                if not overwrite_ok:
+                    try: win.grab_set()
+                    except Exception: pass
                     return
 
             preset_payload = {
@@ -4518,13 +4535,187 @@ class EbayTool(tk.Tk):
             self._hide_preview_popup()
             self._log("Results cleared.")
 
-    def _open_url(self, ev):
+    def _get_item_by_tree_id(self, iid: str) -> Optional[dict]:
+        """Lookup dictionary item in self.results by tree item id or item_id value."""
+        if not iid or not self.result_tree.exists(iid):
+            return None
+        vals = self.result_tree.item(iid).get("values", [])
+        if len(vals) > 3:
+            item_id = str(vals[3]).strip()
+            url = str(vals[10] if len(vals) > 10 else (vals[8] if len(vals) > 8 else "")).strip()
+            for it in self.results:
+                if (item_id and str(it.get("item_id", "")).strip() == item_id) or (url and str(it.get("url", "")).strip() == url):
+                    return it
+        return None
+
+    def _open_url(self, ev=None):
         sel = self.result_tree.focus()
+        if not sel:
+            selected = self.result_tree.selection()
+            if selected: sel = selected[0]
         if sel:
             values = self.result_tree.item(sel)["values"]
             listing_url = values[10] if len(values) > 10 else (values[8] if len(values) > 8 else "")
             if listing_url:
                 webbrowser.open(listing_url)
+
+    def _on_result_tree_double_click(self, event):
+        """Intelligent double click: open browser if clicked on URL or image, otherwise open inline edit modal."""
+        col_id = self.result_tree.identify_column(event.x)
+        # Column #0 is thumbnail, #11/#9 is URL -> open browser
+        if col_id in ("#0", "#11", "#9"):
+            self._open_url()
+        else:
+            self._edit_selected_listing()
+
+    def _edit_selected_listing(self):
+        """Open an analyst edit dialog to modify Brand, Product Type, Seller, Price, or Title for selected listing(s)."""
+        selected_ids = self.result_tree.selection()
+        if not selected_ids:
+            messagebox.showinfo("Edit Listing", "Please select a listing from the table to edit.")
+            return
+
+        target_items = [self._get_item_by_tree_id(iid) for iid in selected_ids if self._get_item_by_tree_id(iid)]
+        if not target_items:
+            return
+
+        first_item = target_items[0]
+        is_multi = len(target_items) > 1
+
+        t = self.theme
+        win = tk.Toplevel(self)
+        win.title("Quick Edit Listing Values" if not is_multi else f"Batch Edit {len(target_items)} Selected Listings")
+        win.configure(bg=t["bg"])
+        win.geometry("520x430")
+        win.resizable(False, False)
+        self._apply_dark_titlebar(win)
+        win.transient(self)
+
+        # Center dialog
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - 260
+        y = self.winfo_y() + (self.winfo_height() // 2) - 215
+        win.geometry(f"520x430+{max(0, x)}+{max(0, y)}")
+
+        tk.Label(win, text="✏️ Edit Listing Information", bg=t["bg"], fg=t["accent"],
+                 font=("Segoe UI", 11, "bold")).pack(pady=(12, 4))
+        
+        sub_txt = f"Editing Item #{first_item.get('item_id', '')}" if not is_multi else f"Applying updates across {len(target_items)} selected listings"
+        tk.Label(win, text=sub_txt, bg=t["bg"], fg=t["subtext"], font=FONT_SM).pack(pady=(0, 10))
+
+        frame = tk.Frame(win, bg=t["bg"])
+        frame.pack(fill="both", expand=True, padx=20)
+
+        # 1. Brand
+        tk.Label(frame, text="Brand / Trademark:", bg=t["bg"], fg=t["text"], font=FONT_SM).grid(row=0, column=0, sticky="w", pady=4)
+        brand_var = tk.StringVar(value=first_item.get("brand", ""))
+        known_brands = sorted(list(self.data_store.get_brands().keys()))
+        brand_cb = ttk.Combobox(frame, textvariable=brand_var, values=known_brands, font=FONT_SM)
+        brand_cb.grid(row=0, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        # 2. Product Type
+        tk.Label(frame, text="Product Category:", bg=t["bg"], fg=t["text"], font=FONT_SM).grid(row=1, column=0, sticky="w", pady=4)
+        pt_var = tk.StringVar(value=first_item.get("product_type", ""))
+        known_pts = ["Airbag Covers", "Airbag Components", "Emblems", "Decals", "Wheel Caps", "Exterior Lighting", "Exterior Parts", "Brakes", "Ignition Systems", "Oil Filters", "Air Filters", "Merchandise", "Accessories"]
+        pt_cb = ttk.Combobox(frame, textvariable=pt_var, values=known_pts, font=FONT_SM)
+        pt_cb.grid(row=1, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        # 3. Seller Name
+        tk.Label(frame, text="Seller Name / Store:", bg=t["bg"], fg=t["text"], font=FONT_SM).grid(row=2, column=0, sticky="w", pady=4)
+        seller_var = tk.StringVar(value=first_item.get("seller", ""))
+        seller_ent = tk.Entry(frame, textvariable=seller_var, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], relief="flat", font=FONT_SM)
+        seller_ent.grid(row=2, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        # 4. Price
+        tk.Label(frame, text="Price:", bg=t["bg"], fg=t["text"], font=FONT_SM).grid(row=3, column=0, sticky="w", pady=4)
+        price_var = tk.StringVar(value=first_item.get("price", ""))
+        price_ent = tk.Entry(frame, textvariable=price_var, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], relief="flat", font=FONT_SM)
+        price_ent.grid(row=3, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        # 5. Title (Single item only)
+        title_var = tk.StringVar(value=first_item.get("title", ""))
+        if not is_multi:
+            tk.Label(frame, text="Listing Title:", bg=t["bg"], fg=t["text"], font=FONT_SM).grid(row=4, column=0, sticky="w", pady=4)
+            title_ent = tk.Entry(frame, textvariable=title_var, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], relief="flat", font=FONT_SM)
+            title_ent.grid(row=4, column=1, sticky="ew", pady=4, padx=(8, 0))
+
+        frame.columnconfigure(1, weight=1)
+
+        btn_row = tk.Frame(win, bg=t["bg"])
+        btn_row.pack(fill="x", padx=20, pady=(16, 12))
+
+        def _save():
+            new_b = brand_var.get().strip()
+            new_pt = pt_var.get().strip()
+            new_s = seller_var.get().strip()
+            new_p = price_var.get().strip()
+            new_t = title_var.get().strip()
+
+            for item in target_items:
+                if new_b: item["brand"] = new_b
+                if new_pt: item["product_type"] = new_pt
+                if new_s: item["seller"] = new_s
+                if new_p: item["price"] = new_p
+                if not is_multi and new_t: item["title"] = new_t
+
+            self._repopulate_results_table()
+            self._log(f"✏️ Updated values for {len(target_items)} listing(s) in results table.")
+            win.destroy()
+
+        self._btn(btn_row, "💾 Apply Changes", _save, accent=True).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self._btn(btn_row, "Cancel", win.destroy).pack(side="right")
+        win.bind("<Return>", lambda e: _save())
+
+    def _rescrape_selected_listings(self):
+        """Re-scrape live listing pages for selected rows to backfill/refresh missing thumbnails, live prices, and seller handles."""
+        selected_ids = self.result_tree.selection()
+        if not selected_ids:
+            messagebox.showinfo("Rescrape Listings", "Please select one or more listings from the results table to refresh.")
+            return
+
+        target_items = []
+        for iid in selected_ids:
+            it = self._get_item_by_tree_id(iid)
+            if it:
+                target_items.append((iid, it))
+
+        if not target_items:
+            return
+
+        self._log(f"🔄 Starting targeted live refresh for {len(target_items)} selected listing(s)...")
+
+        def _worker():
+            import batch_importer
+            updated_count = 0
+            for idx, (iid, item) in enumerate(target_items, 1):
+                url = item.get("url", "")
+                if not url:
+                    continue
+                try:
+                    res = batch_importer._fetch_ebay_item(url, headless=self.headless)
+                    if res:
+                        if res.get("image_url") and res.get("image_url") != item.get("image_url"):
+                            item["image_url"] = res["image_url"]
+                        if res.get("price") and res.get("price") not in ("$0.00", ""):
+                            item["price"] = res["price"]
+                        if res.get("seller") and res.get("seller") != "eBay Seller":
+                            item["seller"] = res["seller"]
+                        if res.get("title") and not res.get("title").startswith("eBay Item #"):
+                            item["title"] = res["title"]
+                        if res.get("location") and res.get("location") != "United States":
+                            item["location"] = res["location"]
+                        updated_count += 1
+                except Exception as e:
+                    logger.debug(f"Rescrape error on {url}: {e}")
+
+            def _finish():
+                self._repopulate_results_table()
+                self._log(f"✅ Finished live refresh for {updated_count}/{len(target_items)} listing(s).")
+                messagebox.showinfo("Refresh Complete", f"Successfully refreshed details and thumbnails for {updated_count} listing(s)!")
+
+            self.after(0, _finish)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _show_result_context_menu(self, event):
         """Right-click context menu on results table rows."""
@@ -4542,6 +4733,9 @@ class EbayTool(tk.Tk):
         menu = tk.Menu(self, tearoff=0, bg=t["panel"], fg=t["text"],
                        activebackground=t["accent"], activeforeground="black" if t.get("name","").startswith("⚡") else "white")
 
+        menu.add_command(label="✏️ Edit Listing Values (F2)", command=self._edit_selected_listing)
+        menu.add_command(label="🔄 Refresh / Rescrape Selected", command=self._rescrape_selected_listings)
+        menu.add_separator()
         menu.add_command(label="💾 Export to Excel (Ctrl+E)", command=self._export)
         menu.add_command(label="🌐 Multi-Locale Expander", command=self._open_multi_locale_expander)
         menu.add_separator()

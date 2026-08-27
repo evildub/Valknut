@@ -493,22 +493,52 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
         if t_el:
             title = t_el.text.replace("Details about", "").replace("NEW", "").strip()
 
-        # Seller Extraction: Inspect links and URLs
-        for a_el in soup.select("div.x-sellercard-atf__info__about-seller a, a[href*='_ssn='], a[href*='/str/'], a[href*='/usr/'], div.ux-seller-section a, a.mbg-id, span.mbg-nw"):
-            txt = a_el.get_text(strip=True)
-            href = a_el.get("href", "")
-            if txt and txt.lower() not in ("visit store", "contact seller", "save this seller", "see other items", "about this seller", "shop on ebay"):
-                seller = txt
-                break
-            m_u = re.search(r'(?:_ssn=|/str/|/usr/)([a-zA-Z0-9_\-\.]+)', href)
-            if m_u and m_u.group(1).lower() not in ("usr", "str", "sch", "itm", "i.html"):
-                seller = m_u.group(1)
-                break
+        # Seller Extraction: Inspect links, JSON, and seller card
+        # 1. Target the actual seller username link in the seller card
+        for sel in (
+            "div.x-sellercard-atf__info__about-seller a",
+            "div[data-testid='x-sellercard-atf'] a",
+            "div.ux-seller-section a",
+            "a.x-sellercard-atf__info__about-seller",
+            "a[data-testid='ux-seller-section__item--seller']"
+        ):
+            if seller: break
+            for a_el in soup.select(sel):
+                href = a_el.get("href", "")
+                txt = a_el.get_text(strip=True)
+                
+                # Check href for /sch/{seller}/m.html or /usr/{seller} or /str/{seller}
+                m_href = re.search(r'/(?:sch|usr|str)/([a-zA-Z0-9_\-\.]+)(?:/m\.html|\?|$|/)', href)
+                if m_href:
+                    cand = m_href.group(1).strip()
+                    if cand and len(cand) >= 2 and cand.lower() not in ("usr", "str", "sch", "itm", "i.html", "ebay", "help", "about", "contact", "signin", "register"):
+                        seller = cand
+                        break
+                
+                # Check text (ignore single letter avatar initial, feedback counts like (135) or 99.1%)
+                if txt and len(txt) >= 2:
+                    clean_txt = re.sub(r'^\(|\)$', '', txt).strip()
+                    if clean_txt.lower() not in (
+                        "visit store", "contact seller", "save this seller", "see other items", "about this seller",
+                        "shop on ebay", "message", "seller's other items", "report this item", "feedback"
+                    ) and not re.match(r'^\d[\d,.]*(?:%|\s*positive)?$', clean_txt, re.I):
+                        seller = clean_txt
+                        break
 
+        # 2. Check JSON data in page if not found
         if not seller:
-            m_raw = re.search(r'(?:_ssn=|https?://www\.ebay\.com/(?:str|usr)/)([a-zA-Z0-9_\-\.]+)', html)
-            if m_raw and m_raw.group(1).lower() not in ("usr", "str", "sch", "itm"):
-                seller = m_raw.group(1)
+            for pattern in (
+                r'"sellerUsername":\s*"([a-zA-Z0-9_\-\.]+)"',
+                r'"sellerName":\s*"([a-zA-Z0-9_\-\.]+)"',
+                r'"userId":\s*"([a-zA-Z0-9_\-\.]+)"',
+                r'"seller":\s*\{[^}]*"username":\s*"([a-zA-Z0-9_\-\.]+)"'
+            ):
+                m = re.search(pattern, html, re.I)
+                if m:
+                    cand = m.group(1).strip()
+                    if cand and len(cand) >= 2 and cand.lower() not in ("usr", "str", "sch", "itm", "ebay", "null", "undefined"):
+                        seller = cand
+                        break
 
         # Price
         p_el = soup.select_one("div.x-price-primary span.ux-textspans, span#prcIsum, span#mm-saleDscPrc, div[data-testid='x-price-primary'] span")
@@ -528,41 +558,53 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
     # Fallback to Playwright if title or seller missing
     if (not title or not seller or seller == "eBay Seller") and HAS_PLAYWRIGHT:
         try:
-            profile_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Apollo_eBay_Session")
-            edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
-            channel = "msedge" if os.path.exists(edge_path) else None
+            import tempfile
+            from scraper import EbayScraper
+            scraper_temp = EbayScraper()
+            edge_path = scraper_temp._find_edge_path()
+            temp_dir = tempfile.mkdtemp()
+            
             with sync_playwright() as p:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    headless=headless,
-                    channel=channel,
-                    args=["--disable-blink-features=AutomationControlled"]
-                )
+                launch_kwargs = {
+                    "headless": headless,
+                    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+                    "viewport": {"width": 1440, "height": 900},
+                    "args": ["--disable-blink-features=AutomationControlled", "--disable-features=IsolateOrigins,site-per-process", "--no-first-run", "--no-default-browser-check"],
+                    "ignore_default_args": ["--enable-automation"]
+                }
+                if edge_path: launch_kwargs["executable_path"] = edge_path
+                else: launch_kwargs["channel"] = "msedge"
+
+                context = p.chromium.launch_persistent_context(temp_dir, **launch_kwargs)
+                context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
                 page = context.pages[0] if context.pages else context.new_page()
-                page.goto(clean_url, wait_until="domcontentloaded", timeout=16000)
-                page.wait_for_timeout(1500)
+                try: page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=12000)
+                except Exception: pass
+                page.goto(clean_url, wait_until="load", timeout=20000)
+                time.sleep(1.0)
                 
                 if not title:
                     t = page.query_selector("h1.x-item-title__mainTitle, h1.vi-itm-title, h1[class*='item-title'], h1")
                     if t: title = t.inner_text().strip()
 
                 if not seller or seller == "eBay Seller":
-                    for s_el in page.query_selector_all("div.x-sellercard-atf__info__about-seller a, a[href*='_ssn='], a[href*='/str/'], a[href*='/usr/'], div.ux-seller-section a"):
-                        txt = s_el.inner_text().strip()
-                        href = s_el.get_attribute("href") or ""
-                        if txt and txt.lower() not in ("visit store", "contact seller", "save this seller", "see other items", "about this seller", "shop on ebay"):
-                            seller = txt
-                            break
-                        m_u = re.search(r'(?:_ssn=|/str/|/usr/)([a-zA-Z0-9_\-\.]+)', href)
-                        if m_u and m_u.group(1).lower() not in ("usr", "str", "sch", "itm", "i.html"):
-                            seller = m_u.group(1)
-                            break
-
-                if not seller or seller == "eBay Seller":
-                    content = page.content()
-                    m_raw = re.search(r'(?:_ssn=|https?://www\.ebay\.com/(?:str|usr)/)([a-zA-Z0-9_\-\.]+)', content)
-                    if m_raw and m_raw.group(1).lower() not in ("usr", "str", "sch", "itm"):
-                        seller = m_raw.group(1)
+                    seller_cand = page.evaluate("""() => {
+                        const card = document.querySelector('div.x-sellercard-atf, div.ux-seller-section, div[data-testid="x-sellercard-atf"]');
+                        if (card) {
+                            for (const a of card.querySelectorAll('a')) {
+                                const m = a.href.match(/\\/(?:sch|usr|str)\\/([a-zA-Z0-9_\\-\\.]+)(?:\\/m\\.html|\\?|$|\\/)/);
+                                if (m && m[1] && m[1].length >= 2 && !['usr','str','sch','itm'].includes(m[1].toLowerCase())) {
+                                    return m[1];
+                                }
+                                const t = a.innerText.trim();
+                                if (t.length >= 2 && !t.includes('(') && !t.includes('%') && !t.toLowerCase().includes('seller') && !t.toLowerCase().includes('message')) {
+                                    return t;
+                                }
+                            }
+                        }
+                        return '';
+                    }""")
+                    if seller_cand: seller = seller_cand
 
                 if price in ("$0.00", ""):
                     p_val = page.query_selector("div.x-price-primary span.ux-textspans, span#prcIsum, span#mm-saleDscPrc, div[data-testid='x-price-primary'] span")
@@ -572,6 +614,8 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
                     img = page.query_selector("img.ux-image-filmstrip-carousel-item, div.ux-image-carousel-item img, img#icImg")
                     if img: image_url = img.get_attribute("src") or ""
                 context.close()
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
         except Exception as e:
             logger.debug(f"eBay Playwright fetch error: {e}")
 
