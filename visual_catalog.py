@@ -85,6 +85,12 @@ class VisualCatalogManager:
         self.catalog_file = os.path.join(self.base_dir, "visual_catalog.json")
         os.makedirs(self.thumbs_dir, exist_ok=True)
         self.match_threshold: int = 6
+        try:
+            from data_store import DataStore
+            ds = DataStore()
+            self.match_threshold = int(ds.get_setting("visual_match_threshold", 6))
+        except Exception:
+            pass
         self.entries: List[Dict] = self._load_catalog()
 
     def get_all_entries(self) -> List[Dict]:
@@ -260,15 +266,16 @@ class VisualCatalogManager:
             return True
         return False
 
-    def match_image(self, target: Image.Image, max_distance: int = 6) -> Optional[Dict]:
+    def match_image(self, target: Image.Image, max_distance: Optional[int] = None) -> Optional[Dict]:
         """
         Match a target PIL Image against the visual catalog.
         Tests against ALL hashes in every cluster entry.
-        Returns match dict if Hamming distance <= max_distance, else None.
+        Returns match dict if Hamming distance <= max_distance (or self.match_threshold), else None.
         """
         if not target or not self.entries:
             return None
 
+        effective_dist = max_distance if max_distance is not None else getattr(self, "match_threshold", 6)
         t_hash = compute_phash(target)
         if not t_hash:
             return None
@@ -282,7 +289,7 @@ class VisualCatalogManager:
                 if not e_hash:
                     continue
                 dist = hamming_distance(t_hash, e_hash)
-                if dist <= max_distance and dist < min_dist:
+                if dist <= effective_dist and dist < min_dist:
                     min_dist = dist
                     sim_pct = max(0, int((1.0 - (dist / 64.0)) * 100))
                     best_match = {

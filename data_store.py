@@ -104,6 +104,10 @@ class DataStore:
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(self._data, f, indent=2, ensure_ascii=False)
 
+    @property
+    def data(self):
+        return self._data
+
     # ── settings ──────────────────────────────────────────────────────────────
     def get_setting(self, key, default=""):
         return self._data.get("settings", {}).get(key, default)
@@ -222,6 +226,8 @@ class DataStore:
     # ── exclusions ────────────────────────────────────────────────────────────
     def get_exclusions(self):
         return self._data.get("exclusions", [])
+
+    get_generic_exclusions = get_exclusions
 
     def add_exclusion(self, term):
         if term not in self._data["exclusions"]:
@@ -408,6 +414,33 @@ class DataStore:
                 "sample_items": flagged_items[:5]
             })
 
+        self._save()
+
+    def save_enforcement_registry(self, reg_dict: dict):
+        """Persist updated enforcement registry dictionary."""
+        self._data["enforcement_registry"] = reg_dict
+        self._save()
+
+    def delete_registry_entry(self, seller_handle: str):
+        """Remove a seller record from the enforcement registry."""
+        if not seller_handle:
+            return
+        reg = self.get_enforcement_registry()
+        clean = seller_handle.strip()
+        if clean in reg:
+            del reg[clean]
+            self._save()
+        else:
+            # Also check case-insensitive match
+            for k in list(reg.keys()):
+                if k.lower() == clean.lower():
+                    del reg[k]
+                    self._save()
+                    break
+
+    def clear_enforcement_registry(self):
+        """Clear all records in the enforcement registry."""
+        self._data["enforcement_registry"] = {}
         self._save()
 
     def get_seller_intel(self, seller_handle: str) -> dict:

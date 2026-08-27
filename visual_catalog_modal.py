@@ -73,6 +73,12 @@ class VisualCatalogModal(tk.Toplevel):
                                    relief="flat", padx=8, pady=4, cursor="hand2", command=self._merge_selected_cards)
         self.merge_btn.pack(side="left", padx=3)
 
+        tk.Button(top_btns, text="🔄 Re-Scan Session", font=FONT_BOLD, bg=btn_bg, fg=accent_color,
+                  relief="flat", padx=8, pady=4, cursor="hand2", command=self._rescan_session_matches).pack(side="left", padx=3)
+        tk.Button(top_btns, text="📤 Export", font=FONT_BOLD, bg=btn_bg, fg=btn_fg,
+                  relief="flat", padx=6, pady=4, cursor="hand2", command=self._export_visual_pack).pack(side="left", padx=3)
+        tk.Button(top_btns, text="📥 Import", font=FONT_BOLD, bg=btn_bg, fg=btn_fg,
+                  relief="flat", padx=6, pady=4, cursor="hand2", command=self._import_visual_pack).pack(side="left", padx=3)
         tk.Button(top_btns, text="➕ Add File", font=FONT_BOLD, bg=btn_bg, fg=btn_fg,
                   relief="flat", padx=8, pady=4, cursor="hand2", command=self._add_from_file).pack(side="left", padx=3)
         tk.Button(top_btns, text="🌐 Add URL", font=FONT_BOLD, bg=btn_bg, fg=btn_fg,
@@ -487,3 +493,58 @@ class VisualCatalogModal(tk.Toplevel):
                   relief="flat", padx=12, pady=4, command=_save).pack(side="right")
         tk.Button(btn_box, text="Cancel", font=FONT_NORM, bg=panel_bg, fg=subtext_color,
                   relief="flat", padx=8, pady=4, command=win.destroy).pack(side="right", padx=6)
+
+    def _rescan_session_matches(self):
+        if hasattr(self.master, "_rescan_visual_matches"):
+            self.master._rescan_visual_matches()
+        else:
+            messagebox.showinfo("Re-Scan", "Re-evaluated visual matches against catalog.")
+
+    def _export_visual_pack(self):
+        import intel_pack_manager
+        out_path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export Visual Threat Catalog",
+            defaultextension=".apollo",
+            filetypes=[("Apollo Intelligence Pack", "*.apollo"), ("Zip Archive", "*.zip")],
+            initialfile="visual_threat_catalog.apollo"
+        )
+        if not out_path:
+            return
+        try:
+            ds = getattr(self.master, "data_store", None)
+            manifest = intel_pack_manager.IntelPackManager.export_pack(
+                output_filepath=out_path,
+                data_store=ds,
+                visual_catalog=self.vcm,
+                scope="Visual Library Only",
+                notes="Exported Visual Threat & Benign Packaging Catalog"
+            )
+            messagebox.showinfo("Export Complete", f"Successfully exported {manifest['counts']['visual_catalog_entries']} visual threat fingerprints ({manifest['counts']['visual_thumbnails']} photos) to:\n\n{out_path}")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed exporting visual catalog: {e}", parent=self)
+
+    def _import_visual_pack(self):
+        import intel_pack_manager
+        pack_fp = filedialog.askopenfilename(
+            parent=self,
+            title="Import Visual Threat Catalog (.apollo / .zip)",
+            filetypes=[("Apollo Intelligence Pack", "*.apollo;*.zip"), ("All Files", "*.*")]
+        )
+        if not pack_fp:
+            return
+        try:
+            ds = getattr(self.master, "data_store", None)
+            res = intel_pack_manager.IntelPackManager.import_pack(
+                pack_filepath=pack_fp,
+                data_store=ds,
+                visual_catalog=self.vcm,
+                merge_mode="merge"
+            )
+            self._load_gallery()
+            if self.on_update:
+                self.on_update()
+            r = res.get("results", {})
+            messagebox.showinfo("Import Complete", f"Successfully imported {r.get('visual_added', 0)} visual fingerprints and {r.get('thumbnails_extracted', 0)} photos into your catalog!")
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed importing visual catalog: {e}", parent=self)

@@ -976,7 +976,10 @@ class EbayTool(tk.Tk):
         self.btn_whitelist.pack(side="left", padx=(0, 2))
 
         self.btn_threat = self._btn(top_right, "🕵 Threat Intel", self._open_threat_intel_window, accent=False)
-        self.btn_threat.pack(side="left", padx=(0, 4))
+        self.btn_threat.pack(side="left", padx=(0, 2))
+
+        self.btn_guide = self._btn(top_right, "💡 Help & Guide", self._open_analyst_guide_modal, accent=False)
+        self.btn_guide.pack(side="left", padx=(0, 4))
 
         # ── Unified Settings ▾ Menubutton ──
         self.settings_mb = tk.Menubutton(
@@ -1078,7 +1081,19 @@ class EbayTool(tk.Tk):
 
         self.settings_menu.add_separator()
 
-        # 4. Modals & Configuration
+        # 4. Analyst Intelligence Packs & Sharing
+        self.settings_menu.add_command(
+            label="📦 Export Analyst Intelligence Pack (.apollo)...",
+            command=self._export_intel_pack_dialog
+        )
+        self.settings_menu.add_command(
+            label="📥 Import Analyst Intelligence Pack (.apollo)...",
+            command=self._import_intel_pack_dialog
+        )
+
+        self.settings_menu.add_separator()
+
+        # 5. Modals & Configuration
         self.settings_menu.add_command(
             label="🔑 Configure eBay API Keys...",
             command=self._open_api_keys_dialog
@@ -1528,16 +1543,35 @@ class EbayTool(tk.Tk):
         self.thumb_size_combo.bind("<<ComboboxSelected>>", self._on_thumb_size_changed)
 
         # Primary Action: Export (Packed FIRST on right so it is anchored to the far right and NEVER clipped)
-        self._btn(toolbar, "💾 Export", self._export, accent=True).pack(side="right", padx=(4, 2))
-        self._btn(toolbar, "🌐 Multi-Locale", self._open_multi_locale_expander, accent=False).pack(side="right", padx=2)
-        self._btn(toolbar, "📋 Copy", self._copy_all_listing_urls).pack(side="right", padx=2)
-        self._btn(toolbar, "🌍 Threat", self._enrich_seller_threat_intel, accent=False).pack(side="right", padx=2)
-        self._btn(toolbar, "🔗 Network", self._open_connected_network_scanner, accent=False).pack(side="right", padx=2)
-        self._btn(toolbar, "🔄 Rescrape", self._rescrape_selected_listings).pack(side="right", padx=2)
-        self._btn(toolbar, "✏️ Edit", self._edit_selected_listing).pack(side="right", padx=2)
-        self._btn(toolbar, "🏪 Enrich", self._enrich_sellers).pack(side="right", padx=2)
-        self._btn(toolbar, "✕ Remove", self._remove_selected_results).pack(side="right", padx=2)
-        self._btn(toolbar, "🗑 Clear", self._clear_results, danger=True).pack(side="right", padx=2)
+        self.btn_export = self._btn(toolbar, "💾 Export", self._export, accent=True)
+        self.btn_export.pack(side="right", padx=(4, 2))
+
+        self.btn_multi_loc = self._btn(toolbar, "🌐 Multi-Locale", self._open_multi_locale_expander, accent=False)
+        self.btn_multi_loc.pack(side="right", padx=2)
+
+        self.btn_copy_urls = self._btn(toolbar, "📋 Copy", self._copy_all_listing_urls)
+        self.btn_copy_urls.pack(side="right", padx=2)
+
+        self.btn_threat_enrich = self._btn(toolbar, "🌍 Threat", self._enrich_seller_threat_intel, accent=False)
+        self.btn_threat_enrich.pack(side="right", padx=2)
+
+        self.btn_network_scan = self._btn(toolbar, "🔗 Network", self._open_connected_network_scanner, accent=False)
+        self.btn_network_scan.pack(side="right", padx=2)
+
+        self.btn_rescrape = self._btn(toolbar, "🔄 Rescrape", self._rescrape_selected_listings)
+        self.btn_rescrape.pack(side="right", padx=2)
+
+        self.btn_edit_item = self._btn(toolbar, "✏️ Edit", self._edit_selected_listing)
+        self.btn_edit_item.pack(side="right", padx=2)
+
+        self.btn_enrich_sellers = self._btn(toolbar, "🏪 Enrich", self._enrich_sellers)
+        self.btn_enrich_sellers.pack(side="right", padx=2)
+
+        self.btn_remove_item = self._btn(toolbar, "✕ Remove", self._remove_selected_results)
+        self.btn_remove_item.pack(side="right", padx=2)
+
+        self.btn_clear_res = self._btn(toolbar, "🗑 Clear", self._clear_results, danger=True)
+        self.btn_clear_res.pack(side="right", padx=2)
 
         # ── 1.5 Live Search Filter Bar ────────────────────────────────────────
         filter_bar = tk.Frame(frame, bg=t["panel"], pady=4, padx=8)
@@ -3225,6 +3259,7 @@ class EbayTool(tk.Tk):
         platform_name = self._get_current_platform_name()
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
+        condition = self.condition_var.get() if hasattr(self, "condition_var") else "all"
 
         queued_count = 0
         for store in stores:
@@ -3963,16 +3998,19 @@ class EbayTool(tk.Tk):
                             filtered_out_count += 1
                             continue
 
-                        # Auto-detect brand & product type from title if doing Full Store Sweep or unassigned
+                        # Auto-detect brand & product type from title
+                        auto_b, auto_pt = self._auto_detect_brand_from_title(title)
                         if job["brand"] in ("Full Store Sweep", "Store Inventory", "All Products", "Full Search", "", "Custom Search") or include_term == "*":
-                            auto_b, auto_pt = self._auto_detect_brand_from_title(title)
                             item["brand"] = auto_b
                             if not item.get("product_type"):
                                 item["product_type"] = auto_pt
                         else:
-                            item["brand"] = job["brand"]
+                            if auto_b != "Unassigned":
+                                item["brand"] = auto_b
+                            else:
+                                item["brand"] = job["brand"]
                             if not item.get("product_type"):
-                                item["product_type"] = self._detect_product_type(title)
+                                item["product_type"] = auto_pt or self._detect_product_type(title)
 
                         item["keyword"] = "🏪 Full Sweep" if include_term == "*" else include_term
                         if "marketplace" not in item or not item["marketplace"]:
@@ -3998,6 +4036,9 @@ class EbayTool(tk.Tk):
 
                     if new_items:
                         self._update_results_table(new_items)
+                    elif len(items) == 0 and hasattr(self.scraper, "last_scrape_warning") and self.scraper.last_scrape_warning:
+                        self._log(f"  {self.scraper.last_scrape_warning}")
+                        self.scraper.last_scrape_warning = ""
                     self._log(f"  → Found {len(items)} listings ({len(new_items)} new) for '{include_term}' in {seller_label} [{platform_name}]")
 
             except Exception as e:
@@ -4046,6 +4087,8 @@ class EbayTool(tk.Tk):
 
         self.result_count.set(f"{len(self.results)} listings")
         self._check_enforcement_milestones()
+        # Post-sweep thumbnail refresh pulse to guarantee 100% of thumbnails display immediately
+        self.after(350, self._repopulate_results_table)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  RESULTS TABLE, LIVE FILTERING, BULK TAGGING & HOVER PREVIEWS
@@ -4682,6 +4725,7 @@ class EbayTool(tk.Tk):
         if not target_items:
             return
 
+        is_headless = self.headless_var.get() if hasattr(self, "headless_var") else True
         self._log(f"🔄 Starting targeted live refresh for {len(target_items)} selected listing(s)...")
 
         def _worker():
@@ -4692,18 +4736,22 @@ class EbayTool(tk.Tk):
                 if not url:
                     continue
                 try:
-                    res = batch_importer._fetch_ebay_item(url, headless=self.headless)
+                    res = batch_importer.fetch_single_listing(url, headless=is_headless)
                     if res:
-                        if res.get("image_url") and res.get("image_url") != item.get("image_url"):
+                        if res.get("image_url"):
                             item["image_url"] = res["image_url"]
                         if res.get("price") and res.get("price") not in ("$0.00", ""):
                             item["price"] = res["price"]
-                        if res.get("seller") and res.get("seller") != "eBay Seller":
+                        if res.get("seller") and res.get("seller") not in ("Unknown", "eBay Seller", "E-Commerce Merchant"):
                             item["seller"] = res["seller"]
-                        if res.get("title") and not res.get("title").startswith("eBay Item #"):
+                        if res.get("title") and not res.get("title").startswith("Imported Listing") and not res.get("title").startswith("eBay Item #"):
                             item["title"] = res["title"]
-                        if res.get("location") and res.get("location") != "United States":
+                        if res.get("location") and res.get("location") not in ("Unknown", ""):
                             item["location"] = res["location"]
+                        if res.get("brand") and res.get("brand") != "Automotive & Consumer Brands" and item.get("brand") in ("Unknown", "Automotive & Consumer Brands", "", None):
+                            item["brand"] = res["brand"]
+                        if res.get("product_type") and res.get("product_type") != "Accessories" and item.get("product_type") in ("Accessories", "", None):
+                            item["product_type"] = res["product_type"]
                         updated_count += 1
                 except Exception as e:
                     logger.debug(f"Rescrape error on {url}: {e}")
@@ -4863,8 +4911,29 @@ class EbayTool(tk.Tk):
         if hasattr(self, "hb_cb"):
             add_tooltip(self.hb_cb, "Hide verified authentic packaging matched against the Green Catalog.", theme_provider=t_func, is_enabled_callback=e_func)
         
+        if hasattr(self, "btn_export"):
+            add_tooltip(self.btn_export, "Export all current results to Excel (.xlsx) matching Genesis Upload template (Ctrl+E).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_multi_loc"):
+            add_tooltip(self.btn_multi_loc, "Project selected listings across international marketplaces (UK, DE, AU, Latin America, Europe).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_copy_urls"):
+            add_tooltip(self.btn_copy_urls, "Copy all listing URLs in the results table to clipboard.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_threat_enrich"):
+            add_tooltip(self.btn_threat_enrich, "Resolve seller country origin and identify 3PL drop-shipping forwarding hubs.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_network_scan"):
+            add_tooltip(self.btn_network_scan, "Scan for connected seller syndicates sharing phone, email, or physical addresses.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_rescrape"):
+            add_tooltip(self.btn_rescrape, "Live refresh highlighted rows to fetch new photos, prices, titles, and active status (F5).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_edit_item"):
+            add_tooltip(self.btn_edit_item, "Modify Brand, Category, Seller, Price, or Title in place (F2 / Double-Click).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_enrich_sellers"):
+            add_tooltip(self.btn_enrich_sellers, "Discover and populate missing merchant/storefront names across marketplaces.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_remove_item"):
+            add_tooltip(self.btn_remove_item, "Remove selected listings from current session (Delete).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "btn_clear_res"):
+            add_tooltip(self.btn_clear_res, "Clear all harvested listings and reset current session.", theme_provider=t_func, is_enabled_callback=e_func)
+
         if hasattr(self, "btn_guide"):
-            add_tooltip(self.btn_guide, "Open Analyst Field Guide, Threat Signals Dictionary & Search Syntax (F1).", theme_provider=t_func, is_enabled_callback=e_func)
+            add_tooltip(self.btn_guide, "Open Analyst Operations Guide, Feature Reference & Search Syntax (F1).", theme_provider=t_func, is_enabled_callback=e_func)
         if hasattr(self, "btn_visual"):
             add_tooltip(self.btn_visual, "Open Visual Threat Catalog & Benign Packaging Manager (F2).", theme_provider=t_func, is_enabled_callback=e_func)
         if hasattr(self, "btn_registry"):
@@ -4975,6 +5044,225 @@ class EbayTool(tk.Tk):
             pady=4,
             command=win.destroy
         ).pack(side="right", padx=6)
+
+    def _open_analyst_guide_modal(self):
+        """Open the interactive Analyst Operations Guide & Feature Reference."""
+        AnalystGuideModal(self)
+
+    def _rescan_visual_matches(self):
+        """Re-evaluate all current session listings against the Visual Catalog using the active sensitivity threshold."""
+        if not self.results:
+            messagebox.showinfo("Re-Scan Visual Matches", "No listings in current session to re-scan.")
+            return
+
+        matched_count = 0
+        thresh = getattr(self.visual_catalog, "match_threshold", 6)
+        for itm in self.results:
+            img_url = itm.get("image_url", "")
+            pil_img = self.raw_img_cache.get(img_url)
+            if pil_img:
+                v_match = self.visual_catalog.match_image(pil_img, max_distance=thresh)
+                if v_match:
+                    matched_count += 1
+                    if v_match["type"] == "benign":
+                        itm["threat_badge"] = f"🟢 Benign: {v_match['label']}"
+                        itm["visual_benign"] = True
+                    elif v_match["type"] == "counterfeit":
+                        itm["threat_badge"] = f"🚨 Visual Counterfeit ({v_match['similarity_pct']}%)"
+                        itm["threat_score"] = max(itm.get("threat_score", 0), 95)
+                        itm["visual_counterfeit"] = True
+
+        self._repopulate_results_table()
+        self._log(f"🖼️ Re-evaluated visual matches across session ({matched_count} listings matched with threshold {thresh}).")
+        messagebox.showinfo("Re-Scan Complete", f"Re-evaluated {len(self.results)} listings with Sensitivity Threshold ({thresh}).\n\nFound {matched_count} visual packaging match(es)!")
+
+    def _export_intel_pack_dialog(self):
+        """Interactive dialog to export an Analyst Intelligence Pack (.apollo)."""
+        import intel_pack_manager
+        t = self.theme
+        win = tk.Toplevel(self)
+        win.title("📦 Export Analyst Intelligence Pack (.apollo)")
+        win.geometry("520x440")
+        win.resizable(False, False)
+        win.configure(bg=t["bg"])
+        win.transient(self)
+        win.grab_set()
+
+        self._apply_dark_titlebar(win)
+        self._load_app_icon(win)
+        self._center_window(win, 520, 440)
+
+        card = tk.Frame(win, bg=t["panel"], padx=18, pady=16, relief="solid", bd=1)
+        card.pack(fill="both", expand=True, padx=12, pady=12)
+
+        tk.Label(card, text="📦 Export Analyst Intelligence Pack", font=("Segoe UI", 12, "bold"),
+                 bg=t["panel"], fg=t["accent"]).pack(anchor="w")
+        tk.Label(card, text="Package your brands, exclusion filters, authorized dealer whitelists,\nand visual threat catalogs to share with other analysts or sync across machines.",
+                 font=FONT_SM, bg=t["panel"], fg=t["subtext"], justify="left").pack(anchor="w", pady=(2, 10))
+
+        # Scope Selection
+        tk.Label(card, text="Export Scope / Client Niche:", font=FONT_BOLD, bg=t["panel"], fg=t["text"]).pack(anchor="w", pady=(4, 2))
+        scope_var = tk.StringVar(value="Full Profile (All Brands & Components)")
+        all_brands = sorted(list(self.data_store.get_brands().keys()))
+        scope_options = ["Full Profile (All Brands & Components)", "Visual Library Only", "Brand Library & Exclusions Only", "Authorized Whitelist Only"] + [f"Brand: {b}" for b in all_brands]
+        
+        scope_combo = ttk.Combobox(card, textvariable=scope_var, values=scope_options, state="readonly", font=FONT_NORM)
+        scope_combo.pack(fill="x", pady=4)
+
+        # Author / Analyst Name
+        tk.Label(card, text="Analyst / Author Name:", font=FONT_BOLD, bg=t["panel"], fg=t["text"]).pack(anchor="w", pady=(8, 2))
+        author_var = tk.StringVar(value=self.data_store.get_setting("analyst_name", "Senior Brand Protection Analyst"))
+        author_ent = tk.Entry(card, textvariable=author_var, font=FONT_NORM, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"])
+        author_ent.pack(fill="x", pady=4)
+
+        # Notes / Description
+        tk.Label(card, text="Pack Notes / Client Context:", font=FONT_BOLD, bg=t["panel"], fg=t["text"]).pack(anchor="w", pady=(8, 2))
+        notes_var = tk.StringVar(value="Master Brand Portfolio & Threat Intelligence Pack")
+        notes_ent = tk.Entry(card, textvariable=notes_var, font=FONT_NORM, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"])
+        notes_ent.pack(fill="x", pady=4)
+
+        def _do_export():
+            chosen_scope = scope_var.get()
+            selected_brands = None
+            if chosen_scope.startswith("Brand: "):
+                b_target = chosen_scope.replace("Brand: ", "").strip()
+                selected_brands = [b_target]
+                clean_scope_name = b_target.replace(" ", "_")
+                default_fn = f"apollo_{clean_scope_name}_intel_pack.apollo"
+            else:
+                default_fn = "apollo_master_intel_pack.apollo"
+
+            out_path = filedialog.asksaveasfilename(
+                parent=win,
+                title="Save Analyst Intelligence Pack",
+                defaultextension=".apollo",
+                filetypes=[("Apollo Intelligence Pack", "*.apollo"), ("Zip Archive", "*.zip")],
+                initialfile=default_fn
+            )
+            if not out_path:
+                return
+
+            try:
+                manifest = intel_pack_manager.IntelPackManager.export_pack(
+                    output_filepath=out_path,
+                    data_store=self.data_store,
+                    visual_catalog=self.visual_catalog,
+                    scope=chosen_scope,
+                    selected_brands=selected_brands,
+                    author=author_var.get().strip() or "Apollo Analyst",
+                    notes=notes_var.get().strip()
+                )
+                counts = manifest.get("counts", {})
+                msg = f"Successfully exported Intelligence Pack to:\n{out_path}\n\n" \
+                      f"• Brands: {counts.get('brands')}\n" \
+                      f"• Presets: {counts.get('presets')}\n" \
+                      f"• Exclusions: {counts.get('exclusions')}\n" \
+                      f"• Whitelisted Dealers: {counts.get('whitelist_dealers')}\n" \
+                      f"• Visual Threat Thumbnails: {counts.get('visual_thumbnails')}"
+                self._log(f"📦 Exported Apollo Intelligence Pack ({chosen_scope}) to: {out_path}")
+                win.destroy()
+                messagebox.showinfo("Export Successful", msg)
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed exporting pack: {e}", parent=win)
+
+        btn_row = tk.Frame(card, bg=t["panel"])
+        btn_row.pack(fill="x", pady=(18, 0))
+        self._btn(btn_row, "📦 Create & Export Pack", _do_export, accent=True).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self._btn(btn_row, "Cancel", win.destroy).pack(side="right")
+
+    def _import_intel_pack_dialog(self):
+        """Interactive dialog to import an Analyst Intelligence Pack (.apollo)."""
+        import intel_pack_manager
+        t = self.theme
+
+        pack_fp = filedialog.askopenfilename(
+            parent=self,
+            title="Select Apollo Intelligence Pack (.apollo / .zip)",
+            filetypes=[("Apollo Intelligence Pack", "*.apollo;*.zip"), ("All Files", "*.*")]
+        )
+        if not pack_fp:
+            return
+
+        try:
+            manifest = intel_pack_manager.IntelPackManager.inspect_pack(pack_fp)
+        except Exception as e:
+            messagebox.showerror("Invalid Package", f"Failed inspecting package: {e}")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("📥 Import Analyst Intelligence Pack")
+        win.geometry("540x460")
+        win.resizable(False, False)
+        win.configure(bg=t["bg"])
+        win.transient(self)
+        win.grab_set()
+
+        self._apply_dark_titlebar(win)
+        self._load_app_icon(win)
+        self._center_window(win, 540, 460)
+
+        card = tk.Frame(win, bg=t["panel"], padx=18, pady=16, relief="solid", bd=1)
+        card.pack(fill="both", expand=True, padx=12, pady=12)
+
+        tk.Label(card, text="📥 Import Analyst Intelligence Pack", font=("Segoe UI", 12, "bold"),
+                 bg=t["panel"], fg=t["accent"]).pack(anchor="w")
+        
+        info_text = f"Pack Scope: {manifest.get('scope', 'Full Profile')}\n" \
+                    f"Author: {manifest.get('author', 'Analyst')}\n" \
+                    f"Created: {manifest.get('created_at', 'Unknown')}\n" \
+                    f"Notes: {manifest.get('notes', 'None')}"
+        tk.Label(card, text=info_text, font=FONT_NORM, bg=t["entry_bg"], fg=t["text"],
+                 padx=10, pady=8, relief="solid", bd=1, justify="left").pack(fill="x", pady=(8, 10))
+
+        counts = manifest.get("counts", {})
+        counts_text = f"📦 Package Contents:\n" \
+                      f"  • {counts.get('brands', 0)} Brands & Models\n" \
+                      f"  • {counts.get('presets', 0)} Saved Sweep Presets\n" \
+                      f"  • {counts.get('exclusions', 0)} Global Negative Exclusions\n" \
+                      f"  • {counts.get('whitelist_dealers', 0)} Authorized Dealerships\n" \
+                      f"  • {counts.get('visual_catalog_entries', 0)} Visual Threat Cards ({counts.get('visual_thumbnails', 0)} thumbnails)"
+        tk.Label(card, text=counts_text, font=FONT_NORM, bg=t["panel"], fg=t["text"], justify="left").pack(anchor="w", pady=(0, 10))
+
+        merge_mode_var = tk.StringVar(value="merge")
+        tk.Radiobutton(card, text="🔗 Merge with Existing Library (Recommended — preserves your local entries)",
+                       variable=merge_mode_var, value="merge", bg=t["panel"], fg=t["text"],
+                       selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM).pack(anchor="w", pady=2)
+        tk.Radiobutton(card, text="⚡ Fresh Replace (Overwrites local duplicates with package items)",
+                       variable=merge_mode_var, value="replace", bg=t["panel"], fg=t["danger"],
+                       selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM).pack(anchor="w", pady=2)
+
+        def _do_import():
+            mode = merge_mode_var.get()
+            try:
+                res = intel_pack_manager.IntelPackManager.import_pack(
+                    pack_filepath=pack_fp,
+                    data_store=self.data_store,
+                    visual_catalog=self.visual_catalog,
+                    merge_mode=mode
+                )
+                r_counts = res.get("results", {})
+                self._repopulate_brand_tree()
+                self._update_presets_menu()
+                if hasattr(self, "_repopulate_results_table"):
+                    self._repopulate_results_table()
+                self._log(f"📥 Successfully imported Apollo Intelligence Pack from {os.path.basename(pack_fp)} (Merged: {r_counts})")
+                win.destroy()
+                messagebox.showinfo(
+                    "Import Complete",
+                    f"Successfully imported Intelligence Pack!\n\n"
+                    f"• Brands Added/Updated: {r_counts.get('brands_added', 0)}\n"
+                    f"• Presets Added: {r_counts.get('presets_added', 0)}\n"
+                    f"• Exclusions Added: {r_counts.get('exclusions_added', 0)}\n"
+                    f"• Whitelist Dealers Added: {r_counts.get('whitelist_added', 0)}\n"
+                    f"• Visual Thumbnails Extracted: {r_counts.get('thumbnails_extracted', 0)}"
+                )
+            except Exception as e:
+                messagebox.showerror("Import Error", f"Failed importing package: {e}", parent=win)
+
+        btn_row = tk.Frame(card, bg=t["panel"])
+        btn_row.pack(fill="x", pady=(14, 0))
+        self._btn(btn_row, "📥 Import & Apply Pack", _do_import, accent=True).pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self._btn(btn_row, "Cancel", win.destroy).pack(side="right")
 
     def _open_visual_catalog_modal(self):
         """Open the Visual Threat Catalog & Benign Packaging Manager dialog."""
@@ -5648,7 +5936,7 @@ class EbayTool(tk.Tk):
                     
                     # Auto-match against Visual Catalog (Benign vs Counterfeit)
                     try:
-                        v_match = self.visual_catalog.match_image(pil_img, max_distance=6)
+                        v_match = self.visual_catalog.match_image(pil_img)
                         if v_match:
                             for itm in self.results:
                                 if itm.get("image_url") == image_url:
@@ -6523,11 +6811,8 @@ class EbayTool(tk.Tk):
                     try: winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
                     except Exception: pass
 
-                # Prompt user for Multi-Locale Expander
-                msg = f"⚡ Successfully loaded {added_count} listings directly into your Results table!\n\nAll photos, sellers, prices, and IDs have been preserved.\n\nWould you like to open the Global Multi-Locale Expander now to project these across international marketplaces?"
-                if messagebox.askyesno("Instant Import Complete", msg, parent=win):
-                    win.destroy()
-                    self._open_multi_locale_expander()
+                # Clean notification without multi-locale popup prompt
+                messagebox.showinfo("Instant Import Complete", f"⚡ Successfully loaded {added_count} listing(s) directly into your Results table!", parent=win)
             else:
                 messagebox.showinfo("Import Info", f"All {len(items_to_add)} listings are already present in your Results table (duplicates skipped).", parent=win)
 
@@ -9745,12 +10030,16 @@ class ReverseVisualModal(tk.Toplevel):
             target_records = self.hits
 
         added = 0
-        brand_name = self.label or "Visual Sweep"
         for itm in target_records:
+            t = itm.get("title", "")
+            detected_b, detected_pt = self.parent._auto_detect_brand_from_title(t) if hasattr(self.parent, "_auto_detect_brand_from_title") else ("Unassigned", "")
+            brand_name = detected_b if detected_b != "Unassigned" else (self.label or "Visual Sweep")
+            pt_name = detected_pt or "Visual Clone"
+
             row = {
                 "brand": brand_name,
-                "product_type": "Visual Clone",
-                "title": itm.get("title", ""),
+                "product_type": pt_name,
+                "title": t,
                 "item_id": str(itm.get("item_id", "")),
                 "price": itm.get("price", ""),
                 "seller": itm.get("seller", ""),
@@ -9811,7 +10100,7 @@ class ReverseVisualModal(tk.Toplevel):
         target_brands = [k.split("/")[0] for k, v in parent.brand_states.items() if v == "target"]
         target_brands = list(dict.fromkeys(target_brands))
         if not target_brands:
-            target_brands = [self.label or "General Brand"]
+            target_brands = ["Full Store Sweep"]
 
         custom_includes = [l.strip() for l in parent.include_text.get("1.0", "end").splitlines() if l.strip()]
         generic_excludes = parent._get_active_exclusions() if hasattr(parent, "_get_active_exclusions") else []
@@ -9836,7 +10125,10 @@ class ReverseVisualModal(tk.Toplevel):
                     continue
 
                 b_terms = [k.split("/")[-1] for k, v in parent.brand_states.items() if v == "target" and k.split("/")[0] == b_name]
-                includes = b_terms if b_terms else (custom_includes if custom_includes else [b_name.lower()])
+                if b_name == "Full Store Sweep":
+                    includes = ["*"]
+                else:
+                    includes = b_terms if b_terms else (custom_includes if custom_includes else [b_name.lower()])
 
                 entry = {
                     "store": s,
@@ -9847,7 +10139,7 @@ class ReverseVisualModal(tk.Toplevel):
                     "condition": condition
                 }
                 parent.queue.append(entry)
-                lbl = f"{parent._store_label(s, platform=platform_name)} ▸ {b_name} ({len(includes)} terms | {len(generic_excludes)} excl)"
+                lbl = f"{parent._store_label(s, platform=platform_name)} ▸ {b_name} ({len(includes)} terms | {len(generic_excludes)} excl)" if b_name != "Full Store Sweep" else f"{parent._store_label(s, platform=platform_name)} ▸ 🏪 Full Store Sweep"
                 parent.queue_list.insert("end", lbl)
                 added_count += 1
 
@@ -10220,6 +10512,155 @@ class WhitelistManagerModal(tk.Toplevel):
             messagebox.showinfo("Exported", f"Successfully exported {len(wl)} whitelisted dealers to:\n\n{path}")
         except Exception as e:
             messagebox.showerror("Export Error", str(e))
+
+
+
+class AnalystGuideModal(tk.Toplevel):
+    """Interactive Analyst Operations Guide, Feature Comparison & Workflow Reference."""
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.theme = parent.theme
+        t = self.theme
+
+        self.title("💡 Apollo Brand Intelligence — Analyst Operations Guide & Reference")
+        self.geometry("860x700")
+        self.minsize(740, 560)
+        self.configure(bg=t["bg"])
+        self.transient(parent)
+        
+        if hasattr(parent, "_apply_dark_titlebar"):
+            parent._apply_dark_titlebar(self)
+        if hasattr(parent, "_load_app_icon"):
+            parent._load_app_icon(self)
+        if hasattr(parent, "_center_window"):
+            parent._center_window(self, 860, 700)
+
+        # Header Frame
+        header = tk.Frame(self, bg=t["panel"], padx=18, pady=14, relief="solid", bd=1)
+        header.pack(fill="x", padx=12, pady=(12, 6))
+
+        tk.Label(header, text="💡 Analyst Operations & Feature Reference", font=("Segoe UI", 13, "bold"),
+                 bg=t["panel"], fg=t["accent"]).pack(anchor="w")
+        tk.Label(header, text="Operational guide for high-velocity investigations, cross-border sweeps, and Genesis data contracts.",
+                 font=FONT_NORM, bg=t["panel"], fg=t["subtext"]).pack(anchor="w", pady=(2, 0))
+
+        # Scrollable Body Container
+        container = tk.Frame(self, bg=t["bg"])
+        container.pack(fill="both", expand=True, padx=12, pady=6)
+
+        canvas = tk.Canvas(container, bg=t["bg"], highlightthickness=0)
+        v_scroll = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=t["bg"])
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        canvas.configure(yscrollcommand=v_scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        v_scroll.pack(side="right", fill="y")
+
+        def _on_mousewheel(event):
+            if canvas.winfo_exists():
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        self.bind("<MouseWheel>", _on_mousewheel)
+
+        def _add_section(title, icon, items):
+            card = tk.Frame(scrollable_frame, bg=t["panel"], padx=16, pady=12, relief="solid", bd=1)
+            card.pack(fill="x", pady=6)
+
+            h_box = tk.Frame(card, bg=t["panel"])
+            h_box.pack(fill="x", pady=(0, 8))
+            tk.Label(h_box, text=f"{icon} {title}", font=("Segoe UI", 11, "bold"),
+                     bg=t["panel"], fg=t["accent"]).pack(side="left")
+
+            for item_title, desc, badge in items:
+                row = tk.Frame(card, bg=t["panel"], pady=4)
+                row.pack(fill="x")
+
+                t_row = tk.Frame(row, bg=t["panel"])
+                t_row.pack(fill="x")
+                tk.Label(t_row, text=item_title, font=("Segoe UI", 9, "bold"),
+                         bg=t["panel"], fg=t["text"]).pack(side="left")
+                if badge:
+                    tk.Label(t_row, text=f" {badge} ", font=("Segoe UI", 8, "bold"),
+                             bg=t["entry_bg"], fg=t["accent"], relief="solid", bd=1).pack(side="left", padx=6)
+
+                tk.Label(row, text=desc, font=FONT_NORM, bg=t["panel"], fg=t["subtext"],
+                         wraplength=760, justify="left").pack(anchor="w", pady=(2, 0))
+
+        # 1. Rescrape vs. Enrich
+        _add_section("Listing Refresh vs. Merchant Discovery", "🔄", [
+            ("🔄 Rescrape / Refresh Selected",
+             "Live listing fetch directly from the marketplace page (eBay, Vinted, AliExpress, Mercado Libre). Re-pulls high-res photo thumbnails, live prices, exact active titles, and availability. Use this when rows have missing thumbnails, after importing URLs, or to verify if a listing was taken down.",
+             "HotKey: F5"),
+            ("🏪 Enrich Sellers",
+             "Batch background resolver across e-commerce feeds (AliExpress, Temu, Wish, Mercado Libre, eBay) to populate missing merchant storefront IDs. Preserves all other manually edited listing attributes.",
+             "Batch Resolver"),
+            ("✏️ In-Table Cell Editing",
+             "Directly edit Brand, Category, Seller Name, Price, or Title in place without navigating away or losing table selection. Automatically recalculates threat intel and updates the Genesis export dataset.",
+             "HotKey: F2 / Double-Click")
+        ])
+
+        # 2. Threat Intel vs Connected Network Hunter
+        _add_section("Syndicate Investigation & Threat Intel", "🕵", [
+            ("🔗 Connected Seller Network Hunter",
+             "Performs cross-store syndicate correlation to uncover multi-store networks sharing identical telephone numbers, customer service emails, business licenses, or physical 3PL warehouse addresses across platforms.",
+             "Syndicate Hunter"),
+            ("🌍 Threat Intel & Origin Resolution",
+             "Computes seller risk scores, unmasks foreign drop-shippers (e.g. China-based merchants using domestic California/New Jersey 3PL forwarding hubs), and tracks lifetime brand infringement strikes.",
+             "Drop-Ship Detection"),
+            ("🛡 Enforcement Registry",
+             "Centralized ledger aggregating recidivist seller dossiers, captured infringing listings, historical enforcement notices, and total cumulative counterfeit market value ($ MSRP).",
+             "Legal Dossier")
+        ])
+
+        # 3. Export & Multi-Locale Expander
+        _add_section("Genesis Upload & Cross-Border Projections", "💾", [
+            ("💾 Standard Genesis Export",
+             "Generates an Excel (.xlsx) file matching the exact 18-column Genesis Upload Standard (Columns A–R). Column C contains the live image thumbnail URL, Column B provides active listing hyperlinks, and Column J records verified seller names.",
+             "HotKey: Ctrl+E"),
+            ("🌐 Multi-Locale International Expander",
+             "Projects selected listings across international marketplaces (eBay UK/DE/AU, Mercado Libre Latin America, Vinted Europe). Preserves Genesis Columns A–R intact while appending extended regional metadata (domain, local currency, translated query) starting at Column S+.",
+             "Multi-Marketplace")
+        ])
+
+        # 4. Visual Threat Catalog
+        _add_section("Visual Packaging Catalog & Reverse Search", "🖼️", [
+            ("🟢 Benign Packaging Catalog",
+             "Stores perceptual hash (pHash) fingerprints of verified genuine OEM packaging. Automatically shields legitimate authorized listings from accidental enforcement.",
+             "Shielding"),
+            ("🔴 Known Counterfeit Catalog",
+             "Stores fingerprints of confirmed counterfeit packaging. Automatically flags matching visual clone listings in real time with high threat badges (🚨 Visual Counterfeit).",
+             "High Threat"),
+            ("📸 Reverse Visual Sweep",
+             "Performs a visual reverse lookup to scan active marketplace feeds for duplicate packaging photos used across different seller storefronts.",
+             "Visual Sweep")
+        ])
+
+        # 5. Hotkeys & Shortcuts
+        _add_section("Analyst Hotkeys & Fast Actions", "⌨️", [
+            ("F2 / Double-Click", "Edit Brand, Category, Seller, Price, or Title in place in the Results Table.", "Quick Edit"),
+            ("F5", "Trigger targeted live rescrape on highlighted listings.", "Live Rescrape"),
+            ("Ctrl + E", "Instantly export current session results to Genesis Excel (.xlsx).", "Export"),
+            ("Ctrl + A", "Select all visible listings in the Results Table.", "Select All"),
+            ("Delete", "Remove selected listings from current session.", "Remove"),
+            ("Right-Click Context Menu", "Access Reverse Visual Search, WHOIS Lookup, Threat Badges, and Dealership Whitelisting.", "Context Menu")
+        ])
+
+        # Bottom Close Button
+        btn_bar = tk.Frame(self, bg=t["bg"])
+        btn_bar.pack(fill="x", padx=12, pady=(4, 12))
+        tk.Button(btn_bar, text="✕ Close Guide", command=self.destroy,
+                  font=("Segoe UI", 9, "bold"), bg=t["accent"], fg="white",
+                  relief="flat", padx=16, pady=6, cursor="hand2").pack(side="right")
 
 
 if __name__ == "__main__":

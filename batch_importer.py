@@ -46,30 +46,41 @@ logger = logging.getLogger("Apollo.BatchImporter")
 PRODUCT_CATEGORY_RULES = [
     ("Airbag Covers", ["airbag cover", "air bag cover", "steering wheel cover airbag"]),
     ("Airbag Components", ["airbag", "air bag", "clockspring", "clock spring", "srs"]),
-    ("Emblems", ["emblem", "badge", "logo", "crest", "hood ornament", "lettering", "nameplate"]),
+    ("Emblems / Badges", ["emblem", "badge", "logo", "crest", "hood ornament", "lettering", "nameplate", "grille badge", "trunk emblem"]),
     ("Decals", ["decal", "sticker", "vinyl graphic", "stripe kit", "wrap"]),
     ("Wheel Caps", ["wheel cap", "center cap", "hub cap", "hubcap", "wheel badge", "rim cap"]),
-    ("Exterior Lighting", ["headlight", "headlamp", "taillight", "tail light", "fog light", "puddle light", "projector", "led bulb"]),
-    ("Exterior Parts", ["grille", "grill", "spoiler", "diffuser", "mirror cover", "body kit", "lip", "bumper"]),
-    ("Brakes", ["brake", "caliper", "rotor", "brake pad", "brembo cover"]),
-    ("Ignition Systems", ["ignition coil", "spark plug", "glow plug", "distributor"]),
-    ("Oil Filters", ["oil filter", "oil strainer"]),
+    ("Headlights / Lamps", ["headlight", "headlamp", "taillight", "tail light", "fog light", "puddle light", "projector", "led bulb", "lamp assembly"]),
+    ("Exterior Parts", ["grille", "grill", "spoiler", "diffuser", "mirror cover", "body kit", "lip", "bumper", "wing"]),
+    ("Brake Pads / Rotors", ["brake pad", "brake rotor", "caliper", "brake shoe", "brembo cover", "brake"]),
+    ("Spark Plugs", ["spark plug", "sparkplug", "iridium", "platinum plug", "glow plug"]),
+    ("Ignition Systems", ["ignition coil", "coil pack", "distributor"]),
+    ("Oil / Fuel Filters", ["oil filter", "oil strainer", "fuel filter", "filter cartridge"]),
     ("Air Filters", ["air filter", "cabin filter", "intake filter"]),
     ("Air Intake & Fuel Delivery", ["intake", "fuel injector", "throttle body", "carburetor", "fuel pump"]),
     ("Diagnostic Systems", ["diagnostic", "obd", "scanner", "vcds", "techstream", "diag tool"]),
-    ("Merchandise", ["t-shirt", "shirt", "hoodie", "jacket", "tumbler", "cup", "mug", "hat", "cap", "backpack", "bag", "keychain", "key chain", "key fob", "fob cover"]),
+    ("Merchandise", ["t-shirt", "shirt", "hoodie", "jacket", "tumbler", "cup", "mug", "hat", "backpack", "bag", "keychain", "key chain", "key fob", "fob cover"]),
     ("Accessories", ["keychain", "key chain", "valve stem", "license plate frame", "mat", "coaster", "phone holder"]),
 ]
 
 COMMON_BRAND_KEYWORDS = [
-    ("Toyota", ["toyota", "lexus", "scion", "trd", "gazoo", "gr sport", "camry", "corolla", "tacoma", "tundra", "supra"]),
-    ("Ford", ["ford", "lincoln", "mercury", "mustang", "shelby", "f-150", "raptor", "bronco", "st-line", "ecoboost"]),
-    ("General Motors", ["chevrolet", "chevy", "corvette", "camaro", "silverado", "cadillac", "gmc", "buick", "acdelco", "duramax", "suburban", "tahoe"]),
-    ("Dodge / Mopar", ["dodge", "mopar", "hellcat", "demon", "srt", "charger", "challenger", "ram", "chrysler", "jeep", "rubicon", "trail rated"]),
-    ("BMW", ["bmw", "m performance", "m3", "m4", "m5", "bimmer", "mini cooper"]),
-    ("Porsche", ["porsche", "911", "cayman", "boxster", "panamera", "gt3", "gt4", "weissach"]),
-    ("Ferrari", ["ferrari", "scuderia", "sf90", "f40", "f50", "488", "458", "cavallino"]),
-    ("Subaru", ["subaru", "sti", "wrx", "impreza", "forester", "outback", "crosstrek"]),
+    ("Lexus", ["lexus", "rx350", "is250", "is350", "ls460", "gx460", "es350", "f sport"]),
+    ("Toyota", ["toyota", "scion", "trd", "gazoo", "gr sport", "camry", "corolla", "tacoma", "tundra", "supra", "4runner", "rav4", "highlander", "prius", "land cruiser"]),
+    ("Subaru", ["subaru", "sti", "wrx", "impreza", "forester", "outback", "crosstrek", "brz"]),
+    ("Honda", ["honda", "civic", "accord", "type r", "cr-v", "pilot", "hr-v", "s2000", "vtec"]),
+    ("Acura", ["acura", "nsx", "integra", "type s", "mdx", "rdx", "tlx"]),
+    ("Ford", ["ford", "mustang", "shelby", "f-150", "f150", "raptor", "bronco", "st-line", "ecoboost", "explorer", "f-250", "super duty"]),
+    ("Lincoln", ["lincoln", "navigator", "aviator", "corsair"]),
+    ("Chevrolet", ["chevrolet", "chevy", "corvette", "camaro", "silverado", "suburban", "tahoe", "duramax"]),
+    ("Cadillac", ["cadillac", "escalade", "ct5-v", "blackwing"]),
+    ("GMC", ["gmc", "sierra", "yukon", "denali"]),
+    ("General Motors", ["gm", "acdelco", "buick"]),
+    ("Dodge", ["dodge", "hellcat", "demon", "srt", "charger", "challenger"]),
+    ("Jeep", ["jeep", "rubicon", "wrangler", "gladiator", "cherokee", "trail rated"]),
+    ("Ram", ["ram 1500", "ram 2500", "ram trucks", "cummins"]),
+    ("Chrysler", ["chrysler", "pacifica", "mopar"]),
+    ("BMW", ["bmw", "m performance", "m3", "m4", "m5", "m2", "bimmer", "mini cooper"]),
+    ("Porsche", ["porsche", "911", "cayman", "boxster", "panamera", "gt3", "gt4", "weissach", "taycan", "macan", "cayenne"]),
+    ("Ferrari", ["ferrari", "scuderia", "sf90", "f40", "f50", "488", "458", "cavallino", "purosangue"]),
     ("Hyundai / Kia", ["hyundai", "kia", "stinger", "n line", "elantra n", "genesis"]),
     ("LEGO", ["lego", "minifigure", "ninjago", "star wars lego", "technic"]),
     ("Stanley", ["stanley", "quencher", "iceflow", "tumbler"]),
@@ -80,6 +91,29 @@ COMMON_BRAND_KEYWORDS = [
     ("Nike", ["nike", "tech fleece", "dunk", "dunks", "air force 1", "air force one", "air max", "swoosh", "vapormax", "cortez", "blazer mid"]),
     ("Jordan", ["jordan", "air jordan", "retro 1", "retro 4", "retro 11", "jumpman", "spizike"]),
 ]
+
+def extract_item_id(url: str) -> str:
+    """Extract 10-14 digit numeric item ID from eBay listing URL."""
+    if not url:
+        return ""
+    m = re.search(r'/itm/(?:[^/]+/)?(\d{10,14})', str(url))
+    if m:
+        return m.group(1)
+    m2 = re.search(r'item=(\d{10,14})', str(url))
+    if m2:
+        return m2.group(1)
+    m3 = re.search(r'\b(\d{12})\b', str(url))
+    if m3:
+        return m3.group(1)
+    return ""
+
+
+def clean_ebay_url(url: str) -> str:
+    """Canonicalize eBay URL to https://www.ebay.com/itm/<item_id> removing tracking params."""
+    item_id = extract_item_id(url)
+    if item_id:
+        return f"https://www.ebay.com/itm/{item_id}"
+    return url.split("?")[0] if "?" in url else url
 
 
 def extract_urls_from_text(raw_text: str) -> List[str]:
@@ -445,11 +479,13 @@ def detect_brand(title: str, default_brand: str = "") -> str:
 
 
 def detect_product_type(title: str) -> str:
-    """Identify product category from listing title."""
+    """Identify product category from listing title using stem-tolerant regex rules."""
+    if not title:
+        return "Accessories"
     t_low = title.lower()
     for category, keywords in PRODUCT_CATEGORY_RULES:
         for kw in keywords:
-            if re.search(r'\b' + re.escape(kw) + r'\b', t_low):
+            if re.search(r'\b' + re.escape(kw) + r's?\b', t_low):
                 return category
     return "Accessories"
 
@@ -576,16 +612,26 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
                 else: launch_kwargs["channel"] = "msedge"
 
                 context = p.chromium.launch_persistent_context(temp_dir, **launch_kwargs)
-                context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+                context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.navigator.chrome = { runtime: {} };
+                    Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                """)
                 page = context.pages[0] if context.pages else context.new_page()
-                try: page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=12000)
-                except Exception: pass
-                page.goto(clean_url, wait_until="load", timeout=20000)
-                time.sleep(1.0)
+                try:
+                    page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=12000)
+                    time.sleep(0.8)
+                except Exception:
+                    pass
+                page.goto(clean_url, wait_until="domcontentloaded", timeout=20000)
+                time.sleep(2.0)
                 
                 if not title:
                     t = page.query_selector("h1.x-item-title__mainTitle, h1.vi-itm-title, h1[class*='item-title'], h1")
-                    if t: title = t.inner_text().strip()
+                    if t:
+                        t_txt = t.inner_text().replace("Details about", "").replace("NEW", "").strip()
+                        if t_txt and not t_txt.startswith("Error Page"):
+                            title = t_txt
 
                 if not seller or seller == "eBay Seller":
                     seller_cand = page.evaluate("""() => {
@@ -593,7 +639,7 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
                         if (card) {
                             for (const a of card.querySelectorAll('a')) {
                                 const m = a.href.match(/\\/(?:sch|usr|str)\\/([a-zA-Z0-9_\\-\\.]+)(?:\\/m\\.html|\\?|$|\\/)/);
-                                if (m && m[1] && m[1].length >= 2 && !['usr','str','sch','itm'].includes(m[1].toLowerCase())) {
+                                if (m && m[1] && m[1].length >= 2 && !['usr','str','sch','itm','ebay'].includes(m[1].toLowerCase())) {
                                     return m[1];
                                 }
                                 const t = a.innerText.trim();
@@ -611,8 +657,12 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
                     if p_val: price = p_val.inner_text().strip()
 
                 if not image_url:
-                    img = page.query_selector("img.ux-image-filmstrip-carousel-item, div.ux-image-carousel-item img, img#icImg")
-                    if img: image_url = img.get_attribute("src") or ""
+                    img = page.query_selector("img.ux-image-filmstrip-carousel-item, div.ux-image-carousel-item img, img#icImg, img[data-testid='x-item-image']")
+                    if img: image_url = img.get_attribute("src") or img.get_attribute("data-src") or ""
+
+                if location in ("United States", ""):
+                    loc = page.query_selector("div.ux-labels-values--location span.ux-textspans--SECONDARY, div.ux-labels-values--location")
+                    if loc: location = loc.inner_text().replace("Located in:", "").strip()
                 context.close()
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)

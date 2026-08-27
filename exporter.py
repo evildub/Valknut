@@ -90,6 +90,9 @@ class ExcelExporter:
             self._write_sheet(ws, items, brand)
 
         wb.save(filepath)
+        return len(results)
+
+    export_results = export
 
     # ── sheet writer ──────────────────────────────────────────────────────────
     def _write_sheet(self, ws, items: list[dict], brand: str):

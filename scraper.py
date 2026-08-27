@@ -35,6 +35,7 @@ class EbayScraper:
         Scraper for eBay store and seller listings with anti-bot bypass.
         """
         self.headless = headless
+        self.last_scrape_warning = ""
         self.profile_dir = os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
             "Apollo_eBay_Session"
@@ -348,6 +349,17 @@ class EbayScraper:
 
                         page_num += 1
                         time.sleep(random.uniform(1.0, 2.0))
+
+                if not items and html:
+                    html_low = html.lower()
+                    if any(t in html_low for t in ("error page | ebay", "pardon our interruption", "security measure", "please verify you are a human", "access denied", "captcha")):
+                        self.last_scrape_warning = f"⚠️ [IP THROTTLE / BOT CHALLENGE] eBay returned a security rate-limit / CAPTCHA challenge on '{seller_label}' — zero results returned due to IP block, not empty inventory."
+                    elif any(t in html_low for t in ("does not exist", "store not found", "seller not found")):
+                        self.last_scrape_warning = f"⚠️ Store handle '{seller_label}' was not found on eBay."
+                    else:
+                        self.last_scrape_warning = ""
+                else:
+                    self.last_scrape_warning = ""
 
                 try:
                     context.close()
@@ -1318,6 +1330,16 @@ class EbayScraper:
                     item["location"] = res["location"]
                 if res.get("image_url") and not item.get("image_url"):
                     item["image_url"] = res["image_url"]
+                if res.get("title") and (not item.get("title") or item.get("title").startswith("Imported Listing") or item.get("title").startswith("eBay Item #")):
+                    item["title"] = res["title"]
+                    if item.get("brand") in ("Unknown", "Automotive & Consumer Brands", "", None):
+                        b = batch_importer.detect_brand(res["title"])
+                        if b and b != "Automotive & Consumer Brands":
+                            item["brand"] = b
+                    if item.get("product_type") in ("Accessories", "", None):
+                        pt = batch_importer.detect_product_type(res["title"])
+                        if pt:
+                            item["product_type"] = pt
             except Exception as e:
                 logger.debug(f"Error enriching eBay item {item_id}: {e}")
 

@@ -16,7 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from data_store import DataStore
 from exporter import ExcelExporter
+from visual_catalog import VisualCatalogManager, compute_phash, hamming_distance
 import batch_importer
+import intel_pack_manager
+from PIL import Image
 
 
 class TestApolloCoreFeatures(unittest.TestCase):
@@ -191,6 +194,165 @@ class TestApolloCoreFeatures(unittest.TestCase):
         # 3. Explicit Domestic origin -> Domestic Verified
         assess_dom = self.data_store.compute_threat_assessment(origin="United States", location="Austin, TX")
         self.assertIn("Domestic Verified", assess_dom.get("badge"))
+
+    def test_05_datastore_delete_registry_entry(self):
+        """Test Registry: Verify delete_registry_entry removes seller record cleanly."""
+        seller = "test_seller_to_remove"
+        self.data_store.record_enforcement_scan(seller, [{"item_id": "999", "title": "T", "price": "$10"}])
+        self.assertIn(seller, self.data_store.get_enforcement_registry())
+        
+        self.data_store.delete_registry_entry(seller)
+        self.assertNotIn(seller, self.data_store.get_enforcement_registry(), "Seller must be deleted from registry.")
+
+    def test_06_standard_genesis_export_schema(self):
+        """Test Standard Export: Verify 18-column Genesis layout with Col C Thumbnail and Col B URL."""
+        exporter = ExcelExporter()
+        sample_items = [{
+            "title": "Toyota Genuine Oil Filter 90915-YZZN1",
+            "url": "https://www.ebay.com/itm/112233445566",
+            "image_url": "https://i.ebayimg.com/images/g/test_oil_filter.jpg",
+            "item_id": "112233445566",
+            "seller": "toyota_direct_deals",
+            "price": "$9.99",
+            "location": "Dallas, TX, United States",
+            "brand": "Toyota",
+            "product_type": "Oil / Fuel Filters",
+            "seller_origin": "United States",
+            "threat_badge": "Domestic Verified"
+        }]
+        out_file = os.path.join(self.temp_dir, "test_standard_genesis.xlsx")
+        count = exporter.export_results(sample_items, out_file)
+        self.assertEqual(count, 1)
+        self.assertTrue(os.path.exists(out_file))
+
+        wb = openpyxl.load_workbook(out_file)
+        ws = wb.active
+        headers = [cell.value for cell in ws[1]]
+        self.assertEqual(headers[0], "Title")
+        self.assertEqual(headers[1], "URL")
+        self.assertEqual(headers[2], "Thumbnail")
+        self.assertEqual(headers[4], "Item ID")
+        self.assertEqual(headers[7], "Marketplace")
+        self.assertEqual(headers[9], "Seller Name")
+        self.assertEqual(headers[12], "Brand")
+        self.assertEqual(headers[13], "Price")
+        self.assertEqual(headers[14], "Item Location")
+        self.assertEqual(headers[15], "Product Type")
+        self.assertIn("Threat Assessment", headers[17])
+
+        row2 = [cell.value for cell in ws[2]]
+        self.assertEqual(row2[0], "Toyota Genuine Oil Filter 90915-YZZN1")
+        self.assertEqual(row2[1], "https://www.ebay.com/itm/112233445566")
+        self.assertEqual(row2[2], "https://i.ebayimg.com/images/g/test_oil_filter.jpg")
+        self.assertEqual(row2[4], "112233445566")
+        self.assertEqual(row2[9], "toyota_direct_deals")
+        self.assertEqual(row2[12], "Toyota")
+
+    def test_07_whitelist_authorized_dealers(self):
+        """Test Whitelist: Verify authorized dealerships are identified and shielded."""
+        test_handle = "authorized_toyota_dealer_tx"
+        self.data_store.add_to_whitelist(test_handle, brand="Toyota", dealer_name="Toyota of Dallas")
+        
+        self.assertTrue(self.data_store.is_seller_whitelisted(test_handle))
+        self.assertTrue(self.data_store.is_seller_whitelisted(f"  {test_handle.upper()}  "), "Must be whitespace & case insensitive")
+        self.assertFalse(self.data_store.is_seller_whitelisted("unknown_counterfeiter_99"))
+
+        # Clean up
+        self.data_store.remove_from_whitelist(test_handle)
+        self.assertFalse(self.data_store.is_seller_whitelisted(test_handle))
+
+    def test_08_brand_detection_heuristics(self):
+        """Test Brand Detection: Verify title classification heuristics accurately extract trademark brands."""
+        self.assertEqual(batch_importer.detect_brand("OEM TRD Grille Badge for Toyota Tacoma"), "Toyota")
+        self.assertEqual(batch_importer.detect_brand("2024 Lexus RX350 Wheel Center Caps 4pcs"), "Lexus")
+        self.assertEqual(batch_importer.detect_brand("Subaru WRX STI Red Stitching Steering Wheel"), "Subaru")
+        self.assertEqual(batch_importer.detect_brand("Honda Civic Type R Carbon Fiber Wing Spoiler"), "Honda")
+        self.assertEqual(batch_importer.detect_brand("Generic Unbranded Key Chain"), "Automotive & Consumer Brands")
+
+    def test_09_adhoc_url_cleaning_and_id_extraction(self):
+        """Test URL Cleaning: Verify messy tracking URLs are canonicalized and item IDs extracted."""
+        dirty_url = "https://www.ebay.com/itm/407006409742?_trksid=p2047675.c100005.m1851&_trkparms=amclksrc%3DITM&hash=item5f00"
+        clean = batch_importer.clean_ebay_url(dirty_url)
+        self.assertEqual(clean, "https://www.ebay.com/itm/407006409742")
+        self.assertEqual(batch_importer.extract_item_id(dirty_url), "407006409742")
+
+    def test_10_product_type_classification(self):
+        """Test Category Detection: Verify auto-classification of product categories."""
+        self.assertEqual(batch_importer.detect_product_type("4Pcs Iridium Spark Plugs for Camry"), "Spark Plugs")
+        self.assertEqual(batch_importer.detect_product_type("Front Ceramic Brake Pads and Rotors Kit"), "Brake Pads / Rotors")
+        self.assertEqual(batch_importer.detect_product_type("Gloss Black Front Grille Emblem Badge"), "Emblems / Badges")
+        self.assertEqual(batch_importer.detect_product_type("Engine Oil Filter Replacement Cartridge"), "Oil / Fuel Filters")
+
+    def test_11_intel_pack_export_and_import_merge(self):
+        """Test Intelligence Pack: Verify .apollo packaging, export, inspection, and safe library merging."""
+        # 1. Setup isolated data store & visual catalog
+        vcm_dir = os.path.join(self.temp_dir, "vcm_src")
+        vcm = VisualCatalogManager(base_dir=vcm_dir)
+        
+        # Add sample test image
+        img = Image.new("RGB", (64, 64), color=(255, 0, 0))
+        vcm.add_entry(img, entry_type="benign", label="Toyota Red OEM Box", source_url="https://example.com/box.jpg")
+
+        pack_file = os.path.join(self.temp_dir, "test_intel_pack.apollo")
+        manifest = intel_pack_manager.IntelPackManager.export_pack(
+            output_filepath=pack_file,
+            data_store=self.data_store,
+            visual_catalog=vcm,
+            scope="Full Profile",
+            author="Jerry Seidenstucker",
+            notes="Automated Test Pack"
+        )
+        self.assertTrue(os.path.exists(pack_file))
+        self.assertEqual(manifest["author"], "Jerry Seidenstucker")
+        self.assertGreaterEqual(manifest["counts"]["brands"], 1)
+        self.assertGreaterEqual(manifest["counts"]["visual_catalog_entries"], 1)
+
+        # 2. Inspect Pack
+        inspected = intel_pack_manager.IntelPackManager.inspect_pack(pack_file)
+        self.assertEqual(inspected["format"], "apollo_intelligence_pack")
+        self.assertEqual(inspected["version"], "1.0")
+
+        # 3. Import into destination catalog
+        dst_vcm_dir = os.path.join(self.temp_dir, "vcm_dst")
+        dst_vcm = VisualCatalogManager(base_dir=dst_vcm_dir)
+        self.assertEqual(len(dst_vcm.get_all_entries()), 0)
+
+        import_res = intel_pack_manager.IntelPackManager.import_pack(
+            pack_filepath=pack_file,
+            data_store=self.data_store,
+            visual_catalog=dst_vcm,
+            merge_mode="merge"
+        )
+        self.assertGreaterEqual(len(dst_vcm.get_all_entries()), 1)
+        self.assertEqual(import_res["results"]["visual_added"], 1)
+        self.assertEqual(import_res["results"]["thumbnails_extracted"], 1)
+
+    def test_12_visual_sensitivity_dynamic_threshold(self):
+        """Test Visual Sensitivity: Verify Hamming distance matching and dynamic threshold behavior."""
+        vcm_dir = os.path.join(self.temp_dir, "vcm_thresh")
+        vcm = VisualCatalogManager(base_dir=vcm_dir)
+
+        # Create base image and slight variant
+        base_img = Image.new("RGB", (64, 64), color=(200, 30, 30))
+        vcm.add_entry(base_img, entry_type="benign", label="Denso Blue Box")
+
+        # Test exact match
+        m_exact = vcm.match_image(base_img, max_distance=2)
+        self.assertIsNotNone(m_exact)
+        self.assertEqual(m_exact["label"], "Denso Blue Box")
+        self.assertEqual(m_exact["type"], "benign")
+
+        # Test distant image fails on strict (max_distance=2), passes on broad (max_distance=20)
+        diff_img = Image.new("RGB", (64, 64), color=(10, 200, 50))
+        h1 = compute_phash(base_img)
+        h2 = compute_phash(diff_img)
+        dist = hamming_distance(h1, h2)
+        
+        m_strict = vcm.match_image(diff_img, max_distance=max(0, dist - 5))
+        self.assertIsNone(m_strict)
+
+        m_broad = vcm.match_image(diff_img, max_distance=dist + 5)
+        self.assertIsNotNone(m_broad)
 
 
 if __name__ == "__main__":
