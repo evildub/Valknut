@@ -295,8 +295,7 @@ class ExcelExporter:
 
     def export_multi_locale(self, results: list[dict], selected_locales: list[dict], file_path: str):
         """
-        Export verified multi-locale compliance sheet for enterprise client enforcement.
-        Adheres strictly to the canonical Genesis upload column layout (Columns A-R)
+        Export multi-locale projections formatted strictly to the 18-Column Genesis Upload Specification
         with Thumbnail in Col C and extended locale metadata starting in Column S.
         """
         import re
@@ -409,9 +408,8 @@ class ExcelExporter:
                 set_cell("F", "")
                 set_cell("G", "")
 
-                # H: Marketplace Locale
-                mkt_label = f"eBay ({country})" if "ebay" in domain.lower() else f"Mercado Libre ({country})"
-                set_cell("H", mkt_label)
+                # H: Marketplace Locale (Strict domain format matching standard export)
+                set_cell("H", domain)
 
                 # I: Blank
                 set_cell("I", "")

@@ -36,6 +36,9 @@ class EbayScraper:
         """
         self.headless = headless
         self.last_scrape_warning = ""
+        self.is_bot_challenge = False
+        self.blocked_store_name = ""
+        self.blocked_store_url = ""
         self.profile_dir = os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
             "Apollo_eBay_Session"
@@ -66,6 +69,9 @@ class EbayScraper:
         Search an eBay store/seller for include_term, applying exclude_terms.
         Supports stop_event and pause_event for real-time user control.
         """
+        self.is_bot_challenge = False
+        self.blocked_store_name = ""
+        self.blocked_store_url = ""
         store_info = self.resolve_store_info(store_url)
         exclude_terms = exclude_terms or []
         cleaned_excludes = self._sanitize_exclusions(include_term, exclude_terms)
@@ -155,6 +161,49 @@ class EbayScraper:
 
         return items
 
+    def _get_user_data_dir(self) -> str:
+        """Return dedicated persistent user data directory for Playwright."""
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "browser_session")
+        os.makedirs(base, exist_ok=True)
+        return base
+
+    def open_interactive_solve_window(self, url: str):
+        """Launch a visible browser window using the persistent profile to let analyst solve CAPTCHA."""
+        if not HAS_PLAYWRIGHT:
+            import webbrowser
+            webbrowser.open(url)
+            return
+
+        user_data_dir = self._get_user_data_dir()
+        edge_path = self._find_edge_path()
+        try:
+            with sync_playwright() as p:
+                launch_kwargs = {
+                    "headless": False,
+                    "viewport": {"width": 1280, "height": 800},
+                    "args": ["--disable-blink-features=AutomationControlled", "--no-first-run"]
+                }
+                if edge_path:
+                    launch_kwargs["executable_path"] = edge_path
+                else:
+                    launch_kwargs["channel"] = "msedge"
+
+                context = p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                # Wait for user to interact / solve challenge (up to 25 seconds or until closed)
+                for _ in range(25):
+                    if page.is_closed():
+                        break
+                    time.sleep(1)
+                try:
+                    context.close()
+                except Exception:
+                    pass
+        except Exception:
+            import webbrowser
+            webbrowser.open(url)
+
     def _search_via_playwright(self, store_info: dict,
                                include_term: str, excludes: list[str],
                                condition: str, seen_ids: set,
@@ -164,7 +213,7 @@ class EbayScraper:
         items = []
         seller_label = store_info.get("store_name") or store_info.get("seller") or ""
 
-        temp_worker_dir = tempfile.mkdtemp(prefix="valknut_worker_")
+        user_data_dir = self._get_user_data_dir()
         try:
             with sync_playwright() as p:
                 launch_args = [
@@ -187,15 +236,15 @@ class EbayScraper:
                     launch_kwargs["channel"] = "msedge"
 
                 try:
-                    context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+                    context = p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
                 except Exception:
                     try:
                         launch_kwargs.pop("executable_path", None)
                         launch_kwargs["channel"] = "msedge"
-                        context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+                        context = p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
                     except Exception:
                         launch_kwargs["channel"] = "chrome"
-                        context = p.chromium.launch_persistent_context(temp_worker_dir, **launch_kwargs)
+                        context = p.chromium.launch_persistent_context(user_data_dir, **launch_kwargs)
 
                 context.add_init_script("""
                     Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -353,6 +402,9 @@ class EbayScraper:
                 if not items and html:
                     html_low = html.lower()
                     if any(t in html_low for t in ("error page | ebay", "pardon our interruption", "security measure", "please verify you are a human", "access denied", "captcha")):
+                        self.is_bot_challenge = True
+                        self.blocked_store_name = seller_label
+                        self.blocked_store_url = url
                         self.last_scrape_warning = f"⚠️ [IP THROTTLE / BOT CHALLENGE] eBay returned a security rate-limit / CAPTCHA challenge on '{seller_label}' — zero results returned due to IP block, not empty inventory."
                     elif any(t in html_low for t in ("does not exist", "store not found", "seller not found")):
                         self.last_scrape_warning = f"⚠️ Store handle '{seller_label}' was not found on eBay."
@@ -707,91 +759,75 @@ class EbayScraper:
                             img_url = cand
                             break
 
-            # 5. Seller Extraction (Multi-Tier 2026 Modern & Classic Engine)
-            seller = ""
-
-            # Strategy A: Profile / Store Link directly on the card (Most accurate)
-            for a in card.select("a[href*='/usr/'], a[href*='/str/']"):
-                href = a.get("href", "")
-                m_usr = re.search(r'/usr/([^/?&#]+)', href)
-                if m_usr and not any(k in m_usr.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
-                    seller = m_usr.group(1).strip()
-                    break
-                m_str = re.search(r'/str/([^/?&#]+)', href)
-                if m_str and not any(k in m_str.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
-                    seller = m_str.group(1).strip()
-                    break
-
-            # Strategy B: Classic eBay selectors
-            if not seller:
-                seller_el = (
-                    card.select_one(".s-item__seller-info-text") or
-                    card.select_one(".s-item__seller-info") or
-                    card.select_one(".s-card__seller-info") or
-                    card.select_one(".str-seller-info") or
-                    card.select_one(".s-card__subtitle") or
-                    card.select_one("span[class*='seller-info']") or
-                    card.select_one("span[class*='seller']")
-                )
-                if seller_el:
-                    usr_a = seller_el.select_one("a[href*='/usr/'], a[href*='/str/']")
-                    if usr_a:
-                        href = usr_a.get("href", "")
-                        m_u = re.search(r'/(?:usr|str)/([^/?&#]+)', href)
-                        if m_u and not any(k in m_u.group(1).lower() for k in ("help", "about", "contact")):
-                            seller = m_u.group(1).strip()
-
-                    if not seller:
-                        tokens = [t.strip() for t in seller_el.get_text(" ", strip=True).split() if t.strip()]
-                        for tok in tokens:
-                            if "(" in tok:
-                                tok = tok.split("(")[0].strip()
-                            if not tok or "%" in tok or "positive" in tok.lower() or tok.startswith("(") or tok.endswith(")"):
-                                continue
-                            if len(tok) >= 3 and not any(k in tok.lower() for k in ("returns", "delivery", "located", "sponsored", "brand", "opens", "save", "free", "seller", "new", "used", "pre-owned", "refurbished", "parts", "remanufactured")):
-                                seller = tok
-                                break
-
-            # Strategy C: Modern Design System (Span preceding feedback rating '% positive', skipping single-character avatar badges and condition tags)
+            # 5. Seller Extraction (URL-First Architecture)
             INVALID_SELLER_WORDS = {
                 "new", "used", "pre-owned", "refurbished", "remanufactured", "returns", "delivery", "located", "sponsored", 
                 "brand new", "buy it now", "opens in", "new listing", "save", "free", "seller", "top rated", 
                 "top-rated", "open box", "parts only", "other", "watch", "authenticity", "guarantee", "feedback",
-                "star", "stars", "seller info", "shop on ebay", "save this seller"
+                "star", "stars", "seller info", "shop on ebay", "save this seller", "sold", "shipping", "free shipping",
+                "free returns", "warranty", "watchers", "watcher", "viewed", "trending", "deals", "coupon", "discount",
+                "compatibility", "compatible", "vehicle", "fitment", "details", "contact", "about", "united states",
+                "bids", "bidding", "bid", "rating"
             }
-            if not seller:
-                all_spans = card.select("span")
-                for i, span in enumerate(all_spans):
-                    txt = span.get_text(strip=True)
-                    if "%" in txt and "positive" in txt.lower():
-                        if i > 0:
-                            for back_idx in range(i-1, max(-1, i-4), -1):
-                                cand_txt = all_spans[back_idx].get_text(strip=True)
-                                if cand_txt and len(cand_txt) >= 3:
-                                    c_low = cand_txt.lower()
-                                    if c_low not in INVALID_SELLER_WORDS and not any(c_low.startswith(p) for p in ("new ", "pre-owned", "refurbished", "returns", "free ", "top rated", "sponsored")):
-                                        seller = cand_txt.strip()
-                                        break
-                            if seller:
-                                break
-                        m = re.match(r"^([a-zA-Z0-9_\-\.]{3,35})\s*(?:\([^\)]+\))?\s*\d+(?:\.\d+)?%", txt)
-                        if m:
-                            cand = m.group(1).strip()
-                            if cand.lower() not in INVALID_SELLER_WORDS:
-                                seller = cand
-                                break
 
-            # Strategy D: Regex across card text
-            if not seller:
-                card_text = card.get_text(" ", strip=True)
-                m_fb = re.search(r'([a-zA-Z0-9_\-\.]{3,35})\s+\d{1,3}(?:\.\d+)?%\s+positive', card_text, re.IGNORECASE)
-                if m_fb:
-                    cand = m_fb.group(1).strip()
-                    if cand.lower() not in INVALID_SELLER_WORDS and cand.lower() not in ("free", "returns", "delivery", "located", "states", "united", "brand"):
-                        seller = cand
+            def _is_valid_seller_handle(cand_str: str) -> bool:
+                if not cand_str:
+                    return False
+                c = cand_str.strip().strip("():;,")
+                c_low = c.lower()
+                if len(c) < 2 or len(c) > 40:
+                    return False
+                if c_low in INVALID_SELLER_WORDS or c_low in ("i.html", "m.html", "sch", "usr", "str", "itm", "ebay", "null", "undefined", "unknown", "ebay merchant"):
+                    return False
+                if c_low.endswith(".html") or c_low.endswith(".htm") or c_low.endswith(".php"):
+                    return False
+                if any(w in c_low for w in ("sold", "save up", "% off", "shipping", "returns", "sponsored", "brand:", "brand new", "was:", "now:", "watcher", "watchers", "bids", "feedback", "rating")):
+                    return False
+                if re.search(r'\b\d+\s*(?:sold|watchers?|bids?)\b', c_low) or re.match(r'^\d+[\d,.]*$', c_low):
+                    return False
+                return True
 
-            if not seller or seller.lower() in INVALID_SELLER_WORDS or seller.lower() in ("unknown", "ebay seller", "top rated", "free shipping", "returns", "located", "sponsored", "brand", "states", "united"):
+            # Rule 1: Store Sweeps — strictly use the store/seller handle from the target URL
+            if fallback_seller and fallback_seller not in ("eBay Merchant", "Unknown", "", "Global Search"):
                 seller = fallback_seller
+            else:
+                # Rule 2: General Searches — only accept direct /usr/ or /str/ profile links
+                seller = ""
+                for a in card.select("a[href*='/usr/'], a[href*='/str/']"):
+                    href = a.get("href", "")
+                    m_usr = re.search(r'/usr/([^/?&#]+)', href)
+                    if m_usr and not any(k in m_usr.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                        cand_user = m_usr.group(1).strip()
+                        if _is_valid_seller_handle(cand_user):
+                            seller = cand_user
+                            break
+                    m_str = re.search(r'/str/([^/?&#]+)', href)
+                    if m_str and not any(k in m_str.group(1).lower() for k in ("help", "about", "contact", "signin", "register")):
+                        cand_str = m_str.group(1).strip()
+                        if _is_valid_seller_handle(cand_str):
+                            seller = cand_str
+                            break
+
+                # Check explicit seller container link
+                if not seller:
+                    seller_el = (
+                        card.select_one(".s-item__seller-info-text") or
+                        card.select_one(".s-item__seller-info") or
+                        card.select_one(".s-card__seller-info") or
+                        card.select_one(".str-seller-info")
+                    )
+                    if seller_el:
+                        usr_a = seller_el.select_one("a[href*='/usr/'], a[href*='/str/']")
+                        if usr_a:
+                            href = usr_a.get("href", "")
+                            m_u = re.search(r'/(?:usr|str)/([^/?&#]+)', href)
+                            if m_u and not any(k in m_u.group(1).lower() for k in ("help", "about", "contact")):
+                                cand_user = m_u.group(1).strip()
+                                if _is_valid_seller_handle(cand_user):
+                                    seller = cand_user
+
+                if not seller or not _is_valid_seller_handle(seller):
+                    seller = fallback_seller if (fallback_seller and _is_valid_seller_handle(fallback_seller)) else "eBay Merchant"
 
             # 6. Item Location / Origin
             loc_el = (

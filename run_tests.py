@@ -354,6 +354,86 @@ class TestApolloCoreFeatures(unittest.TestCase):
         m_broad = vcm.match_image(diff_img, max_distance=dist + 5)
         self.assertIsNotNone(m_broad)
 
+    def test_13_multi_locale_export_col_h_domain_format(self):
+        """Test Multi-Locale Export: Verify Column H outputs strict domain name format (ebay.com, ebay.ca, etc.)."""
+        exporter = ExcelExporter()
+        test_results = [{
+            "title": "Toyota Genuine Oil Filter 90915-YZZN1",
+            "url": "https://www.ebay.com/itm/112233445566",
+            "item_id": "112233445566",
+            "image_url": "https://i.ebayimg.com/images/g/test.jpg",
+            "seller": "toyota_direct_deals",
+            "brand": "Toyota",
+            "price": "$12.99",
+            "location": "Dallas, TX, United States",
+            "product_type": "Oil Filters",
+            "seller_origin": "United States",
+            "threat_badge": "🇺🇸 Domestic Verified"
+        }]
+
+        test_locales = [
+            {"code": "US", "name": "United States", "domain": "ebay.com", "region": "North America", "flag": "🇺🇸"},
+            {"code": "CA", "name": "Canada", "domain": "ebay.ca", "region": "North America", "flag": "🇨🇦"},
+            {"code": "UK", "name": "United Kingdom", "domain": "ebay.co.uk", "region": "Europe", "flag": "🇬🇧"},
+            {"code": "DE", "name": "Germany", "domain": "ebay.de", "region": "Europe", "flag": "🇩🇪"},
+        ]
+
+        out_path = os.path.join(self.temp_dir, "test_multi_locale_col_h.xlsx")
+        exporter.export_multi_locale(test_results, test_locales, out_path)
+        self.assertTrue(os.path.exists(out_path))
+
+        wb = openpyxl.load_workbook(out_path)
+        ws = wb.active
+
+        # Check Col H across the 4 generated locale rows
+        col_h_vals = [ws.cell(row=r, column=8).value for r in range(2, 6)]
+        self.assertEqual(col_h_vals, ["ebay.com", "ebay.ca", "ebay.co.uk", "ebay.de"])
+
+        # Verify Column C contains thumbnail image URL
+        col_c_vals = [ws.cell(row=r, column=3).value for r in range(2, 6)]
+        self.assertEqual(col_c_vals, ["https://i.ebayimg.com/images/g/test.jpg"] * 4)
+
+    def test_14_seller_extraction_rejects_promo_and_spec_copy(self):
+        """Test Seller Extraction: Verify promotional copy and specification tags are never extracted as seller names."""
+        from scraper import EbayScraper
+        scraper = EbayScraper(headless=True)
+
+        mock_card_html = """
+        <li class="s-card">
+            <a class="s-card__link" href="https://www.ebay.com/itm/998877665544">
+                <span class="s-card__title">Toyota Camry Steering Wheel Badge</span>
+            </a>
+            <div class="s-card__subtitle">17 sold • Save up to 5% with coupon</div>
+            <span class="s-card__price">$24.99</span>
+        </li>
+        """
+
+        # When parsed with a known fallback seller, must strictly use fallback instead of 'sold' or 'save'
+        items = scraper._parse_html(mock_card_html, fallback_seller="genuine_oem_parts_direct")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["seller"], "genuine_oem_parts_direct")
+        self.assertNotIn("sold", items[0]["seller"].lower())
+        self.assertNotIn("save", items[0]["seller"].lower())
+
+    def test_15_threat_assessment_india_cross_border_drop_ship(self):
+        """Test Threat Assessment: Verify India-registered sellers shipping from US 3PL warehouses are flagged as Drop-Ship Hubs."""
+        # 1. India seller shipping from US warehouse -> Foreign Drop-Ship Hub
+        res_3pl = self.data_store.compute_threat_assessment(origin="India", location="Chino, CA, United States")
+        self.assertEqual(res_3pl["badge"], "🚨 Foreign Drop-Ship Hub")
+        self.assertTrue(res_3pl["is_high_risk"])
+        self.assertTrue(res_3pl["is_3pl_hub"])
+
+        # 2. India seller shipping directly from India -> Cross-Border Direct
+        res_direct = self.data_store.compute_threat_assessment(origin="India", location="New Delhi, India")
+        self.assertEqual(res_direct["badge"], "⚠️ Cross-Border Direct")
+        self.assertTrue(res_direct["is_high_risk"])
+        self.assertFalse(res_direct["is_3pl_hub"])
+
+        # 3. Domestic US seller shipping from US -> Domestic Verified
+        res_us = self.data_store.compute_threat_assessment(origin="United States", location="Dallas, TX, United States")
+        self.assertEqual(res_us["badge"], "🇺🇸 Domestic Verified")
+        self.assertFalse(res_us["is_high_risk"])
+
 
 if __name__ == "__main__":
     unittest.main()

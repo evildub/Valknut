@@ -171,5 +171,30 @@ class VisualHarvester:
                 except Exception:
                     pass
 
-        _log(f"✅ High-Speed Dredge Complete: Found {len(verified_matches)} verified photo clone(s) in seconds.")
+        # 5. Parallel Seller Handle & Origin Enrichment for Discovered Clones
+        if verified_matches:
+            _log(f"🏪 Enriching real seller handles & origin intel for {len(verified_matches)} visual clone(s)...")
+            def _enrich_single_match(m):
+                item_url = m.get("url") or (f"https://www.ebay.com/itm/{m.get('item_id', '')}" if m.get("item_id") else "")
+                seller_curr = m.get("seller", "")
+                if item_url and (not seller_curr or seller_curr in ("eBay Merchant", "Unknown", "Resolving...", "")):
+                    try:
+                        import batch_importer
+                        res = batch_importer.fetch_single_listing(item_url, headless=True)
+                        if res:
+                            if res.get("seller") and res.get("seller") not in ("Unknown", "eBay Merchant"):
+                                m["seller"] = res["seller"]
+                            if res.get("price") and res.get("price") not in ("$0.00", ""):
+                                m["price"] = res["price"]
+                            if res.get("location") and res.get("location") not in ("Unknown", ""):
+                                m["location"] = res["location"]
+                            if res.get("title") and not res.get("title").startswith("Imported Listing"):
+                                m["title"] = res["title"]
+                    except Exception as e:
+                        logger.debug(f"Visual clone seller enrichment error: {e}")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(verified_matches))) as enrich_exec:
+                list(enrich_exec.map(_enrich_single_match, verified_matches))
+
+        _log(f"✅ High-Speed Dredge Complete: Found {len(verified_matches)} verified photo clone(s) with resolved merchant profiles.")
         return verified_matches

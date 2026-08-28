@@ -494,20 +494,31 @@ class DataStore:
         orig_clean = str(origin or "").strip().lower()
         loc_clean = str(location or "").strip().lower()
 
-        is_china = any(k in orig_clean or k in loc_clean for k in ("china", "cn", "hong kong", "hk", "shenzhen", "guangdong", "zhejiang", "yiwu", "beijing", "shanghai"))
-        is_3pl = False
-        if is_china and any(d in loc_clean for d in ("united states", "usa", "us", "california", "ca", "nj", "new jersey", "uk", "united kingdom", "germany", "de", "france", "fr", "spain", "es", "italy", "it", "poland", "pl")):
-            is_3pl = True
+        # Foreign high-risk manufacturing / counterfeit syndication hubs
+        is_foreign_risk = any(k in orig_clean for k in (
+            "china", "cn", "hong kong", "hk", "shenzhen", "guangdong", "zhejiang", "yiwu", "beijing", "shanghai",
+            "india", "delhi", "mumbai", "jaipur", "bangalore", "pakistan", "vietnam", "thailand", "taiwan"
+        )) or any(k in loc_clean for k in (
+            "china", "hong kong", "shenzhen", "guangdong", "yiwu", "beijing", "shanghai", "india", "pakistan"
+        ))
+
+        # Domestic delivery & 3PL fulfillment warehouse indicators
+        is_domestic_delivery = bool(re.search(
+            r'\b(united states|usa|us|california|ca|nj|new jersey|tx|texas|ky|kentucky|uk|united kingdom|germany|de|france|fr|spain|es|italy|it|poland|pl)\b',
+            loc_clean
+        ))
+
+        is_3pl = is_foreign_risk and is_domestic_delivery
 
         country_resolved = "Unknown"
-        # Prioritize origin over item shipping location
+        # Prioritize registered origin over item shipping location
         for cname in self.COUNTRY_FLAGS.keys():
-            if cname in orig_clean:
+            if re.search(r'\b' + re.escape(cname) + r'\b', orig_clean):
                 country_resolved = cname.title()
                 break
         if country_resolved == "Unknown":
             for cname in self.COUNTRY_FLAGS.keys():
-                if cname in loc_clean:
+                if re.search(r'\b' + re.escape(cname) + r'\b', loc_clean):
                     country_resolved = cname.title()
                     break
 
@@ -517,7 +528,7 @@ class DataStore:
         if is_3pl:
             badge = "🚨 Foreign Drop-Ship Hub"
             is_high = True
-        elif is_china:
+        elif is_foreign_risk:
             badge = "⚠️ Cross-Border Direct"
             is_high = True
         elif any(c in orig_clean for c in ("mexico", "brazil", "argentina", "colombia", "chile", "peru")):
@@ -526,7 +537,7 @@ class DataStore:
         elif any(c in orig_clean for c in ("united kingdom", "uk", "france", "germany", "spain", "italy", "poland", "netherlands", "belgium")):
             badge = "🇪🇺 European Direct"
             is_high = False
-        elif any(c in orig_clean for c in ("united states", "usa", "us")):
+        elif bool(re.search(r'\b(united states|usa|us)\b', orig_clean)):
             badge = "🇺🇸 Domestic Verified"
             is_high = False
         elif orig_clean and orig_clean not in ("unknown", "unresolved", ""):

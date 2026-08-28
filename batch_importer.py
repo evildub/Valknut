@@ -543,21 +543,30 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
                 href = a_el.get("href", "")
                 txt = a_el.get_text(strip=True)
                 
-                # Check href for /sch/{seller}/m.html or /usr/{seller} or /str/{seller}
-                m_href = re.search(r'/(?:sch|usr|str)/([a-zA-Z0-9_\-\.]+)(?:/m\.html|\?|$|/)', href)
-                if m_href:
-                    cand = m_href.group(1).strip()
-                    if cand and len(cand) >= 2 and cand.lower() not in ("usr", "str", "sch", "itm", "i.html", "ebay", "help", "about", "contact", "signin", "register"):
+                # Check href for _ssn=<seller> or /usr/<seller> or /str/<seller>
+                m_ssn = re.search(r'[?&]_ssn=([a-zA-Z0-9_\-\.]+)', href)
+                if m_ssn:
+                    cand = m_ssn.group(1).strip()
+                    if cand and len(cand) >= 2 and cand.lower() not in ("usr", "str", "sch", "itm", "i.html", "m.html", "ebay", "help", "about", "contact"):
+                        seller = cand
+                        break
+
+                m_usr = re.search(r'/(?:usr|str)/([a-zA-Z0-9_\-\.]+)', href)
+                if m_usr:
+                    cand = m_usr.group(1).strip()
+                    if cand and len(cand) >= 2 and cand.lower() not in ("usr", "str", "sch", "itm", "i.html", "m.html", "ebay", "help", "about", "contact", "signin", "register") and not cand.lower().endswith(".html"):
                         seller = cand
                         break
                 
-                # Check text (ignore single letter avatar initial, feedback counts like (135) or 99.1%)
+                # Check text (ignore single letter avatar initial, feedback counts, brand tags, and spec links)
                 if txt and len(txt) >= 2:
                     clean_txt = re.sub(r'^\(|\)$', '', txt).strip()
-                    if clean_txt.lower() not in (
+                    c_low = clean_txt.lower()
+                    if c_low not in (
                         "visit store", "contact seller", "save this seller", "see other items", "about this seller",
-                        "shop on ebay", "message", "seller's other items", "report this item", "feedback"
-                    ) and not re.match(r'^\d[\d,.]*(?:%|\s*positive)?$', clean_txt, re.I):
+                        "shop on ebay", "message", "seller's other items", "report this item", "feedback",
+                        "compatibility", "see compatible vehicles", "item description", "seller information"
+                    ) and not any(c_low.startswith(p) for p in ("brand:", "brand ", "vehicle:", "condition:", "compatibility", "part:")) and not re.match(r'^\d[\d,.]*(?:%|\s*positive)?$', clean_txt, re.I):
                         seller = clean_txt
                         break
 
@@ -633,17 +642,21 @@ def _fetch_ebay_item(url: str, headless: bool = True) -> dict:
                         if t_txt and not t_txt.startswith("Error Page"):
                             title = t_txt
 
-                if not seller or seller == "eBay Seller":
+                if not seller or seller == "eBay Seller" or seller == "i.html" or seller.endswith(".html"):
                     seller_cand = page.evaluate("""() => {
                         const card = document.querySelector('div.x-sellercard-atf, div.ux-seller-section, div[data-testid="x-sellercard-atf"]');
                         if (card) {
                             for (const a of card.querySelectorAll('a')) {
-                                const m = a.href.match(/\\/(?:sch|usr|str)\\/([a-zA-Z0-9_\\-\\.]+)(?:\\/m\\.html|\\?|$|\\/)/);
-                                if (m && m[1] && m[1].length >= 2 && !['usr','str','sch','itm','ebay'].includes(m[1].toLowerCase())) {
-                                    return m[1];
+                                const m_ssn = a.href.match(/[?&]_ssn=([a-zA-Z0-9_\\-\\.]+)/);
+                                if (m_ssn && m_ssn[1] && m_ssn[1].length >= 2) {
+                                    return m_ssn[1].trim();
+                                }
+                                const m = a.href.match(/\\/(?:usr|str)\\/([a-zA-Z0-9_\\-\\.]+)/);
+                                if (m && m[1] && m[1].length >= 2 && !['usr','str','sch','itm','ebay','i.html','m.html'].includes(m[1].toLowerCase()) && !m[1].toLowerCase().endsWith('.html')) {
+                                    return m[1].trim();
                                 }
                                 const t = a.innerText.trim();
-                                if (t.length >= 2 && !t.includes('(') && !t.includes('%') && !t.toLowerCase().includes('seller') && !t.toLowerCase().includes('message')) {
+                                if (t.length >= 2 && !t.includes('(') && !t.includes('%') && !t.toLowerCase().includes('seller') && !t.toLowerCase().includes('message') && !t.toLowerCase().includes('visit') && !t.toLowerCase().startsWith('brand:') && !t.toLowerCase().endsWith('.html')) {
                                     return t;
                                 }
                             }

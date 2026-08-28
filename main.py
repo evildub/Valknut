@@ -38,6 +38,24 @@ from tooltip import add_tooltip, HoverTip
 
 # ── Color Palette Definitions ─────────────────────────────────────────────────
 THEMES = {
+    "apollo_exec": {
+        "name": "🌟 Apollo Executive",
+        "bg": "#000227",
+        "panel": "#0A0E36",
+        "accent": "#38BDF8",
+        "accent2": "#347BB7",
+        "success": "#10B981",
+        "warning": "#F59E0B",
+        "danger": "#EF4444",
+        "text": "#FFFFFF",
+        "subtext": "#7C8FA3",
+        "entry_bg": "#05071F",
+        "border": "#1E295D",
+        "btn_normal_bg": "#0F1642",
+        "btn_normal_fg": "#FFFFFF",
+        "select_bg": "#0044FF",
+        "select_fg": "#FFFFFF",
+    },
     "midnight": {
         "name": "🌌 Midnight Slate",
         "bg": "#1e1e2e",
@@ -550,17 +568,18 @@ THUMB_CONFIG = {
 }
 
 QUOTES = [
-    "🛡️ Tenet 1: Zero-Tolerance Brand Perimeter — Defending genuine OEM craftsmanship worldwide.",
-    "🎯 Tenet 2: Evidence-First Enforcement — Verified seller provenance & bulletproof chain of custody.",
-    "🌐 Tenet 3: Cross-Marketplace Threat Intelligence — Unmasking international 3PL drop-shipping rings.",
-    "🔍 Tenet 4: Perceptual Visual Fingerprinting — Eliminating counterfeit syndicates and cloned assets.",
-    "⚡ Tenet 5: High-Octane Precision — Empowering brand protection analysts with autonomous speed.",
-    "📊 Tenet 6: Measurable ROI & Revenue Defense — Quantifying genuine market value protected.",
-    "🤝 Tenet 7: Built by Analysts, for Analysts — Purpose-engineered for front-line IP enforcement.",
-    "🏛️ Tenet 8: Multi-Jurisdiction Compliance — Structuring clean A2C2 & marketplace enforcement dossiers.",
-    "⚔️ Tenet 9: Proactive Recidivism Tracking — Permanently dismantling repeat counterfeit operations.",
-    "☀️ Apollo Motto: 'Apollo is a lightweight interceptor with a captain, making tactical adjustments while the heavy weight carries the burden. We are agile.'",
-    "🎖️ Analyst Recognition: Front-line protection defending consumer safety from rogue components.",
+    "☀️ The Light: Illuminating true merchant origins & unmasking international 3PL drop-shipping fronts.",
+    "💡 Tactical Reconnaissance: Transforming raw marketplace darkness into actionable intelligence.",
+    "🌐 Cross-Border Visibility: Exposing foreign counterfeiter networks operating behind domestic storefront masks.",
+    "👁️ Clarity: Stripping away digital landfill noise so analysts operate with unclouded focus.",
+    "🛡️ Signal Over Noise: Eliminating authorized OEM false positives to isolate high-conviction targets.",
+    "🖼️ Perceptual Fingerprinting: Collapsing cloned image clutter into unified threat clusters.",
+    "🏹 Precision: Executing surgical organic store sweeps that strike high-threat targets without collateral damage.",
+    "🎯 Genesis Tactical Feeder: Delivering 100% compliant 18-column datasets ready for instant pipeline injection.",
+    "⚖️ Evidence-First Standard: Structuring bulletproof chain-of-custody and tamper-evident enforcement dossiers.",
+    "⚡ The Tactical Interceptor: Operating at the tip of the spear while the heavy carrier carries the enterprise burden.",
+    "🤝 Built by Analysts, for Analysts: Purpose-engineered for the realities of front-line trademark defense.",
+    "🔒 Brand Integrity Defended: Protecting genuine craftsmanship and consumer safety worldwide.",
 ]
 
 EASTER_EGG_QUOTES = [
@@ -631,6 +650,7 @@ THEME_QUOTES = {
 }
 
 THEME_SUBHEADERS = {
+    "apollo_exec": "☀️ The Light • Clarity • Precision",
     "continental": "🪙 THE CONTINENTAL — HIGH TABLE EXCOMMUNICADO & SYNDICATE ELIMINATION SUITE",
     "toyota_gr": "🏁 TOYOTA GAZOO RACING & LEXUS — BRAND PROTECTION SUITE",
     "gm_heritage": "💎 GENERAL MOTORS & ACDELCO — IP COMPLIANCE HARVESTER",
@@ -651,10 +671,10 @@ THEME_SUBHEADERS = {
     "synthwave": "🕹️ RETRO SYNTHWAVE 80s — ARCADE COMPLIANCE SPECIAL",
     "cyberpunk": "⚡ CYBERPUNK 2077 — NIGHT CITY BRAND RUNNER",
     "matrix": "💻 THE MATRIX HARVESTER — ZERO INFRINGEMENT CONSTRUCT",
-    "midnight": "🛡️ ENTERPRISE BRAND ENFORCEMENT & IP HARVESTER",
-    "dark": "🛡️ ENTERPRISE BRAND ENFORCEMENT & IP HARVESTER",
-    "slate": "🛡️ ENTERPRISE BRAND ENFORCEMENT & IP HARVESTER",
-    "navy": "🛡️ ENTERPRISE BRAND ENFORCEMENT & IP HARVESTER",
+    "midnight": "☀️ The Light • Clarity • Precision",
+    "dark": "☀️ The Light • Clarity • Precision",
+    "slate": "☀️ The Light • Clarity • Precision",
+    "navy": "☀️ The Light • Clarity • Precision",
     "catppuccin": "☕ MOCHA VELVET — ARTISAN BRAND ENFORCEMENT",
     "forest": "🌲 FOREST CANOPY — SUSTAINABLE IP COMPLIANCE",
     "nord": "❄️ NORDIC ARCTIC — PRECISION ICE DEFENSE",
@@ -675,7 +695,7 @@ CONTINENTAL_QUOTES = [
 ]
 
 
-VERSION = "1.5.2"
+VERSION = "1.6.0"
 
 
 class EbayTool(tk.Tk):
@@ -703,9 +723,9 @@ class EbayTool(tk.Tk):
         self.store_full_sweep_var = tk.BooleanVar(value=False)
 
         # Load saved theme
-        saved_theme_key = self.data_store.get_setting("theme", "midnight")
+        saved_theme_key = self.data_store.get_setting("theme", "apollo_exec")
         if saved_theme_key not in THEMES:
-            saved_theme_key = "midnight"
+            saved_theme_key = "apollo_exec"
         self.current_theme_key = saved_theme_key
         self.theme = THEMES[self.current_theme_key]
 
@@ -877,7 +897,7 @@ class EbayTool(tk.Tk):
         self.themed_widgets["section_labels"].append(self.title_lbl)
 
         # Dynamic official client/portfolio sub-header
-        sub_text = THEME_SUBHEADERS.get(self.current_theme_key, "🛡️ CROSS-BORDER THREAT HARVESTING & SUPPLY CHAIN DEFENSE")
+        sub_text = THEME_SUBHEADERS.get(self.current_theme_key, "☀️ The Light • Clarity • Precision")
         self.subtitle_lbl = tk.Label(title_box, text=sub_text, font=("Segoe UI", 8, "bold"),
                                      bg=t["panel"], fg=t.get("accent2", t["subtext"]))
         self.subtitle_lbl.pack(anchor="w")
@@ -1980,12 +2000,12 @@ class EbayTool(tk.Tk):
             logger.debug(f"Could not load app icon: {e}")
 
     def _center_window(self, win, w=None, h=None):
-        """Center a Toplevel window on screen or relative to master window."""
+        """Center a Toplevel window accurately over parent window across multi-monitor setups."""
         win.update_idletasks()
         width = w or win.winfo_width()
         height = h or win.winfo_height()
-        master_x = self.winfo_x()
-        master_y = self.winfo_y()
+        master_x = self.winfo_rootx()
+        master_y = self.winfo_rooty()
         master_w = self.winfo_width()
         master_h = self.winfo_height()
         if master_w > 100 and master_h > 100:
@@ -1994,8 +2014,6 @@ class EbayTool(tk.Tk):
         else:
             x = (win.winfo_screenwidth() - width) // 2
             y = (win.winfo_screenheight() - height) // 2
-        x = max(10, x)
-        y = max(10, y)
         win.geometry(f"{width}x{height}+{x}+{y}")
 
     def _apply_dark_titlebar(self, win=None):
@@ -4039,6 +4057,68 @@ class EbayTool(tk.Tk):
                     elif len(items) == 0 and hasattr(self.scraper, "last_scrape_warning") and self.scraper.last_scrape_warning:
                         self._log(f"  {self.scraper.last_scrape_warning}")
                         self.scraper.last_scrape_warning = ""
+
+                    if len(items) == 0 and hasattr(self.scraper, "is_bot_challenge") and self.scraper.is_bot_challenge:
+                        b_name = self.scraper.blocked_store_name or seller_label
+                        b_url = self.scraper.blocked_store_url or target_url
+                        self.scraper.is_bot_challenge = False
+                        
+                        self.paused = True
+                        self.pause_event.clear()
+                        self.after(0, self._update_pause_ui_state)
+                        self._log(f"  ⚠️ [AUTO-PAUSED] Security challenge detected on '{b_name}'. Pausing queue for analyst recovery.")
+                        
+                        recovery_choice = {"action": "retry"}
+                        recovery_event = threading.Event()
+                        
+                        def _on_recovery(choice):
+                            recovery_choice["action"] = choice
+                            recovery_event.set()
+                            
+                        self.after(0, lambda n=b_name, u=b_url, cb=_on_recovery: self._prompt_bot_challenge_recovery(n, u, callback=cb))
+                        
+                        # Synchronously block worker thread until analyst chooses Retry or Skip in modal
+                        recovery_event.wait()
+                        
+                        if recovery_choice["action"] == "retry":
+                            self._log(f"  🔄 Retrying sweep on '{b_name}'...")
+                            items = self.scraper.search(
+                                store_raw,
+                                actual_term,
+                                job["excludes"],
+                                condition=job.get("condition", "all"),
+                                stop_event=self.stop_event,
+                                pause_event=self.pause_event
+                            )
+                            for item in items:
+                                title = item.get("title", "")
+                                passed_excl, matched_ex = self._check_strict_exclusions(title, job.get("excludes", []))
+                                if not passed_excl:
+                                    filtered_out_count += 1
+                                    continue
+                                auto_b, auto_pt = self._auto_detect_brand_from_title(title)
+                                if job["brand"] in ("Full Store Sweep", "Store Inventory", "All Products", "Full Search", "", "Custom Search") or include_term == "*":
+                                    item["brand"] = auto_b
+                                    if not item.get("product_type"): item["product_type"] = auto_pt
+                                else:
+                                    item["brand"] = auto_b if auto_b != "Unassigned" else job["brand"]
+                                    if not item.get("product_type"): item["product_type"] = auto_pt or self._detect_product_type(title)
+                                item["keyword"] = "🏪 Full Sweep" if include_term == "*" else include_term
+                                if "marketplace" not in item or not item["marketplace"]: item["marketplace"] = mkt_tag
+                                item_id = item.get("item_id")
+                                dedup_key = item_id if item_id else item.get("url")
+                                if dedup_key and dedup_key not in self.seen_item_ids:
+                                    self.seen_item_ids.add(dedup_key)
+                                    self.results.append(item)
+                                    new_items.append(item)
+                                    total_new_items += 1
+                                elif not dedup_key:
+                                    self.results.append(item)
+                                    new_items.append(item)
+                                    total_new_items += 1
+                            if new_items:
+                                self._update_results_table(new_items)
+
                     self._log(f"  → Found {len(items)} listings ({len(new_items)} new) for '{include_term}' in {seller_label} [{platform_name}]")
 
             except Exception as e:
@@ -4089,6 +4169,87 @@ class EbayTool(tk.Tk):
         self._check_enforcement_milestones()
         # Post-sweep thumbnail refresh pulse to guarantee 100% of thumbnails display immediately
         self.after(350, self._repopulate_results_table)
+
+    def _update_pause_ui_state(self):
+        t = self.theme
+        if self.paused:
+            self.pause_btn.config(text="▶  Resume", bg=t["success"], fg="#FFFFFF")
+            self.progress.stop()
+        else:
+            self.pause_btn.config(text="⏸  Pause", bg=t["btn_normal_bg"], fg=t["btn_normal_fg"])
+            if self.running:
+                self.progress.start(12)
+
+    def _prompt_bot_challenge_recovery(self, store_name, store_url, callback=None):
+        """Display an interactive recovery modal when eBay serves a CAPTCHA / rate-limit challenge."""
+        t = self.theme
+        win = tk.Toplevel(self)
+        win.title("⚠️ Security Challenge / CAPTCHA Detected")
+        win.configure(bg=t["bg"])
+        win.geometry("540x330")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        self.update_idletasks()
+        rx = self.winfo_rootx()
+        ry = self.winfo_rooty()
+        rw = self.winfo_width()
+        rh = self.winfo_height()
+        x = rx + (rw // 2) - 270
+        y = ry + (rh // 2) - 165
+        win.geometry(f"540x330+{x}+{y}")
+        win.focus_force()
+
+        tk.Label(win, text="⚠️ eBay Security / CAPTCHA Challenge", bg=t["bg"], fg=t["warning"],
+                 font=("Segoe UI", 12, "bold")).pack(pady=(16, 6))
+
+        msg = (
+            f"eBay has returned a security verification check / CAPTCHA challenge on:\n"
+            f"Store: '{store_name}'\n\n"
+            f"The search queue has been PAUSED to prevent missing inventory.\n"
+            f"You can solve the verification check in your browser, and then retry."
+        )
+        tk.Label(win, text=msg, bg=t["bg"], fg=t["text"], font=FONT_SM, justify="center", wraplength=480).pack(pady=(0, 16), padx=20)
+
+        btn_box = tk.Frame(win, bg=t["bg"])
+        btn_box.pack(fill="x", padx=20, pady=(10, 0))
+
+        def _open_in_browser():
+            target = store_url or f"https://www.ebay.com/str/{store_name}"
+            self._log(f"🌐 Launching live scraper browser window for '{target}'...")
+            threading.Thread(target=lambda: self.scraper.open_interactive_solve_window(target), daemon=True).start()
+
+        def _retry():
+            win.destroy()
+            self.paused = False
+            self.pause_event.set()
+            self._update_pause_ui_state()
+            if callback:
+                callback("retry")
+
+        def _skip():
+            win.destroy()
+            self.paused = False
+            self.pause_event.set()
+            self._update_pause_ui_state()
+            self._log(f"⏭️ Skipped challenge store '{store_name}'. Resuming search queue...")
+            if callback:
+                callback("skip")
+
+        win.protocol("WM_DELETE_WINDOW", _skip)
+
+        tk.Button(btn_box, text="🌐  Open Scraper Browser to Solve", bg=t["accent"], fg=t["select_fg"],
+                  font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=6, cursor="hand2",
+                  command=_open_in_browser).pack(side="left", padx=4)
+
+        tk.Button(btn_box, text="🔄  Resume & Retry Store", bg=t["success"], fg="#FFFFFF",
+                  font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=6, cursor="hand2",
+                  command=_retry).pack(side="left", padx=4)
+
+        tk.Button(btn_box, text="⏭  Skip Store", bg=t["btn_normal_bg"], fg=t["btn_normal_fg"],
+                  font=FONT_SM, relief="flat", padx=10, pady=6, cursor="hand2",
+                  command=_skip).pack(side="right", padx=4)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  RESULTS TABLE, LIVE FILTERING, BULK TAGGING & HOVER PREVIEWS
@@ -4631,14 +4792,19 @@ class EbayTool(tk.Tk):
         win.configure(bg=t["bg"])
         win.geometry("520x430")
         win.resizable(False, False)
-        self._apply_dark_titlebar(win)
         win.transient(self)
+        win.grab_set()
 
-        # Center dialog
+        # Multi-monitor aware centering
         self.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() // 2) - 260
-        y = self.winfo_y() + (self.winfo_height() // 2) - 215
-        win.geometry(f"520x430+{max(0, x)}+{max(0, y)}")
+        rx = self.winfo_rootx()
+        ry = self.winfo_rooty()
+        rw = self.winfo_width()
+        rh = self.winfo_height()
+        x = rx + (rw // 2) - 260
+        y = ry + (rh // 2) - 215
+        win.geometry(f"520x430+{x}+{y}")
+        win.focus_force()
 
         tk.Label(win, text="✏️ Edit Listing Information", bg=t["bg"], fg=t["accent"],
                  font=("Segoe UI", 11, "bold")).pack(pady=(12, 4))
@@ -4727,11 +4893,19 @@ class EbayTool(tk.Tk):
 
         is_headless = self.headless_var.get() if hasattr(self, "headless_var") else True
         self._log(f"🔄 Starting targeted live refresh for {len(target_items)} selected listing(s)...")
+        self._status(f"Refreshing {len(target_items)} listings...")
+        self.running = True
+        self.stop_event.clear()
+        self.stop_btn.config(state="normal")
+        self.progress.start()
 
         def _worker():
             import batch_importer
             updated_count = 0
             for idx, (iid, item) in enumerate(target_items, 1):
+                if self.stop_event.is_set():
+                    self._log("⏹ Live refresh halted by analyst.")
+                    break
                 url = item.get("url", "")
                 if not url:
                     continue
@@ -4753,12 +4927,17 @@ class EbayTool(tk.Tk):
                         if res.get("product_type") and res.get("product_type") != "Accessories" and item.get("product_type") in ("Accessories", "", None):
                             item["product_type"] = res["product_type"]
                         updated_count += 1
+                        self.after(0, lambda c=idx, t=len(target_items): self._status(f"Refreshed {c}/{t} listings..."))
                 except Exception as e:
                     logger.debug(f"Rescrape error on {url}: {e}")
 
             def _finish():
+                self.running = False
+                self.stop_btn.config(state="disabled")
+                self.progress.stop()
                 self._repopulate_results_table()
                 self._log(f"✅ Finished live refresh for {updated_count}/{len(target_items)} listing(s).")
+                self._status(f"Refresh complete: {updated_count} updated.")
                 messagebox.showinfo("Refresh Complete", f"Successfully refreshed details and thumbnails for {updated_count} listing(s)!")
 
             self.after(0, _finish)
@@ -8087,7 +8266,7 @@ class EbayTool(tk.Tk):
         tk.Label(head_f, text="☀️ Apollo Brand Intelligence",
                  font=("Segoe UI", 16, "bold"), bg=t["bg"], fg=t["accent"]).pack(anchor="w")
 
-        tk.Label(head_f, text="Tactical Reconnaissance, Precision Triage & Genesis Influx Suite",
+        tk.Label(head_f, text="The Light • Clarity • Precision | Tactical Genesis Feeder",
                  font=FONT_SM, bg=t["bg"], fg=t["subtext"]).pack(anchor="w", pady=(2, 0))
 
         div = tk.Frame(pad_f, bg=t["border"], height=1)
@@ -9633,6 +9812,7 @@ class ReverseVisualModal(tk.Toplevel):
 
         self._build_ui()
         self._populate_tree()
+        self.after(200, self._enrich_all_hits)
 
     def _build_ui(self):
         t = self.t
@@ -9703,6 +9883,7 @@ class ReverseVisualModal(tk.Toplevel):
         count_lbl.pack(side="left")
 
         tk.Button(btn_bar, text="✕ Close", command=self.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="🔄 Enrich Threat Intel", command=self._enrich_all_hits, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
         tk.Button(btn_bar, text="📋 Copy Seller Handles", command=self._copy_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
         tk.Button(btn_bar, text="🏪 Add to Stores Box", command=self._add_all_to_stores, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
         tk.Button(btn_bar, text="📥 Add to Results Table", command=self._add_to_results, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
@@ -9855,11 +10036,13 @@ class ReverseVisualModal(tk.Toplevel):
             else:
                 seller_display = f"⚡ {seller}"
 
-            # Threat Intel from DataStore
+            # Threat Intel from DataStore & Item Location
             cached_intel = ds.get_seller_intel(seller) if ds else {}
             seller_country = cached_intel.get("country", "") if cached_intel else ""
-            assessment = ds.compute_threat_assessment(seller_country, "") if ds else {}
-            orig_txt = f"{assessment.get('flag', '❓')} {assessment.get('country', 'Unknown')}" if assessment.get('country') != 'Unknown' else "❓ Unresolved"
+            loc_val = itm.get("location", "")
+            assessment = ds.compute_threat_assessment(seller_country or loc_val, loc_val) if ds else {}
+            c_name = assessment.get("country", "Unknown")
+            orig_txt = f"{assessment.get('flag', '❓')} {c_name}" if c_name not in ("Unknown", "Unresolved", "") else (f"📍 {loc_val}" if loc_val else "❓ Unresolved")
             threat_txt = assessment.get("badge", "🚨 Rogue Photo Clone")
 
             price_txt = str(itm.get("price", "N/A"))
@@ -9958,6 +10141,63 @@ class ReverseVisualModal(tk.Toplevel):
 
         self.hits.sort(key=get_sort_key, reverse=descending)
         self._populate_tree()
+
+    def _enrich_all_hits(self):
+        """Resolve seller handles and country origin threat intelligence for all visual clone matches."""
+        ds = getattr(self.parent, "data_store", None)
+        if not self.hits:
+            return
+        self.count_var.set(f"🏪 Enriching {len(self.hits)} visual clone merchant account(s)...")
+
+        INVALID_HANDLES = {"ebay merchant", "unknown", "resolving...", "", "i.html", "m.html", "sch", "usr", "str", "itm"}
+
+        def _is_bad(name):
+            if not name: return True
+            n = str(name).strip().lower()
+            return n in INVALID_HANDLES or n.endswith(".html") or n.endswith(".htm")
+
+        def _worker():
+            for itm in self.hits:
+                s = itm.get("seller", "")
+                url = itm.get("url") or (f"https://www.ebay.com/itm/{itm.get('item_id', '')}" if itm.get("item_id") else "")
+                if url and _is_bad(s):
+                    try:
+                        import batch_importer
+                        res = batch_importer.fetch_single_listing(url, headless=True)
+                        if res:
+                            cand_s = res.get("seller", "")
+                            if cand_s and not _is_bad(cand_s):
+                                itm["seller"] = cand_s
+                                s = cand_s
+                            if res.get("price") and res.get("price") not in ("$0.00", ""):
+                                itm["price"] = res["price"]
+                            if res.get("location") and res.get("location") not in ("Unknown", ""):
+                                itm["location"] = res["location"]
+                            if res.get("title") and not res.get("title").startswith("Imported Listing"):
+                                itm["title"] = res["title"]
+                    except Exception as e:
+                        logger.debug(f"Visual clone fetch error on {url}: {e}")
+
+                # Resolve seller threat intel / country if needed
+                if s and not _is_bad(s) and ds:
+                    intel = ds.get_seller_intel(s)
+                    if not intel or not intel.get("country") or intel.get("country") == "Unknown":
+                        try:
+                            resolved = self.parent.scraper.resolve_seller_country(s)
+                            if resolved and resolved.get("country") and resolved["country"] != "Unknown":
+                                ds.set_seller_intel(s, resolved["country"], member_since=resolved.get("member_since", ""))
+                        except Exception as e:
+                            logger.debug(f"Visual clone country resolve error for {s}: {e}")
+
+            def _finish():
+                if self.winfo_exists():
+                    self._populate_tree()
+                    unique_sellers = {r.get("seller", "") for r in self.hits if r.get("seller") and not _is_bad(r.get("seller"))}
+                    self.count_var.set(f"{len(self.hits)} photo clone listings discovered across {len(unique_sellers)} verified merchant account(s)")
+
+            self.after(0, _finish)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _clean_seller_handle(self, raw_str: str) -> str:
         s = str(raw_str).strip()
