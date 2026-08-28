@@ -1,10 +1,7 @@
 """
-Adhoc Batch URL & Excel Listing Importer Module for Valknut Anti-Counterfeit Harvester.
+Adhoc Batch URL & Excel Listing Importer Module for Apollo Brand Intelligence Suite.
 Specialized in high-speed, multi-marketplace individual listing detail extraction
 from analyst adhoc request lists, raw pasted text, and client spreadsheets (.xlsx, .csv).
-
-Supported Platforms:
-Adhoc Batch URL & Excel Listing Importer Module for Apollo Anti-Counterfeit Harvester.
 """
 
 import re

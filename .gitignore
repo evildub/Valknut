@@ -12,6 +12,8 @@ dist/
 
 # Session profiles & Browser state
 Valknut_*_Session/
+Apollo_*_Session/
+data/browser_session/
 .playwright/
 
 # Local logs, test files & scratch files
@@ -21,6 +23,7 @@ STRATEGY_AND_CAREER_ROADMAP.md
 *ROADMAP*.md
 APOLLO_BRAND_VISION.txt
 Test Files/
+*.webp
 
 # OS metadata
 .DS_Store

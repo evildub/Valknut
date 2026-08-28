@@ -1,5 +1,5 @@
 """
-Redbubble Scraper Module for Valknut Anti-Counterfeit Harvester.
+Redbubble Scraper Module for Apollo Brand Intelligence Suite.
 Specialized in automated retrieval of Print-on-Demand (POD) merchandise,
 apparel, stickers, and artist shop listings on Redbubble (redbubble.com).
 
@@ -24,7 +24,7 @@ except ImportError:
     import requests as curl_requests
     HAS_CURL_CFFI = False
 
-logger = logging.getLogger("Valknut.RedbubbleScraper")
+logger = logging.getLogger("Apollo.RedbubbleScraper")
 
 
 class RedbubbleScraper:

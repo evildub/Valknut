@@ -1,13 +1,13 @@
 """
-Mercado Libre Scraper Module for Valknut Anti-Counterfeit Harvester.
+Mercado Libre Scraper Module for Apollo Brand Intelligence Suite.
 Specialized in automated retrieval of Latin American automotive counterfeit listings
 across Mexico (MLM), Brazil (MLB), Argentina (MLA), and Colombia (MCO).
 
 Features:
 - Playwright + Native Microsoft Edge Stealth automation.
-- Persistent session profile at %LOCALAPPDATA%\\Valknut_Meli_Session to preserve trust cookies.
+- Persistent session profile to preserve trust cookies.
 - Intelligent reCAPTCHA / DataDome wall detection with interactive clearance.
-- Mandatory Account Authentication detection ("Hello! To continue, log in to your account") with 1-time persistent login saving.
+- Mandatory Account Authentication detection with 1-time persistent login saving.
 - Structured DOM extraction for both classic (ui-search-layout) and modern (poly-card) layouts.
 - Currency normalization (MXN/BRL/ARS to USD) for seamless threat intel and ROI valuation.
 """

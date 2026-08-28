@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Valknut Automated Release Engine
+Apollo Automated Release Engine
 Packages the compiled distribution, tags the version, and publishes a release to GitHub.
 """
 

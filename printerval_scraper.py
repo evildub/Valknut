@@ -1,5 +1,5 @@
 """
-Printerval Scraper Module for Valknut Anti-Counterfeit Harvester.
+Printerval Scraper Module for Apollo Brand Intelligence Suite.
 Specialized in automated retrieval of Print-on-Demand (POD) merchandise,
 apparel, stickers, and custom creator products on Printerval (printerval.com).
 
@@ -20,7 +20,7 @@ import threading
 import urllib.parse
 from typing import List, Dict, Optional
 
-logger = logging.getLogger("Valknut.PrintervalScraper")
+logger = logging.getLogger("Apollo.PrintervalScraper")
 
 
 class PrintervalScraper:
@@ -31,7 +31,7 @@ class PrintervalScraper:
         self._context = None
         self.profile_dir = os.path.join(
             os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
-            "Valknut_Printerval_Session"
+            "Apollo_Printerval_Session"
         )
         os.makedirs(self.profile_dir, exist_ok=True)
         self.cache_file = os.path.join(self.profile_dir, "printerval_seller_cache.json")

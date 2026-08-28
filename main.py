@@ -8332,14 +8332,14 @@ class EbayTool(tk.Tk):
         ethos_canvas.pack(side="left", fill="both", expand=True)
         ethos_vsb.pack(side="right", fill="y")
 
-        # Valknut Narrative
-        narrative_hdr = tk.Label(ethos_scroll_frame, text="Valknut Brand Intelligence Enterprise Architecture",
+        # Apollo Narrative
+        narrative_hdr = tk.Label(ethos_scroll_frame, text="Apollo Brand Intelligence Enterprise Architecture",
                                  font=("Segoe UI", 11, "bold"), bg=t["panel"], fg=t["accent"])
         narrative_hdr.pack(anchor="w", padx=4, pady=(0, 4))
         narrative_hdr.bind("<MouseWheel>", _on_mousewheel)
 
         narrative_txt = (
-            "Valknut Brand Intelligence is an on-demand brand protection platform engineered for "
+            "Apollo Brand Intelligence is an on-demand brand protection platform engineered for "
             "rapid multi-brand seller harvesting, visual syndicate discovery, and multi-jurisdiction compliance dossiers."
         )
         nar_lbl = tk.Label(ethos_scroll_frame, text=narrative_txt, font=FONT_SM, bg=t["panel"],
