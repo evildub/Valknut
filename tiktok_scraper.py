@@ -1,0 +1,375 @@
+"""
+TikTok Shop Scraper Module for Apollo Brand Intelligence Suite.
+Specialized in automated retrieval of TikTok Shop (shop.tiktok.com) merchandise,
+creator storefronts, product detail pages (PDP), and automotive/consumer infringements.
+
+Features:
+- High-speed HTTP request engine (curl_cffi impersonate Chrome 124).
+- Resilient Playwright + Microsoft Edge Stealth fallback with persistent session profile.
+- Exact PDP metadata parsing (Title, Price, Seller Name, Business Entity, Origin Address, Sold Count).
+- Automatic Genesis Column H compliance (shop.tiktok.com).
+"""
+
+import os
+import re
+import json
+import time
+import random
+import logging
+import threading
+import urllib.parse
+from typing import List, Dict, Optional
+from bs4 import BeautifulSoup
+
+try:
+    from curl_cffi import requests as curl_requests
+    HAS_CURL_CFFI = True
+except ImportError:
+    import requests as curl_requests
+    HAS_CURL_CFFI = False
+
+try:
+    from playwright.sync_api import sync_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
+
+logger = logging.getLogger("Apollo.TikTokScraper")
+
+
+class TikTokScraper:
+    def __init__(self, headless: bool = True):
+        self.headless = headless
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.profile_dir = os.path.join(self.base_dir, "data", "tiktok_session")
+        os.makedirs(self.profile_dir, exist_ok=True)
+        self.last_scrape_warning = ""
+        self.is_bot_challenge = False
+        self.blocked_store_name = ""
+        self.blocked_store_url = ""
+
+    def _find_edge_path(self) -> Optional[str]:
+        """Detect Edge browser path on Windows."""
+        for p in (
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+        ):
+            if os.path.exists(p):
+                return p
+        return None
+
+    def launch_interactive_auth(self, target_url: str = "https://shop.tiktok.com/us"):
+        """Launch interactive Edge browser with persistent TikTok session for analyst login or CAPTCHA solving."""
+        if not HAS_PLAYWRIGHT:
+            import webbrowser
+            webbrowser.open(target_url)
+            return
+
+        edge_path = self._find_edge_path()
+        try:
+            with sync_playwright() as p:
+                launch_kwargs = {
+                    "headless": False,
+                    "viewport": {"width": 1280, "height": 850},
+                    "args": ["--disable-blink-features=AutomationControlled", "--no-first-run"]
+                }
+                if edge_path:
+                    launch_kwargs["executable_path"] = edge_path
+                else:
+                    launch_kwargs["channel"] = "msedge"
+
+                context = p.chromium.launch_persistent_context(self.profile_dir, **launch_kwargs)
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                
+                # Keep open for up to 60 seconds or until user closes window
+                for _ in range(60):
+                    if page.is_closed():
+                        break
+                    time.sleep(1)
+                try:
+                    context.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"TikTok interactive session error: {e}")
+            import webbrowser
+            webbrowser.open(target_url)
+
+    def resolve_store_info(self, raw_input: str) -> dict:
+        """Parse TikTok Shop store URL, creator handle, or Global Search."""
+        raw = raw_input.strip() if raw_input else ""
+        if not raw:
+            return {
+                "store_name": "TikTok Shop Global Search",
+                "seller": "",
+                "is_store": False,
+                "original": "https://shop.tiktok.com/us"
+            }
+
+        # 1. Check for product link
+        m_pdp = re.search(r'/pdp/(?:[^/]+/)?(\d{15,25})', raw) or re.search(r'(\d{15,25})', raw)
+        if m_pdp:
+            p_id = m_pdp.group(1)
+            return {
+                "store_name": f"TikTok Product {p_id}",
+                "seller": "",
+                "is_store": False,
+                "item_id": p_id,
+                "original": raw
+            }
+
+        # 2. Check for creator handle e.g. @creator or tiktok.com/@creator
+        m_at = re.search(r'@([a-zA-Z0-9_\-\.]+)', raw)
+        if m_at:
+            handle = m_at.group(1).strip()
+            return {
+                "store_name": f"@{handle}",
+                "seller": handle,
+                "is_store": True,
+                "original": f"https://www.tiktok.com/@{handle}"
+            }
+
+        # 3. Check for Global keywords
+        if any(g in raw.lower() for g in ("global", "marketplace", "all")) or raw.lower() in ("tiktok", "shop.tiktok.com", "https://shop.tiktok.com", "https://shop.tiktok.com/us"):
+            return {
+                "store_name": "TikTok Shop Global Search",
+                "seller": "",
+                "is_store": False,
+                "original": "https://shop.tiktok.com/us"
+            }
+
+        clean = raw.split("/")[-1].split("?")[0].strip()
+        return {
+            "store_name": clean or "TikTok Shop",
+            "seller": clean,
+            "is_store": True,
+            "original": raw if raw.startswith("http") else f"https://shop.tiktok.com/us/{clean}"
+        }
+
+    def fetch_single_listing(self, url: str) -> dict:
+        """
+        Fetch and parse a single TikTok Shop PDP URL.
+        Extracts Title, Price, Seller, Location, Business Entity, Images, Sold count, and Item ID.
+        """
+        clean_url = url.strip()
+        m_id = re.search(r'/pdp/(?:[^/]+/)?(\d{15,25})', clean_url)
+        item_id = m_id.group(1) if m_id else ""
+        if not item_id:
+            m_alt = re.search(r'(\d{15,25})', clean_url)
+            if m_alt: item_id = m_alt.group(1)
+
+        html = ""
+        # 1. Attempt fast HTTP via curl_cffi with Chrome impersonation
+        try:
+            if HAS_CURL_CFFI:
+                session = curl_requests.Session(impersonate="chrome124")
+            else:
+                session = curl_requests.Session()
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            })
+            resp = session.get(clean_url, timeout=14)
+            if resp.status_code == 200 and len(resp.text) > 1000:
+                html = resp.text
+        except Exception as e:
+            logger.debug(f"TikTok HTTP fetch error: {e}")
+
+        # 2. Fallback to Playwright if HTTP empty or blocked
+        if not html and HAS_PLAYWRIGHT:
+            try:
+                edge_path = self._find_edge_path()
+                with sync_playwright() as p:
+                    launch_kwargs = {
+                        "headless": self.headless,
+                        "viewport": {"width": 1440, "height": 900},
+                        "args": ["--disable-blink-features=AutomationControlled", "--no-first-run"]
+                    }
+                    if edge_path: launch_kwargs["executable_path"] = edge_path
+                    else: launch_kwargs["channel"] = "msedge"
+
+                    context = p.chromium.launch_persistent_context(self.profile_dir, **launch_kwargs)
+                    page = context.pages[0] if context.pages else context.new_page()
+                    page.goto(clean_url, wait_until="domcontentloaded", timeout=25000)
+                    time.sleep(2.0)
+                    html = page.content()
+                    context.close()
+            except Exception as e:
+                logger.debug(f"TikTok Playwright fetch error: {e}")
+
+        title = ""
+        price = "$0.00"
+        seller = "TikTok Shop Merchant"
+        location = "United States"
+        image_url = ""
+        sold_count = ""
+        business_entity = ""
+
+        if html:
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Title
+            og_title = soup.find("meta", property="og:title")
+            if og_title and og_title.get("content"):
+                title = og_title["content"].strip()
+            if not title and soup.title:
+                title = soup.title.string.replace(" - TikTok Shop", "").strip()
+            if not title:
+                h1 = soup.find("h1")
+                if h1: title = h1.get_text(strip=True)
+
+            # Price
+            og_price = soup.find("meta", property="product:price:amount") or soup.find("meta", property="og:price:amount")
+            if og_price and og_price.get("content"):
+                try:
+                    price = f"${float(og_price['content']):.2f}"
+                except Exception:
+                    price = f"${og_price['content']}"
+            else:
+                for el in soup.find_all(["span", "div"]):
+                    txt = el.get_text(strip=True)
+                    if re.match(r'^\$\d+(\.\d{2})?$', txt):
+                        price = txt
+                        break
+
+            # Image
+            og_img = soup.find("meta", property="og:image")
+            if og_img and og_img.get("content"):
+                image_url = og_img["content"].strip()
+
+            # Seller / Shop Name
+            m_soldby = re.search(r'Sold by\s+([^<\n\r\t]+?)(?:18 sold|\d+\s*sold|<|\n|\t|$)', html, re.I)
+            if m_soldby:
+                seller = m_soldby.group(1).strip()
+            else:
+                for div in soup.find_all("div"):
+                    txt = div.get_text(" ", strip=True)
+                    if txt.startswith("Sold by "):
+                        seller = txt.replace("Sold by ", "").split()[0].strip()
+                        break
+
+            # Sold Count
+            m_sold = re.search(r'(\d[\d,.]*[kKmM]?\s*sold)', html, re.I)
+            if m_sold:
+                sold_count = m_sold.group(1).strip()
+
+            # Business entity & address
+            m_biz = re.search(r'Business name:\s*(?:<!-- -->)?([^<]+)</span>', html, re.I)
+            if m_biz:
+                business_entity = m_biz.group(1).strip()
+            m_addr = re.search(r'Business address:\s*(?:<!-- -->)?([^<]+)</span>', html, re.I)
+            if m_addr:
+                b_addr = m_addr.group(1).strip()
+                location = b_addr
+                if any(c in b_addr.lower() for c in ("china", "guangdong", "guangzhou", "shenzhen", "zhejiang", "anhui", "hefei", "cn")):
+                    location = f"China ({b_addr})"
+                elif "united states" in b_addr.lower() or "usa" in b_addr.lower():
+                    location = f"United States ({b_addr})"
+
+        if not title:
+            title = f"TikTok Shop Item #{item_id}" if item_id else f"TikTok Shop Listing ({clean_url[:45]}...)"
+
+        return {
+            "title": title,
+            "item_id": item_id or re.sub(r'\W+', '', clean_url)[-18:],
+            "url": clean_url,
+            "price": price,
+            "seller": seller,
+            "location": location,
+            "image_url": image_url,
+            "sold_count": sold_count,
+            "business_entity": business_entity,
+            "marketplace": "shop.tiktok.com",
+            "condition": "New"
+        }
+
+    def search(self, store_url: str, include_term: str,
+               exclude_terms: list[str] = None,
+               condition: str = "all",
+               stop_event: threading.Event = None,
+               pause_event: threading.Event = None) -> list[dict]:
+        """
+        Search TikTok Shop or harvest creator showcase.
+        Supports single PDP URL direct fetch or search queries.
+        """
+        items = []
+        exclude_terms = [e.strip().lower() for e in (exclude_terms or []) if e.strip()]
+
+        # If user passed direct PDP listing URL into store box
+        if store_url and ("/pdp/" in store_url or re.search(r'\d{15,25}', store_url)):
+            single = self.fetch_single_listing(store_url)
+            if single and single.get("title"):
+                items.append(single)
+            return items
+
+        # For keyword searches on TikTok Shop
+        query = include_term.strip() if include_term and include_term != "*" else ""
+        if not query and store_url:
+            query = self.resolve_store_info(store_url).get("seller", "")
+
+        if not query:
+            return items
+
+        # Search via Playwright in persistent profile
+        if HAS_PLAYWRIGHT:
+            try:
+                edge_path = self._find_edge_path()
+                with sync_playwright() as p:
+                    launch_kwargs = {
+                        "headless": self.headless,
+                        "viewport": {"width": 1440, "height": 900},
+                        "args": ["--disable-blink-features=AutomationControlled", "--no-first-run"]
+                    }
+                    if edge_path: launch_kwargs["executable_path"] = edge_path
+                    else: launch_kwargs["channel"] = "msedge"
+
+                    context = p.chromium.launch_persistent_context(self.profile_dir, **launch_kwargs)
+                    page = context.pages[0] if context.pages else context.new_page()
+                    
+                    search_url = f"https://shop.tiktok.com/us/search?q={urllib.parse.quote_plus(query)}"
+                    page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
+                    time.sleep(2.5)
+
+                    for _ in range(3):
+                        if stop_event and stop_event.is_set(): break
+                        page.evaluate("window.scrollBy(0, 1000)")
+                        time.sleep(0.8)
+
+                    html = page.content()
+                    soup = BeautifulSoup(html, "html.parser")
+                    
+                    seen_pdp = set()
+                    for a in soup.select('a[href*="/pdp/"]'):
+                        href = a.get("href", "")
+                        if not href: continue
+                        if not href.startswith("http"):
+                            href = urllib.parse.urljoin("https://shop.tiktok.com", href)
+                        
+                        m_id = re.search(r'/pdp/(?:[^/]+/)?(\d{15,25})', href)
+                        p_id = m_id.group(1) if m_id else href
+                        if p_id in seen_pdp: continue
+                        seen_pdp.add(p_id)
+
+                        title = a.get_text(strip=True) or f"TikTok Product {p_id}"
+                        img = a.select_one("img")
+                        img_url = img.get("src") or img.get("data-src") if img else ""
+
+                        items.append({
+                            "title": title,
+                            "item_id": p_id,
+                            "url": href,
+                            "price": "$0.00",
+                            "seller": "TikTok Shop Merchant",
+                            "location": "United States",
+                            "image_url": img_url,
+                            "marketplace": "shop.tiktok.com",
+                            "condition": "New"
+                        })
+                    context.close()
+            except Exception as e:
+                logger.debug(f"TikTok search error: {e}")
+
+        return items

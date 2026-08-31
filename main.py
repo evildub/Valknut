@@ -26,6 +26,7 @@ from mercadolibre_scraper import MercadoLibreScraper
 from redbubble_scraper import RedbubbleScraper
 from printerval_scraper import PrintervalScraper
 from vinted_scraper import VintedScraper
+from tiktok_scraper import TikTokScraper
 from api_client import EbayAPIClient
 from exporter import ExcelExporter
 from data_store import DataStore
@@ -695,7 +696,7 @@ CONTINENTAL_QUOTES = [
 ]
 
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 
 
 class EbayTool(tk.Tk):
@@ -714,6 +715,7 @@ class EbayTool(tk.Tk):
         self.redbubble_scraper = RedbubbleScraper(headless=self.headless_var.get())
         self.printerval_scraper = PrintervalScraper(headless=self.headless_var.get())
         self.vinted_scraper = VintedScraper(headless=self.headless_var.get())
+        self.tiktok_scraper = TikTokScraper(headless=self.headless_var.get())
         self.marketplace_var= tk.StringVar(value="🛒 eBay.com")
         self.exporter       = ExcelExporter()
         self.visual_catalog = VisualCatalogManager()
@@ -914,7 +916,7 @@ class EbayTool(tk.Tk):
         self.themed_widgets["subtext_labels"].append(market_lbl)
 
         self.market_combo = ttk.Combobox(top_right, textvariable=self.marketplace_var,
-                                         values=["🛒 eBay.com", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
+                                         values=["🛒 eBay.com", "🎵 TikTok Shop", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
                                          state="readonly", width=16, font=FONT_SM)
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
@@ -981,6 +983,7 @@ class EbayTool(tk.Tk):
         )
         self.vinted_depth_combo.bind("<<ComboboxSelected>>", lambda e: self._log(f"👗 Vinted scan depth set to: {self.vinted_depth_var.get()}"))
         self.vinted_login_btn = self._btn(top_right, "👗 Vinted Connect", self._launch_vinted_session)
+        self.tiktok_login_btn = self._btn(top_right, "🎵 TikTok Connect", self._launch_tiktok_session)
 
         # Main Toolbar Operational Action Buttons
         self.btn_import = self._btn(top_right, "📥 Import", self._open_adhoc_importer_window, accent=True)
@@ -2267,7 +2270,20 @@ class EbayTool(tk.Tk):
             else:
                 self.vinted_login_btn.pack_forget()
 
-        if "Vinted" in market:
+        if hasattr(self, "tiktok_login_btn"):
+            if "TikTok" in market:
+                self.tiktok_login_btn.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.tiktok_login_btn.pack_forget()
+
+        if "TikTok" in market:
+            self.store_placeholder = "🎵 TikTok Shop Search: https://shop.tiktok.com/us\n(Leave blank to sweep TikTok Shop, or enter specific product/store URLs: https://shop.tiktok.com/us/pdp/...)"
+            if not current_text or "ebay.com" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "store2" in current_text or "Global" in current_text:
+                self.store_text.delete("1.0", "end")
+                self.store_text.insert("1.0", self.store_placeholder)
+                self.store_text.config(fg=t["subtext"])
+            self._log("🎵 Switched platform to: TikTok Shop (shop.tiktok.com active)")
+        elif "Vinted" in market:
             self.store_placeholder = "👗 Global Vinted Search: https://www.vinted.co.uk/catalog\n(Leave blank to sweep entire Vinted marketplace, or enter specific member profile URLs: https://www.vinted.co.uk/member/123456-seller)"
             if not current_text or "ebay.com" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "store2" in current_text or "Global" in current_text:
                 self.store_text.delete("1.0", "end")
@@ -3729,6 +3745,7 @@ class EbayTool(tk.Tk):
             if job_mkt:
                 platform_name = job_mkt
                 is_vinted = platform_name == "Vinted"
+                is_tiktok = platform_name == "TikTok Shop"
                 is_wish = platform_name == "Wish"
                 is_temu = platform_name == "Temu"
                 is_aliexpress = platform_name == "AliExpress"
@@ -3736,12 +3753,13 @@ class EbayTool(tk.Tk):
                 is_redbubble = platform_name == "Redbubble"
                 is_printerval = platform_name == "Printerval"
                 mkt_map = {
-                    "Vinted": "vinted.co.uk", "Wish": "wish.com", "Temu": "temu.com",
+                    "TikTok Shop": "shop.tiktok.com", "Vinted": "vinted.co.uk", "Wish": "wish.com", "Temu": "temu.com",
                     "AliExpress": "aliexpress.com", "Mercado Libre": "mercadolibre.com",
                     "Redbubble": "redbubble.com", "Printerval": "printerval.com", "eBay": "ebay.com"
                 }
                 mkt_tag = mkt_map.get(platform_name, "ebay.com")
             else:
+                is_tiktok = "tiktok.com" in store_raw.lower() or "TikTok" in default_mkt
                 is_vinted = "vinted." in store_raw.lower() or "Vinted" in default_mkt
                 is_wish = "wish.com" in store_raw.lower() or "Wish" in default_mkt
                 is_temu = "temu.com" in store_raw.lower() or "Temu" in default_mkt
@@ -3750,7 +3768,10 @@ class EbayTool(tk.Tk):
                 is_redbubble = "redbubble.com" in store_raw.lower() or "Redbubble" in default_mkt
                 is_printerval = "printerval.com" in store_raw.lower() or "Printerval" in default_mkt
 
-                if is_vinted:
+                if is_tiktok:
+                    platform_name = "TikTok Shop"
+                    mkt_tag = "shop.tiktok.com"
+                elif is_vinted:
                     platform_name = "Vinted"
                     mkt_tag = "vinted.co.uk"
                 elif is_wish:
@@ -3793,7 +3814,12 @@ class EbayTool(tk.Tk):
             }
 
             try:
-                if is_vinted:
+                if is_tiktok:
+                    t_info = self.tiktok_scraper.resolve_store_info(store_raw)
+                    resolved = t_info.get("store_name", seller_label)
+                    job_record["resolved_seller"] = resolved
+                    self._log(f"🎵 [TikTok Shop] Target resolved: '{resolved}'")
+                elif is_vinted:
                     v_info = self.vinted_scraper.resolve_target_info(store_raw)
                     resolved = v_info.get("seller_name", seller_label)
                     job_record["resolved_seller"] = resolved
@@ -3980,6 +4006,17 @@ class EbayTool(tk.Tk):
                             )
                             dom_tag = self.vinted_scraper.get_active_domain()
                             job_record["url"] = f"https://www.{dom_tag}/catalog?search_text={actual_term.replace(' ', '+')}"
+                    elif is_tiktok:
+                        self.tiktok_scraper.headless = is_headless
+                        items = self.tiktok_scraper.search(
+                            store_raw,
+                            actual_term,
+                            job["excludes"],
+                            condition=job.get("condition", "all"),
+                            stop_event=self.stop_event,
+                            pause_event=self.pause_event
+                        )
+                        job_record["url"] = f"https://shop.tiktok.com/us/search?q={actual_term.replace(' ', '+')}"
                     elif client:
                         items = client.search(
                             store_raw,
@@ -6699,6 +6736,12 @@ class EbayTool(tk.Tk):
         self._log(f"👗 Opening Vinted authentication window for {v_c} in Microsoft Edge. If Cloudflare prompts to 'Verify you are human' or accept cookies, please complete it.")
         self.vinted_scraper.launch_interactive_auth(region_code=reg_code)
         messagebox.showinfo("Vinted Connect & Cloudflare Sync", f"A browser window is opening to Vinted ({v_c}).\n\nIf Cloudflare asks to 'Verify you are human' or accept cookies, please complete it.\n\nYour clearance tokens will be permanently saved for all automated background sweeps!")
+
+    def _launch_tiktok_session(self):
+        """Open persistent Edge browser session to establish TikTok Shop cookies."""
+        self._log("🎵 Opening TikTok Shop authentication & anti-bot clearance window in Microsoft Edge...")
+        threading.Thread(target=lambda: self.tiktok_scraper.launch_interactive_auth(), daemon=True).start()
+        messagebox.showinfo("TikTok Shop Connect", "A browser window is opening to TikTok Shop.\n\nIf prompted by a security check or slider puzzle, solve it once to establish verified session cookies.\n\nApollo will automatically save and use this session for all subsequent scans.")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  ADHOC BATCH URL & EXCEL LISTING IMPORTER

@@ -121,21 +121,25 @@ def extract_urls_from_text(raw_text: str) -> List[str]:
     if not raw_text:
         return []
 
-    # Regex matches http or https urls
-    pattern = r'https?://[^\s<>"\',;]+'
+    # First check for explicit markdown link targets [label](https://...)
+    md_matches = re.findall(r'\[(?:[^\]]*)\]\((https?://[^\s\)\"\'>]+)\)', raw_text)
+
+    # General regex matches http or https urls
+    pattern = r'https?://[^\s<>\"\'\(\)\[\],;]+'
     matches = re.findall(pattern, raw_text)
     
+    candidates = md_matches + matches
     clean_urls = []
     seen = set()
 
-    for u in matches:
-        # Strip trailing punctuation or brackets
-        clean_u = u.rstrip(".,;)\"\'>]").strip()
+    for u in candidates:
+        clean_u = u.rstrip(".,;)\"\'>]…").strip()
         if not clean_u:
             continue
-        
-        # Normalize and deduplicate
-        norm = clean_u.split("?")[0] if "ebay.com/itm" in clean_u or "aliexpress." in clean_u or "wish.com/product" in clean_u else clean_u
+        # Skip incomplete/truncated PDP URLs
+        if "/pdp/" in clean_u and not re.search(r'\d{15,25}', clean_u):
+            continue
+
         if clean_u not in seen:
             seen.add(clean_u)
             clean_urls.append(clean_u)
@@ -458,6 +462,8 @@ def detect_platform(url: str) -> str:
         return "Printerval"
     if "vinted." in low:
         return "Vinted"
+    if "tiktok.com" in low or "shop.tiktok" in low:
+        return "TikTok Shop"
     return "Web Listing"
 
 
@@ -1106,6 +1112,28 @@ def _fetch_vinted_item(url: str, headless: bool = True) -> dict:
     }
 
 
+def _fetch_tiktok_item(url: str, headless: bool = True) -> dict:
+    """Fetch TikTok Shop listing detail by URL using TikTokScraper."""
+    try:
+        from tiktok_scraper import TikTokScraper
+        scraper = TikTokScraper(headless=headless)
+        return scraper.fetch_single_listing(url)
+    except Exception as e:
+        logger.debug(f"TikTok item fetch error: {e}")
+        m_id = re.search(r'/pdp/(?:[^/]+/)?(\d{15,25})', url)
+        return {
+            "title": f"TikTok Shop Item #{m_id.group(1)}" if m_id else f"TikTok Shop Listing ({url[:45]}...)",
+            "item_id": m_id.group(1) if m_id else re.sub(r'\W+', '', url)[-18:],
+            "url": url,
+            "price": "$0.00",
+            "seller": "TikTok Shop Merchant",
+            "location": "United States",
+            "image_url": "",
+            "marketplace": "shop.tiktok.com",
+            "condition": "New"
+        }
+
+
 def fetch_single_listing(url: str, default_brand: str = "", headless: bool = True) -> dict:
     """
     Directly scrapes and normalizes a single e-commerce listing URL.
@@ -1129,6 +1157,8 @@ def fetch_single_listing(url: str, default_brand: str = "", headless: bool = Tru
         data = _fetch_printerval_item(url, headless=headless)
     elif platform == "Vinted":
         data = _fetch_vinted_item(url, headless=headless)
+    elif platform == "TikTok Shop":
+        data = _fetch_tiktok_item(url, headless=headless)
     else:
         # Generic web fallback
         data = {

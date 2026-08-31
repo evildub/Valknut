@@ -1,6 +1,6 @@
 # Apollo Brand Intelligence — Enterprise Enforcement Suite
 
-[![Version](https://img.shields.io/badge/Version-1.6.0-blue.svg?style=flat-square)](https://github.com/evildub/Valknut/releases)
+[![Version](https://img.shields.io/badge/Version-1.7.0-blue.svg?style=flat-square)](https://github.com/evildub/Valknut/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D6.svg?style=flat-square)](https://github.com/evildub/Valknut)
 [![Compliance](https://img.shields.io/badge/Genesis%20Compliance-100%25%20Verified-00C853.svg?style=flat-square)](https://github.com/evildub/Valknut)
 [![Security](https://img.shields.io/badge/Security-Local%20Execution%20%7C%20Zero%20Telemetry-38BDF8.svg?style=flat-square)](https://github.com/evildub/Valknut)
@@ -13,6 +13,7 @@
 
 ### 1. Multi-Platform Market Discovery
 Automates high-precision discovery across primary e-commerce marketplaces:
+- **Social Commerce & Viral Marketplaces:** Deep inspection, store sweeps, and high-velocity adhoc batch PDP extraction engine for **TikTok Shop** (`shop.tiktok.com`).
 - **eBay Ecosystem:** Comprehensive global domain sweeps (`ebay.com`, `ebay.ca`, `ebay.co.uk`, `ebay.de`, `ebay.com.au`, `ebay.fr`, `ebay.it`, `ebay.es`).
 - **Global & Asian Marketplaces:** Deep inspection engines for **AliExpress**, **Temu**, **Wish**, **Mercado Libre (LATAM)**, and **Vinted (EU/UK/US)**.
 - **Print-on-Demand (POD):** Automated infringement detection across **Redbubble** and **Printerval**.

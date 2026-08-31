@@ -434,6 +434,26 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertEqual(res_us["badge"], "🇺🇸 Domestic Verified")
         self.assertFalse(res_us["is_high_risk"])
 
+    def test_16_tiktok_shop_pdp_extraction(self):
+        """Test Item 16: Verify TikTok Shop platform detection, URL extraction, and PDP normalization."""
+        sample_url = "https://shop.tiktok.com/us/pdp/chrome-valve-stem-tire-caps-for-cadillac-vehicles-set-of-four/1731432810739700325"
+        
+        # 1. Platform Detection
+        platform = batch_importer.detect_platform(sample_url)
+        self.assertEqual(platform, "TikTok Shop", "Platform must be recognized as 'TikTok Shop'")
+
+        # 2. Markdown URL Extraction
+        raw_text = f"Review this link: [Cadillac Caps]({sample_url}) and also https://shop.tiktok.com/us/pdp/1732474117957129133"
+        extracted_urls = batch_importer.extract_urls_from_text(raw_text)
+        self.assertIn(sample_url, extracted_urls)
+        self.assertEqual(len(extracted_urls), 2)
+
+        # 3. TikTokScraper PDP normalization contract
+        from tiktok_scraper import TikTokScraper
+        scraper = TikTokScraper(headless=True)
+        store_info = scraper.resolve_store_info(sample_url)
+        self.assertEqual(store_info.get("item_id"), "1731432810739700325")
+
 
 if __name__ == "__main__":
     unittest.main()
