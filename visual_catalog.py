@@ -99,9 +99,13 @@ class VisualCatalogManager:
 
     def list_entries(self, entry_type: Optional[str] = None) -> List[Dict]:
         """Return catalog entries, optionally filtered by 'benign' or 'counterfeit'."""
-        if entry_type:
+        if entry_type and entry_type.lower() != "all":
             return [e for e in self.entries if e.get("type") == entry_type]
         return list(self.entries)
+
+    def get_entries_by_type(self, entry_type: str) -> List[Dict]:
+        """Alias for list_entries with entry_type filter."""
+        return self.list_entries(entry_type=entry_type)
 
     def _load_catalog(self) -> List[Dict]:
         if os.path.exists(self.catalog_file):

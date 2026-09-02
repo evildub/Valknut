@@ -115,6 +115,15 @@ class VisualCatalogModal(tk.Toplevel):
         sort_combo.pack(side="left")
         sort_combo.bind("<<ComboboxSelected>>", lambda e: self._load_gallery())
 
+        # Thumbnail Size Dropdown
+        size_box = tk.Frame(ctrl_bar, bg=panel_bg)
+        size_box.pack(side="left", padx=(14, 0))
+        tk.Label(size_box, text="Size:", font=FONT_BOLD, bg=panel_bg, fg=text_color).pack(side="left", padx=(0, 4))
+        self.thumb_size_var = tk.StringVar(value="Compact (72px)")
+        size_combo = ttk.Combobox(size_box, textvariable=self.thumb_size_var, values=["Compact (72px)", "Medium (120px)", "Large (180px)"], width=14, state="readonly", font=FONT_SM)
+        size_combo.pack(side="left")
+        size_combo.bind("<<ComboboxSelected>>", lambda e: self._load_gallery())
+
         # Sensitivity Slider
         slider_box = tk.Frame(ctrl_bar, bg=panel_bg)
         slider_box.pack(side="right")
@@ -192,7 +201,7 @@ class VisualCatalogModal(tk.Toplevel):
         if f_val == "all":
             entries = self.vcm.get_all_entries()
         else:
-            entries = self.vcm.get_entries_by_type(f_val)
+            entries = self.vcm.list_entries(entry_type=f_val)
 
         # Apply Sort
         sort_mode = self.sort_var.get()
@@ -214,7 +223,8 @@ class VisualCatalogModal(tk.Toplevel):
                      font=FONT_SM, bg=bg_color, fg=subtext_color).pack(pady=4)
             return
 
-        cols = 2
+        sz_val = self.thumb_size_var.get() if hasattr(self, "thumb_size_var") else "72"
+        cols = 1 if "180" in sz_val else 2
         row = 0
         col = 0
         for entry in entries:
@@ -254,20 +264,26 @@ class VisualCatalogModal(tk.Toplevel):
 
         self.card_registry[eid] = {"card": card, "var": sel_var, "chk": chk}
 
-        # Thumbnail
+        # Thumbnail Sizing
+        sz = 72
+        if hasattr(self, "thumb_size_var"):
+            v = self.thumb_size_var.get()
+            if "120" in v: sz = 120
+            elif "180" in v: sz = 180
+
         tp = entry.get("thumb_path", "")
         photo = None
         if tp and os.path.exists(tp):
             try:
                 pimg = Image.open(tp).convert("RGBA")
-                pimg.thumbnail((72, 72), Image.Resampling.LANCZOS)
+                pimg.thumbnail((sz, sz), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(pimg)
                 self.photo_refs.append(photo)
             except Exception:
                 pass
 
         img_lbl = tk.Label(card, image=photo if photo else "", text="[No Photo]" if not photo else "",
-                           bg=entry_bg, width=72, height=72, cursor="hand2")
+                           bg=entry_bg, width=sz, height=sz, cursor="hand2")
         img_lbl.pack(side="left", padx=(0, 10))
         img_lbl.bind("<Button-1>", lambda e: self._toggle_card_selection(eid))
 

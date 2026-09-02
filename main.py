@@ -771,7 +771,7 @@ class EbayTool(tk.Tk):
         # Image thumbnail caches & Hover popup window
         import requests
         self.http_session       = requests.Session()
-        self.thumb_executor     = ThreadPoolExecutor(max_workers=16, thread_name_prefix="ApolloThumb")
+        self.thumb_executor     = ThreadPoolExecutor(max_workers=32, thread_name_prefix="ApolloThumb")
         self.raw_img_cache      = {}          # url -> PIL.Image (source image)
         self.inline_img_cache   = {}          # (size_key, url) -> PhotoImage (resized for treeview)
         self.img_cache          = {}          # url -> PhotoImage (large hover popup)
@@ -923,29 +923,29 @@ class EbayTool(tk.Tk):
         self.themed_widgets["subtext_labels"].append(market_lbl)
 
         self.market_combo = ttk.Combobox(top_right, textvariable=self.marketplace_var,
-                                         values=["🛒 eBay.com", "🛠️ ManoMano", "🎵 TikTok Shop", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
+                                         values=["🛒 eBay.com", "🧰 ManoMano", "🎵 TikTok Shop", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
                                          state="readonly", width=16, font=FONT_SM)
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
 
         # ManoMano Multi-Locale Controls (packed dynamically when ManoMano is active)
-        self.manomano_country_var = tk.StringVar(value="🇫🇷 France (manomano.fr)")
+        self.manomano_country_var = tk.StringVar(value="🌐 All European Locales")
         self.manomano_country_combo = ttk.Combobox(
             top_right,
             textvariable=self.manomano_country_var,
             values=[
+                "🌐 All European Locales",
                 "🇫🇷 France (manomano.fr)",
-                "🇪🇸 Spain (manomano.es)",
                 "🇩🇪 Germany (manomano.de)",
-                "🇮🇹 Italy (manomano.it)",
                 "🇬🇧 United Kingdom (manomano.co.uk)",
-                "🌐 All European Locales"
+                "🇪🇸 Spain (manomano.es)",
+                "🇮🇹 Italy (manomano.it)"
             ],
             state="readonly",
             width=22,
             font=FONT_SM
         )
-        self.manomano_login_btn = self._btn(top_right, "🛠️ ManoMano Connect", self._launch_manomano_session)
+        self.manomano_login_btn = self._btn(top_right, "🧰 ManoMano Connect", self._launch_manomano_session)
 
         # Mercado Libre Regional Controls (packed dynamically)
         self.meli_country_var = tk.StringVar(value="🇲🇽 Mexico")
@@ -1521,7 +1521,6 @@ class EbayTool(tk.Tk):
 
         self.run_btn = self._btn(q_btn_row1, "▶  Run", self._run_queue, accent=True)
         self.run_btn.pack(side="left", fill="x", expand=True, padx=(0, 3))
-        self.run_btn.bind("<Double-Button-1>", self._on_run_btn_double_click)
 
         self.pause_btn = self._btn(q_btn_row1, "⏸  Pause", self._toggle_pause)
         self.pause_btn.pack(side="left", padx=2)
@@ -1793,14 +1792,14 @@ class EbayTool(tk.Tk):
         self.result_tree.column("#0", width=init_cfg["col_width"], minwidth=init_cfg["col_width"], anchor="center", stretch=False)
         saved_col_widths = self.data_store.get_setting("column_widths", {})
         col_widths = {
-            "brand": 80,
-            "product_type": 120,
-            "title": 300,
-            "item_id": 110,
-            "price": 80,
-            "seller": 130,
-            "seller_origin": 90,
-            "threat_badge": 180,
+            "brand": 85,
+            "product_type": 115,
+            "title": 320,
+            "item_id": 105,
+            "price": 85,
+            "seller": 140,
+            "seller_origin": 100,
+            "threat_badge": 210,
             "location": 120,
             "thumbnail": 110,
             "url": 220
@@ -1809,7 +1808,8 @@ class EbayTool(tk.Tk):
             w = saved_col_widths.get(c, col_widths.get(c, 120)) if isinstance(saved_col_widths, dict) else col_widths.get(c, 120)
             self.result_tree.heading(c, text=self.col_labels[c],
                                      command=lambda _c=c: self._sort_by_column(_c))
-            self.result_tree.column(c, width=w, minwidth=50, stretch=False)
+            can_stretch = c in ("title", "url")
+            self.result_tree.column(c, width=w, minwidth=60, stretch=can_stretch)
         self._style_tree(self.result_tree)
         self._apply_column_visibility()
 
@@ -2283,7 +2283,7 @@ class EbayTool(tk.Tk):
             if k.lower() in loc.lower():
                 clean_loc = k
                 break
-        self._log(f"🛠️ Launching ManoMano Interactive Session ({clean_loc})...")
+        self._log(f"🧰 Launching ManoMano Interactive Session ({clean_loc})...")
         threading.Thread(target=lambda: self.manomano_scraper.launch_interactive_auth(locale_key=clean_loc), daemon=True).start()
 
     def _on_market_changed(self, event=None):
@@ -2358,12 +2358,12 @@ class EbayTool(tk.Tk):
                 self.store_text.config(fg=t["subtext"])
             self._log("🎵 Switched platform to: TikTok Shop (shop.tiktok.com active)")
         elif "ManoMano" in market:
-            self.store_placeholder = "🛠️ ManoMano Search: https://www.manomano.fr/recherche/\n(Leave blank to sweep ManoMano catalog by brand/keyword, or enter specific merchant URLs: https://www.manomano.fr/marchand-41084935)"
+            self.store_placeholder = "🧰 ManoMano Search: https://www.manomano.fr/recherche/\n(Leave blank to sweep ManoMano catalog by brand/keyword, or enter specific merchant URLs: https://www.manomano.fr/marchand-41084935)"
             if not current_text or any(k in current_text for k in ("ebay.com", "aliexpress.com", "wish.com", "temu.com", "mercadolibre", "redbubble.com", "printerval.com", "vinted.", "tiktok.com", "store2", "Global")):
                 self.store_text.delete("1.0", "end")
                 self.store_text.insert("1.0", self.store_placeholder)
                 self.store_text.config(fg=t["subtext"])
-            self._log(f"🛠️ Switched platform to: ManoMano ({self.manomano_country_var.get()} active)")
+            self._log(f"🧰 Switched platform to: ManoMano ({self.manomano_country_var.get()} active)")
         elif "Vinted" in market:
             self.store_placeholder = "👗 Global Vinted Search: https://www.vinted.co.uk/catalog\n(Leave blank to sweep entire Vinted marketplace, or enter specific member profile URLs: https://www.vinted.co.uk/member/123456-seller)"
             if not current_text or "ebay.com" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "store2" in current_text or "Global" in current_text:
@@ -2425,6 +2425,7 @@ class EbayTool(tk.Tk):
         """Parse stores from input text box, safely ignoring placeholders and handling Global platform modes."""
         raw_text = self.store_text.get("1.0", "end").strip()
         market = self.marketplace_var.get()
+        is_manomano = "ManoMano" in market
         is_vinted = "Vinted" in market
         is_ali = "AliExpress" in market
         is_wish = "Wish" in market
@@ -2438,6 +2439,8 @@ class EbayTool(tk.Tk):
             "Global" in raw_text or 
             "store1" in raw_text or 
             "leave blank to sweep" in raw_text.lower()):
+            if is_manomano:
+                return ["🧰 Global ManoMano Search"]
             if is_vinted:
                 return ["👗 Global Vinted Search"]
             if is_ali:
@@ -2466,7 +2469,9 @@ class EbayTool(tk.Tk):
             "https://www.temu.com/search_result.html",
             "https://listado.mercadolibre.com.mx/",
             "https://www.redbubble.com/shop/",
-            "https://printerval.com/search"
+            "https://printerval.com/search",
+            "https://www.manomano.fr/recherche/",
+            "https://www.manomano.fr/marchand-41084935"
         }
         for l in lines:
             low = l.lower()
@@ -4101,11 +4106,14 @@ class EbayTool(tk.Tk):
                             job_record["url"] = f"https://www.{dom_tag}/catalog?search_text={actual_term.replace(' ', '+')}"
                     elif is_manomano:
                         loc_selection = job.get("manomano_locale") or (self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France")
-                        clean_loc = "France"
-                        for k in ["France", "Spain", "Germany", "Italy", "United Kingdom"]:
-                            if k.lower() in str(loc_selection).lower():
-                                clean_loc = k
-                                break
+                        if "all" in str(loc_selection).lower() or "europe" in str(loc_selection).lower():
+                            clean_loc = "All European Locales"
+                        else:
+                            clean_loc = "France"
+                            for k in ["France", "Spain", "Germany", "Italy", "United Kingdom"]:
+                                if k.lower() in str(loc_selection).lower():
+                                    clean_loc = k
+                                    break
                         items = self.manomano_scraper.search(
                             store_raw,
                             actual_term,
@@ -4116,7 +4124,7 @@ class EbayTool(tk.Tk):
                             stop_event=self.stop_event,
                             pause_event=self.pause_event
                         )
-                        dom_ext = "fr" if clean_loc == "France" else ("es" if clean_loc == "Spain" else ("de" if clean_loc == "Germany" else ("it" if clean_loc == "Italy" else "co.uk")))
+                        dom_ext = "fr" if clean_loc == "France" else ("es" if clean_loc == "Spain" else ("de" if clean_loc == "Germany" else ("it" if clean_loc == "Italy" else ("co.uk" if clean_loc == "United Kingdom" else "fr"))))
                         job_record["url"] = f"https://www.manomano.{dom_ext}/recherche/{actual_term.replace(' ', '+')}"
                     elif is_tiktok:
                         self.tiktok_scraper.headless = is_headless
@@ -4183,8 +4191,10 @@ class EbayTool(tk.Tk):
                         if "marketplace" not in item or not item["marketplace"]:
                             item["marketplace"] = mkt_tag
 
-                        item_id = item.get("item_id")
-                        dedup_key = item_id if item_id else item.get("url")
+                        item_id = str(item.get("item_id", "")).strip()
+                        raw_url = str(item.get("url", "")).strip().lower()
+                        norm_url = raw_url.split("?")[0] if raw_url else ""
+                        dedup_key = norm_url if norm_url else (f"{item.get('marketplace', '')}_{item_id}" if item_id else None)
                         if dedup_key and dedup_key not in self.seen_item_ids:
                             self.seen_item_ids.add(dedup_key)
                             self.results.append(item)
@@ -4441,20 +4451,22 @@ class EbayTool(tk.Tk):
 
         for it in self.results:
             iid = str(it.get("item_id", "")).strip()
+            mkt = str(it.get("marketplace", "")).strip()
+            scoped_id = f"{mkt}_{iid}" if iid else ""
             url = str(it.get("url", "")).strip().lower()
             norm_url = url.split("?")[0] if url else ""
 
-            if (iid and iid in seen_ids) or (norm_url and norm_url in seen_urls):
+            if (scoped_id and scoped_id in seen_ids) or (norm_url and norm_url in seen_urls):
                 continue
 
-            if iid: seen_ids.add(iid)
+            if scoped_id: seen_ids.add(scoped_id)
             if norm_url: seen_urls.add(norm_url)
             unique_items.append(it)
 
         purged = initial_len - len(unique_items)
         if purged > 0:
             self.results = unique_items
-            self.seen_item_ids = {str(it.get("item_id", "")).strip() for it in self.results if it.get("item_id")}
+            self.seen_item_ids = {str(it.get("url", "")).split("?")[0] for it in self.results if it.get("url")}
             self._repopulate_results_table()
             self._log(f"🧹 Purged {purged} duplicate listings from results table.")
             messagebox.showinfo("Deduplicate Complete", f"Removed {purged} duplicate listings.\n{len(self.results)} unique listings remain.")
@@ -6344,12 +6356,15 @@ class EbayTool(tk.Tk):
             if len(self.raw_img_cache) > 800:
                 for k in list(self.raw_img_cache.keys())[:250]:
                     self.raw_img_cache.pop(k, None)
-            if len(self.inline_img_cache) > 800:
-                for k in list(self.inline_img_cache.keys())[:250]:
-                    self.inline_img_cache.pop(k, None)
-
+            # --------------------------------------------------------------------------
+            # The workers raced to fetch each graphic card,
+            # But twenty score of photos hit them hard!
+            # With thirty-two swift threads the queue shall fly,
+            # And eight full seconds lest the socket die!
+            # --------------------------------------------------------------------------
             try:
-                resp = self.http_session.get(str(image_url), timeout=3.5)
+                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                resp = self.http_session.get(str(image_url), headers=headers, timeout=8.0)
                 if resp.status_code == 200:
                     pil_img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
                     self.raw_img_cache[image_url] = pil_img

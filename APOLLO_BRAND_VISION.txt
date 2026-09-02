@@ -77,6 +77,25 @@ adjustments while the heavy weight carries the burden. We are agile."
 - Transforms 2.7 million unaddressed clutter results into pre-verified, high-conviction 
   syndicate dossiers that take 90 seconds to enforce instead of 40 hours of manual clicking.
 
+--------------------------------------------------------------------------------
+4. UI QUALITY GATES & RELEASE PROTOCOL (OPERATIONAL HYGIENE)
+--------------------------------------------------------------------------------
+• Window & Modal Standardization:
+  - Every new tk.Toplevel modal MUST invoke `master._apply_dark_titlebar(self)` or 
+    `parent._apply_dark_titlebar(self)` in `__init__`.
+  - Must inherit background/panel colors from active theme (no raw unstyled white windows).
+  - Must center dynamically relative to master or screen dimensions.
+
+• Glyph & Emoji Spacing Rule:
+  - Multi-codepoint emojis (e.g. 🛠️, 🛍️, ⚙️) require 2 spaces before label text 
+    (e.g., "🛠️  ManoMano") to prevent Windows DirectWrite font clipping and text collision.
+
+• Release & Deployment Discipline:
+  - "Full send" strictly means compiling the standalone binary locally for Home Base 
+    operational testing and verification.
+  - NEVER commit or push to Git/GitHub releases without explicit user instruction.
+
 ================================================================================
 Generated for Jerry Seidenstucker • Valknut / Apollo Intelligence Systems
 ================================================================================
+
