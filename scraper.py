@@ -401,13 +401,13 @@ class EbayScraper:
 
                 if not items and html:
                     html_low = html.lower()
-                    if any(t in html_low for t in ("error page | ebay", "pardon our interruption", "security measure", "please verify you are a human", "access denied", "captcha")):
+                    if any(t in html_low for t in ("pardon our interruption", "security measure", "please verify you are a human", "access denied")):
                         self.is_bot_challenge = True
                         self.blocked_store_name = seller_label
                         self.blocked_store_url = url
                         self.last_scrape_warning = f"⚠️ [IP THROTTLE / BOT CHALLENGE] eBay returned a security rate-limit / CAPTCHA challenge on '{seller_label}' — zero results returned due to IP block, not empty inventory."
-                    elif any(t in html_low for t in ("does not exist", "store not found", "seller not found")):
-                        self.last_scrape_warning = f"⚠️ Store handle '{seller_label}' was not found on eBay."
+                    elif any(t in html_low for t in ("error page | ebay", "does not exist", "store not found", "seller not found", "we looked everywhere")):
+                        self.last_scrape_warning = f"ℹ️ Store/Seller '{seller_label}' returned 0 results or store was not found on eBay."
                     else:
                         self.last_scrape_warning = ""
                 else:
@@ -533,34 +533,11 @@ class EbayScraper:
         return info
 
     def _generate_seller_candidates(self, slug: str) -> list[str]:
-        """Generate intelligent handle variations for stores (e.g. uxea1555 -> ['uxea1555', 'uxea-1555', 'uxea_1555'])."""
+        """Return the exact target handle without mangling underscores or hyphens."""
         if not slug:
             return [""]
-        candidates = [slug]
-        
-        # 1. Letter-Number boundary with hyphen: uxea1555 -> uxea-1555
-        h_split = re.sub(r'([a-zA-Z]+)(\d+)', r'\1-\2', slug)
-        if h_split != slug and h_split not in candidates:
-            candidates.append(h_split)
-            
-        # 2. Letter-Number boundary with underscore: uxea1555 -> uxea_1555
-        u_split = re.sub(r'([a-zA-Z]+)(\d+)', r'\1_\2', slug)
-        if u_split != slug and u_split not in candidates:
-            candidates.append(u_split)
-            
-        # 3. Strip hyphen: uxea-1555 -> uxea1555
-        if "-" in slug:
-            no_h = slug.replace("-", "")
-            if no_h not in candidates:
-                candidates.append(no_h)
-                
-        # 4. Strip underscore: uxea_1555 -> uxea1555
-        if "_" in slug:
-            no_u = slug.replace("_", "")
-            if no_u not in candidates:
-                candidates.append(no_u)
-                
-        return candidates
+        clean = slug.strip()
+        return [clean]
 
     def resolve_seller(self, url: str) -> str:
         """Backwards compatibility for main.py."""
@@ -669,7 +646,22 @@ class EbayScraper:
             "li.s-card, li.s-item, div.s-item__wrapper, li.srp-results__item, .str-item-card, div.str-item-card__wrapper"
         )
 
+        # Locate rewrite or recommendation divider if present on page
+        rewrite_banner = soup.find(class_=re.compile(r'REWRITE_START|AUTO_CORRECT_START|s-item--section-title|srp-river-answer--REWRITE', re.I))
+        if not rewrite_banner:
+            for h in soup.find_all(["h2", "h3", "div", "span"], string=re.compile(r'results matching fewer words|more items related to|items matching your search keywords|explore more options', re.I)):
+                rewrite_banner = h
+                break
+
         for card in all_cards:
+            # If this card comes AFTER an eBay recommendation / rewrite banner: HARD BREAK!
+            if rewrite_banner and card in rewrite_banner.find_all_next():
+                break
+
+            card_text = card.get_text(" ", strip=True).lower()
+            if any(k in card_text for k in ("results matching fewer words", "more items related to", "items matching your search keywords", "explore more options")):
+                break
+
             if card.select_one(".s-item__placeholder") or card.select_one(".srp-river-answer"):
                 continue
             if card.find_parent(class_=re.compile(r'carousel|sponsored|rewritten|recommendation', re.I)):
@@ -683,7 +675,7 @@ class EbayScraper:
                     is_rewritten = True
                     break
             if is_rewritten:
-                continue
+                break
 
             # 1. URL & Item ID
             link_el = (

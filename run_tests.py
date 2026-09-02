@@ -454,6 +454,58 @@ class TestApolloCoreFeatures(unittest.TestCase):
         store_info = scraper.resolve_store_info(sample_url)
         self.assertEqual(store_info.get("item_id"), "1731432810739700325")
 
+    def test_17_smart_triage_universal_fluff(self):
+        """Test Item 17: Verify Smart Triage suppresses universal fluff & multi-brand spam while preserving high-risk components."""
+        # 1. High-risk parts must NEVER be suppressed, even with 'fits' or multiple words
+        is_fluff, _ = self.data_store.is_universal_fluff("4PCS OEM 90919-02240 Ignition Coils For Toyota Camry")
+        self.assertFalse(is_fluff, "Ignition coils must never be suppressed")
+
+        is_fluff, _ = self.data_store.is_universal_fluff("Toyota Genuine Oil Filter 04152-YZZA1 fits Camry RAV4")
+        self.assertFalse(is_fluff, "Oil filters must never be suppressed")
+
+        is_fluff, _ = self.data_store.is_universal_fluff("TRD Front Grille Emblem Badge fits Toyota Tacoma 4Runner")
+        self.assertFalse(is_fluff, "Emblems/Badges must never be suppressed")
+
+        is_fluff, _ = self.data_store.is_universal_fluff("4pcs Spark Plugs Iridium fits Toyota Denso SK20R11")
+        self.assertFalse(is_fluff, "Spark plugs must never be suppressed")
+
+        # 2. Multi-brand title spam must be suppressed
+        is_fluff, reason = self.data_store.is_universal_fluff("Universal Breathable Leather Seat Cover fits Toyota Honda Chevy Nissan")
+        self.assertTrue(is_fluff, "Multi-brand title spam must be suppressed")
+        self.assertIn("Multi-Brand Spam", reason)
+
+        # 3. Compatibility keyword + universal fluff category must be suppressed
+        is_fluff, reason = self.data_store.is_universal_fluff("Car Windshield Sunshade Foldable for Toyota Corolla")
+        self.assertTrue(is_fluff, "Universal sunshade compatibility must be suppressed")
+        self.assertIn("Universal Compatibility", reason)
+
+        is_fluff, reason = self.data_store.is_universal_fluff("Heavy Duty Rubber Floor Mats for Chevy Silverado")
+        self.assertTrue(is_fluff, "Floor mats with 'for' must be suppressed")
+        self.assertIn("Universal Compatibility", reason)
+
+    def test_18_manomano_and_whitelist_scopes(self):
+        """Test Item 18: Verify ManoMano contract, Whitelist marketplace scoping, and handle preservation."""
+        # 1. ManoManoScraper contract
+        from manomano_scraper import ManoManoScraper
+        mm = ManoManoScraper(headless=True)
+        info = mm.resolve_store_info("https://www.manomano.fr/marchand-41084935")
+        self.assertEqual(info.get("store_name"), "ManoMano European Search")
+
+        # 2. Whitelist marketplace scoping
+        self.data_store.add_to_whitelist("legit_dealer_global", brand="Toyota", dealer_name="Global Dealer", marketplace="All Marketplaces (Global)")
+        self.data_store.add_to_whitelist("legit_dealer_ebay_only", brand="Toyota", dealer_name="eBay Dealer", marketplace="eBay Only")
+
+        self.assertTrue(self.data_store.is_seller_whitelisted("legit_dealer_global", marketplace="eBay"))
+        self.assertTrue(self.data_store.is_seller_whitelisted("legit_dealer_global", marketplace="ManoMano"))
+        self.assertTrue(self.data_store.is_seller_whitelisted("legit_dealer_ebay_only", marketplace="eBay"))
+        self.assertFalse(self.data_store.is_seller_whitelisted("legit_dealer_ebay_only", marketplace="ManoMano"))
+
+        # 3. Handle preservation (no mangling caug_92 -> caug92)
+        from scraper import EbayScraper
+        eb = EbayScraper()
+        candidates = eb._generate_seller_candidates("caug_92")
+        self.assertEqual(candidates, ["caug_92"], "Underscores in seller handles must never be mangled")
+
 
 if __name__ == "__main__":
     unittest.main()

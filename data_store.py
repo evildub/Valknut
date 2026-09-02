@@ -554,6 +554,68 @@ class DataStore:
             "is_3pl_hub": is_3pl
         }
 
+    # ── Universal Compatibility Fluff & Multi-Brand Spam Detection ─────────────
+    COMPETING_CAR_BRANDS = [
+        "toyota", "lexus", "scion", "honda", "acura", "ford", "lincoln",
+        "chevrolet", "chevy", "gmc", "cadillac", "buick", "dodge", "ram", "chrysler", "jeep",
+        "nissan", "infiniti", "subaru", "hyundai", "kia", "genesis",
+        "mazda", "mitsubishi", "volkswagen", "vw", "audi", "porsche",
+        "bmw", "mercedes", "benz", "volvo", "land rover", "jaguar"
+    ]
+
+    HIGH_RISK_COMPONENTS = [
+        "spark plug", "ignition coil", "oil filter", "air filter", "cabin filter",
+        "emblem", "badge", "grille logo", "center cap", "wheel cap", "hubcap",
+        "key fob", "remote key", "smart key", "key case",
+        "oxygen sensor", "o2 sensor", "mass air flow", "maf sensor", "fuel injector", "fuel pump",
+        "trd", "hellcat", "mopar", "denso", "brembo", "motorcraft", "acdelco"
+    ]
+
+    UNIVERSAL_FLUFF_CATEGORIES = [
+        "seat cover", "seat cushion", "floor mat", "trunk mat", "cargo liner",
+        "phone holder", "phone mount", "cup holder", "coaster",
+        "windshield sunshade", "sun shade", "sunshade", "car cover", "sunstrip",
+        "wiper blade", "wiper refill", "wiper arm",
+        "steering wheel cover", "steering wheel wrap",
+        "led strip", "interior ambient light", "underglow",
+        "air freshener", "diffuser", "perfume",
+        "door edge guard", "anti-collision strip", "bumper guard",
+        "obd2 scanner", "diagnostic tool", "code reader",
+        "blind spot mirror", "trash can", "organizer bag"
+    ]
+
+    def is_universal_fluff(self, title: str, product_type: str = "") -> tuple[bool, str]:
+        """
+        Evaluate if listing is non-enforceable universal accessory fluff or multi-brand title spam.
+        CRITICAL: Never suppresses high-risk counterfeit components (plugs, coils, filters, emblems, fobs).
+        Returns (is_fluff: bool, reason: str).
+        """
+        if not title:
+            return False, ""
+        t_low = title.lower()
+
+        # 1. High-Risk Component Exemption (NEVER SUPPRESS!)
+        for comp in self.HIGH_RISK_COMPONENTS:
+            if re.search(r'\b' + re.escape(comp) + r'\b', t_low):
+                return False, ""
+
+        # 2. Multi-Brand Title Spam (3+ competing car brands in title)
+        brand_hits = [b for b in self.COMPETING_CAR_BRANDS if re.search(r'\b' + re.escape(b) + r'\b', t_low)]
+        if len(set(brand_hits)) >= 3:
+            top_3 = sorted(set(brand_hits))[:3]
+            return True, f"Multi-Brand Spam ({len(set(brand_hits))} brands: {', '.join(top_3)})"
+
+        # 3. Compatibility Keyword + Universal Fluff Category
+        has_compat = bool(re.search(r'\b(fits|for|compatible with|replacement for|suitable for|pour|para|für|adaptable a)\b', t_low))
+        for fluff_cat in self.UNIVERSAL_FLUFF_CATEGORIES:
+            if re.search(r'\b' + re.escape(fluff_cat) + r's?\b', t_low):
+                if has_compat:
+                    return True, f"Universal Compatibility ({fluff_cat.title()})"
+                if product_type and fluff_cat in product_type.lower():
+                    return True, f"Universal Fluff ({fluff_cat.title()})"
+
+        return False, ""
+
     def get_column_visibility(self) -> dict:
         """Get column visibility configuration, defaulting to all visible except thumbnail."""
         defaults = {
@@ -599,30 +661,37 @@ class DataStore:
         """Get dictionary of all whitelisted sellers/dealers."""
         return self._data.setdefault("whitelist", {})
 
-    def is_seller_whitelisted(self, seller_handle: str) -> bool:
-        """Check if seller handle is on authorized dealer whitelist."""
+    def is_seller_whitelisted(self, seller_handle: str, marketplace: str = "") -> bool:
+        """Check if seller handle is on authorized dealer whitelist, respecting marketplace scope."""
         if not seller_handle:
             return False
         clean = str(seller_handle).strip().lower()
+        mp_clean = str(marketplace).strip().lower()
         wl = self.get_whitelist()
-        for k in wl.keys():
+        for k, v in wl.items():
             if str(k).strip().lower() == clean:
-                return True
+                target_mp = str(v.get("marketplace", "All Marketplaces")).lower()
+                if "all" in target_mp or not mp_clean or target_mp in mp_clean or mp_clean in target_mp:
+                    return True
         return False
 
-    def add_to_whitelist(self, seller_handle: str, brand: str = "General", dealer_name: str = "", notes: str = ""):
+    def add_to_whitelist(self, seller_handle: str, brand: str = "General", dealer_name: str = "", notes: str = "", marketplace: str = "All Marketplaces"):
         """Add or update an authorized dealer on the whitelist."""
         if not seller_handle:
             return
         clean = str(seller_handle).strip()
         wl = self.get_whitelist()
         import datetime
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        orig_date = wl.get(clean, {}).get("date_added") or wl.get(clean, {}).get("added_at") or now_str
+
         wl[clean] = {
             "brand": brand or "General",
             "dealer_name": dealer_name or "Authorized Dealership",
             "notes": notes or "",
-            "date_added": now_str
+            "marketplace": marketplace or "All Marketplaces",
+            "date_added": orig_date,
+            "date_updated": now_str
         }
         self._save()
 

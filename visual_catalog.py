@@ -203,20 +203,25 @@ class VisualCatalogManager:
         all_variants = []
         seen_hashes = set()
 
+        seen_thumbs = set()
         for item in to_merge:
             item_variants = item.get("variants", [])
             if item_variants:
                 for v in item_variants:
                     vh = v.get("hash", "")
-                    if vh and vh not in seen_hashes:
-                        seen_hashes.add(vh)
+                    tp = v.get("thumb_path") or v.get("source_url", "")
+                    if vh and vh not in all_hashes:
                         all_hashes.append(vh)
+                    if tp not in seen_thumbs or not tp:
+                        if tp: seen_thumbs.add(tp)
                         all_variants.append(v)
             else:
                 h = item.get("hash", "")
-                if h and h not in seen_hashes:
-                    seen_hashes.add(h)
+                tp = item.get("thumb_path") or item.get("source_url", "")
+                if h and h not in all_hashes:
                     all_hashes.append(h)
+                if tp not in seen_thumbs or not tp:
+                    if tp: seen_thumbs.add(tp)
                     all_variants.append({
                         "id": item.get("id"),
                         "hash": h,

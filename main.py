@@ -27,6 +27,7 @@ from redbubble_scraper import RedbubbleScraper
 from printerval_scraper import PrintervalScraper
 from vinted_scraper import VintedScraper
 from tiktok_scraper import TikTokScraper
+from manomano_scraper import ManoManoScraper
 from api_client import EbayAPIClient
 from exporter import ExcelExporter
 from data_store import DataStore
@@ -696,7 +697,7 @@ CONTINENTAL_QUOTES = [
 ]
 
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 
 class EbayTool(tk.Tk):
@@ -716,12 +717,15 @@ class EbayTool(tk.Tk):
         self.printerval_scraper = PrintervalScraper(headless=self.headless_var.get())
         self.vinted_scraper = VintedScraper(headless=self.headless_var.get())
         self.tiktok_scraper = TikTokScraper(headless=self.headless_var.get())
+        self.manomano_scraper = ManoManoScraper(headless=self.headless_var.get())
         self.marketplace_var= tk.StringVar(value="🛒 eBay.com")
         self.exporter       = ExcelExporter()
         self.visual_catalog = VisualCatalogManager()
         self.visual_harvester = VisualHarvester()
         self.filter_hide_benign_var = tk.BooleanVar(value=True)
         self.filter_only_benign_var = tk.BooleanVar(value=False)
+        self.smart_triage_var = tk.BooleanVar(value=True)
+        self.show_fluff_var = tk.BooleanVar(value=False)
         self.store_full_sweep_var = tk.BooleanVar(value=False)
 
         # Load saved theme
@@ -765,11 +769,14 @@ class EbayTool(tk.Tk):
         self.sort_directions= {}          # col -> bool (True = descending)
 
         # Image thumbnail caches & Hover popup window
-        self.thumb_executor     = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ApolloThumb")
+        import requests
+        self.http_session       = requests.Session()
+        self.thumb_executor     = ThreadPoolExecutor(max_workers=16, thread_name_prefix="ApolloThumb")
         self.raw_img_cache      = {}          # url -> PIL.Image (source image)
         self.inline_img_cache   = {}          # (size_key, url) -> PhotoImage (resized for treeview)
         self.img_cache          = {}          # url -> PhotoImage (large hover popup)
         self._placeholders      = {}          # size_px -> PhotoImage
+        self.staged_dossier     = []          # Multi-Wave Dossier Staging Vault
         self.preview_win        = None
         self.last_hovered_iid   = None
         self.preview_cancel_id  = None
@@ -916,10 +923,29 @@ class EbayTool(tk.Tk):
         self.themed_widgets["subtext_labels"].append(market_lbl)
 
         self.market_combo = ttk.Combobox(top_right, textvariable=self.marketplace_var,
-                                         values=["🛒 eBay.com", "🎵 TikTok Shop", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
+                                         values=["🛒 eBay.com", "🛠️ ManoMano", "🎵 TikTok Shop", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
                                          state="readonly", width=16, font=FONT_SM)
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
+
+        # ManoMano Multi-Locale Controls (packed dynamically when ManoMano is active)
+        self.manomano_country_var = tk.StringVar(value="🇫🇷 France (manomano.fr)")
+        self.manomano_country_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.manomano_country_var,
+            values=[
+                "🇫🇷 France (manomano.fr)",
+                "🇪🇸 Spain (manomano.es)",
+                "🇩🇪 Germany (manomano.de)",
+                "🇮🇹 Italy (manomano.it)",
+                "🇬🇧 United Kingdom (manomano.co.uk)",
+                "🌐 All European Locales"
+            ],
+            state="readonly",
+            width=22,
+            font=FONT_SM
+        )
+        self.manomano_login_btn = self._btn(top_right, "🛠️ ManoMano Connect", self._launch_manomano_session)
 
         # Mercado Libre Regional Controls (packed dynamically)
         self.meli_country_var = tk.StringVar(value="🇲🇽 Mexico")
@@ -1641,6 +1667,20 @@ class EbayTool(tk.Tk):
         self.ob_cb.pack(side="left", padx=(2, 4))
         self.themed_widgets["checks"].append(self.ob_cb)
 
+        self.st_cb = tk.Checkbutton(filter_bar, text="⚡ Smart Triage", variable=self.smart_triage_var,
+                                    command=self._repopulate_results_table, bg=t["panel"], fg="#38BDF8",
+                                    selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        self.st_cb.pack(side="left", padx=(2, 2))
+        self.themed_widgets["checks"].append(self.st_cb)
+        add_tooltip(self.st_cb, "Automatically suppresses multi-brand title spam and non-enforceable universal accessory fluff (seat covers, sunshades, floor mats, universal holders) while preserving 100% of high-risk components (spark plugs, oil filters, emblems, fobs).")
+
+        self.fluff_btn = tk.Checkbutton(filter_bar, text="💨 Show Suppressed Fluff (0)", variable=self.show_fluff_var,
+                                        command=self._repopulate_results_table, bg=t["panel"], fg=t["subtext"],
+                                        selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        self.fluff_btn.pack(side="left", padx=(2, 4))
+        self.themed_widgets["checks"].append(self.fluff_btn)
+        add_tooltip(self.fluff_btn, "Toggle audit view of suppressed universal compatibility listings.")
+
         self._btn(filter_bar, "✕ Clear", self._clear_filter).pack(side="left", padx=(0, 4))
         self._btn(filter_bar, "✓ Select All Visible", self._select_all_visible).pack(side="left", padx=(0, 4))
         self._btn(filter_bar, "🧹 Dedupe", self._deduplicate_results).pack(side="left", padx=(0, 0))
@@ -1697,7 +1737,14 @@ class EbayTool(tk.Tk):
                                                values=product_categories, width=22, font=FONT_SM)
         self.bulk_product_combo.pack(side="left", padx=(0, 8))
 
-        self._btn(tag_bar, "⚡ Apply to Selected", self._apply_bulk_tag, accent=True).pack(side="left")
+        self._btn(tag_bar, "⚡ Apply to Selected", self._apply_bulk_tag, accent=True).pack(side="left", padx=(0, 6))
+        self._btn(tag_bar, "🔄 Re-Scan Visual", self._rescan_visual_matches).pack(side="left", padx=(0, 6))
+
+        # Dossier Staging Vault (Multi-Wave Investigation Cart)
+        self.btn_stash_dossier = self._btn(tag_bar, "📥 Stash to Dossier", self._stash_to_dossier)
+        self.btn_stash_dossier.pack(side="left", padx=(0, 4))
+        self.btn_view_dossier = self._btn(tag_bar, "📁 Staged (0)", self._view_or_restore_dossier)
+        self.btn_view_dossier.pack(side="left", padx=(0, 4))
 
         # ── 1. Activity Log panel (docked firmly to the bottom) ──────────────
         log_frame = tk.Frame(frame, bg=t["bg"])
@@ -1741,7 +1788,8 @@ class EbayTool(tk.Tk):
         init_size = self.thumb_size_var.get()
         init_cfg = THUMB_CONFIG.get(init_size, THUMB_CONFIG["Medium (100px)"])
         self.result_tree = ttk.Treeview(table_frame, columns=cols, show=init_cfg["show"], selectmode="extended", style="Results.Treeview")
-        self.result_tree.heading("#0", text="Preview" if init_cfg["img_size"] > 0 else "", anchor="center")
+        self.result_tree.heading("#0", text="Preview 🖼️" if init_cfg["img_size"] > 0 else "", anchor="center",
+                                 command=lambda: self._sort_by_column("thumbnail"))
         self.result_tree.column("#0", width=init_cfg["col_width"], minwidth=init_cfg["col_width"], anchor="center", stretch=False)
         saved_col_widths = self.data_store.get_setting("column_widths", {})
         col_widths = {
@@ -2211,6 +2259,8 @@ class EbayTool(tk.Tk):
         mkt = market_str if market_str is not None else (self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay")
         if "Vinted" in mkt:
             return "Vinted"
+        elif "ManoMano" in mkt:
+            return "ManoMano"
         elif "Wish" in mkt:
             return "Wish"
         elif "Temu" in mkt:
@@ -2225,10 +2275,34 @@ class EbayTool(tk.Tk):
             return "Mercado Libre"
         return "eBay"
 
+    def _launch_manomano_session(self):
+        """Launch interactive Edge session to clear Cloudflare Turnstile for ManoMano."""
+        loc = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
+        clean_loc = "France"
+        for k in ["France", "Spain", "Germany", "Italy", "United Kingdom"]:
+            if k.lower() in loc.lower():
+                clean_loc = k
+                break
+        self._log(f"🛠️ Launching ManoMano Interactive Session ({clean_loc})...")
+        threading.Thread(target=lambda: self.manomano_scraper.launch_interactive_auth(locale_key=clean_loc), daemon=True).start()
+
     def _on_market_changed(self, event=None):
         market = self.marketplace_var.get()
         t = self.theme
         current_text = self.store_text.get("1.0", "end").strip()
+
+        if hasattr(self, "manomano_country_combo"):
+            if "ManoMano" in market:
+                self.manomano_country_combo.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.manomano_country_combo.pack_forget()
+
+        if hasattr(self, "manomano_login_btn"):
+            if "ManoMano" in market:
+                after_w = self.manomano_country_combo if hasattr(self, "manomano_country_combo") else self.market_combo
+                self.manomano_login_btn.pack(side="left", padx=(0, 4), after=after_w)
+            else:
+                self.manomano_login_btn.pack_forget()
 
         if hasattr(self, "meli_country_combo"):
             if "Mercado Libre" in market:
@@ -2283,6 +2357,13 @@ class EbayTool(tk.Tk):
                 self.store_text.insert("1.0", self.store_placeholder)
                 self.store_text.config(fg=t["subtext"])
             self._log("🎵 Switched platform to: TikTok Shop (shop.tiktok.com active)")
+        elif "ManoMano" in market:
+            self.store_placeholder = "🛠️ ManoMano Search: https://www.manomano.fr/recherche/\n(Leave blank to sweep ManoMano catalog by brand/keyword, or enter specific merchant URLs: https://www.manomano.fr/marchand-41084935)"
+            if not current_text or any(k in current_text for k in ("ebay.com", "aliexpress.com", "wish.com", "temu.com", "mercadolibre", "redbubble.com", "printerval.com", "vinted.", "tiktok.com", "store2", "Global")):
+                self.store_text.delete("1.0", "end")
+                self.store_text.insert("1.0", self.store_placeholder)
+                self.store_text.config(fg=t["subtext"])
+            self._log(f"🛠️ Switched platform to: ManoMano ({self.manomano_country_var.get()} active)")
         elif "Vinted" in market:
             self.store_placeholder = "👗 Global Vinted Search: https://www.vinted.co.uk/catalog\n(Leave blank to sweep entire Vinted marketplace, or enter specific member profile URLs: https://www.vinted.co.uk/member/123456-seller)"
             if not current_text or "ebay.com" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "store2" in current_text or "Global" in current_text:
@@ -3471,6 +3552,7 @@ class EbayTool(tk.Tk):
         platform_name = self._get_current_platform_name()
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
+        mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
 
         queued_count = 0
         is_full_store_sweep = self.store_full_sweep_var.get() if hasattr(self, "store_full_sweep_var") else False
@@ -3485,12 +3567,13 @@ class EbayTool(tk.Tk):
                     "marketplace": platform_name,
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
+                    "manomano_locale": mm_country,
                     "includes": ["*"],
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else "")
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ 🏪 FULL INVENTORY ({len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3500,7 +3583,8 @@ class EbayTool(tk.Tk):
                     if any(q.get("store", "").strip().lower() == store.strip().lower() and 
                            q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
                            q.get("marketplace", "eBay").lower() == platform_name.lower() and
-                           q.get("vinted_country", "") == v_country
+                           q.get("vinted_country", "") == v_country and
+                           q.get("manomano_locale", "") == mm_country
                            for q in self.queue):
                         continue
 
@@ -3516,11 +3600,8 @@ class EbayTool(tk.Tk):
                     if not includes:
                         includes = [parent_brand]
 
-                    # Build exclusion list: other targeted brands in batch + library excludes + generic excludes
+                    # Build exclusion list: strictly user-selected library excludes + generic excludes
                     job_excludes = list(generic_excludes) + list(brand_excludes)
-                    for other_b in top_targets:
-                        if other_b != parent_brand and other_b not in job_excludes:
-                            job_excludes.append(other_b)
 
                     entry = {
                         "store": store,
@@ -3528,12 +3609,13 @@ class EbayTool(tk.Tk):
                         "marketplace": platform_name,
                         "vinted_country": v_country,
                         "vinted_depth": v_depth,
+                        "manomano_locale": mm_country,
                         "includes": includes,
                         "excludes": job_excludes,
                         "condition": condition
                     }
                     self.queue.append(entry)
-                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else "")
                     label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
                     self.queue_list.insert("end", label)
                     queued_count += 1
@@ -3727,6 +3809,7 @@ class EbayTool(tk.Tk):
         self.redbubble_scraper.headless = is_headless
         self.printerval_scraper.headless = is_headless
         self.vinted_scraper.headless = is_headless
+        self.manomano_scraper.headless = is_headless
 
         if use_api and app_id:
             client = EbayAPIClient(app_id=app_id, cert_id=cert_id)
@@ -3744,6 +3827,7 @@ class EbayTool(tk.Tk):
             job_mkt = job.get("marketplace")
             if job_mkt:
                 platform_name = job_mkt
+                is_manomano = platform_name == "ManoMano"
                 is_vinted = platform_name == "Vinted"
                 is_tiktok = platform_name == "TikTok Shop"
                 is_wish = platform_name == "Wish"
@@ -3753,12 +3837,13 @@ class EbayTool(tk.Tk):
                 is_redbubble = platform_name == "Redbubble"
                 is_printerval = platform_name == "Printerval"
                 mkt_map = {
-                    "TikTok Shop": "shop.tiktok.com", "Vinted": "vinted.co.uk", "Wish": "wish.com", "Temu": "temu.com",
+                    "ManoMano": "manomano.fr", "TikTok Shop": "shop.tiktok.com", "Vinted": "vinted.co.uk", "Wish": "wish.com", "Temu": "temu.com",
                     "AliExpress": "aliexpress.com", "Mercado Libre": "mercadolibre.com",
                     "Redbubble": "redbubble.com", "Printerval": "printerval.com", "eBay": "ebay.com"
                 }
                 mkt_tag = mkt_map.get(platform_name, "ebay.com")
             else:
+                is_manomano = "manomano." in store_raw.lower() or "ManoMano" in default_mkt
                 is_tiktok = "tiktok.com" in store_raw.lower() or "TikTok" in default_mkt
                 is_vinted = "vinted." in store_raw.lower() or "Vinted" in default_mkt
                 is_wish = "wish.com" in store_raw.lower() or "Wish" in default_mkt
@@ -3768,7 +3853,10 @@ class EbayTool(tk.Tk):
                 is_redbubble = "redbubble.com" in store_raw.lower() or "Redbubble" in default_mkt
                 is_printerval = "printerval.com" in store_raw.lower() or "Printerval" in default_mkt
 
-                if is_tiktok:
+                if is_manomano:
+                    platform_name = "ManoMano"
+                    mkt_tag = "manomano.fr"
+                elif is_tiktok:
                     platform_name = "TikTok Shop"
                     mkt_tag = "shop.tiktok.com"
                 elif is_vinted:
@@ -3814,7 +3902,12 @@ class EbayTool(tk.Tk):
             }
 
             try:
-                if is_tiktok:
+                if is_manomano:
+                    m_info = self.manomano_scraper.resolve_store_info(store_raw)
+                    resolved = m_info.get("store_name", seller_label)
+                    job_record["resolved_seller"] = resolved
+                    self._log(f"🛠️ [ManoMano] Target resolved: '{resolved}'")
+                elif is_tiktok:
                     t_info = self.tiktok_scraper.resolve_store_info(store_raw)
                     resolved = t_info.get("store_name", seller_label)
                     job_record["resolved_seller"] = resolved
@@ -4006,6 +4099,25 @@ class EbayTool(tk.Tk):
                             )
                             dom_tag = self.vinted_scraper.get_active_domain()
                             job_record["url"] = f"https://www.{dom_tag}/catalog?search_text={actual_term.replace(' ', '+')}"
+                    elif is_manomano:
+                        loc_selection = job.get("manomano_locale") or (self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France")
+                        clean_loc = "France"
+                        for k in ["France", "Spain", "Germany", "Italy", "United Kingdom"]:
+                            if k.lower() in str(loc_selection).lower():
+                                clean_loc = k
+                                break
+                        items = self.manomano_scraper.search(
+                            store_raw,
+                            actual_term,
+                            excludes=job["excludes"],
+                            condition=job.get("condition", "all"),
+                            max_pages=4,
+                            locale_key=clean_loc,
+                            stop_event=self.stop_event,
+                            pause_event=self.pause_event
+                        )
+                        dom_ext = "fr" if clean_loc == "France" else ("es" if clean_loc == "Spain" else ("de" if clean_loc == "Germany" else ("it" if clean_loc == "Italy" else "co.uk")))
+                        job_record["url"] = f"https://www.manomano.{dom_ext}/recherche/{actual_term.replace(' ', '+')}"
                     elif is_tiktok:
                         self.tiktok_scraper.headless = is_headless
                         items = self.tiktok_scraper.search(
@@ -4344,11 +4456,72 @@ class EbayTool(tk.Tk):
             self.results = unique_items
             self.seen_item_ids = {str(it.get("item_id", "")).strip() for it in self.results if it.get("item_id")}
             self._repopulate_results_table()
-            self._log(f"🧹 Deduplication complete: Removed {purged} duplicate listing(s). {len(self.results)} pristine unique listings remain.")
-            self._status(f"Deduplicated: Purged {purged} duplicate(s) ({len(self.results)} unique remain)")
-            messagebox.showinfo("Deduplication Complete", f"Successfully purged {purged} duplicate listing(s)!\n\n{len(self.results)} unique listings remain in session.")
+            self._log(f"🧹 Purged {purged} duplicate listings from results table.")
+            messagebox.showinfo("Deduplicate Complete", f"Removed {purged} duplicate listings.\n{len(self.results)} unique listings remain.")
         else:
-            messagebox.showinfo("Deduplication", "All listings in results table are already 100% unique (0 duplicates found).")
+            messagebox.showinfo("Deduplicate Complete", "No duplicates found. All listings are unique.")
+
+    def _stash_to_dossier(self):
+        """Move verified/triaged listings from active table into the persistent Dossier Staging Vault."""
+        selected_iids = self.result_tree.selection()
+        if selected_iids:
+            target_ids = {str(self.result_tree.set(iid, "item_id")).strip() for iid in selected_iids}
+            to_stash = [it for it in self.results if str(it.get("item_id", "")).strip() in target_ids]
+            self.results = [it for it in self.results if str(it.get("item_id", "")).strip() not in target_ids]
+        else:
+            visible_ids = {str(self.result_tree.set(iid, "item_id")).strip() for iid in self.result_tree.get_children()}
+            if not visible_ids:
+                messagebox.showinfo("Dossier Staging Vault", "No listings in results table to stash into dossier.")
+                return
+            to_stash = [it for it in self.results if str(it.get("item_id", "")).strip() in visible_ids]
+            self.results = [it for it in self.results if str(it.get("item_id", "")).strip() not in visible_ids]
+
+        if not to_stash:
+            return
+
+        existing_staged_ids = {str(it.get("item_id", "")).strip() for it in self.staged_dossier}
+        added_count = 0
+        for it in to_stash:
+            iid = str(it.get("item_id", "")).strip()
+            if iid not in existing_staged_ids:
+                self.staged_dossier.append(it)
+                existing_staged_ids.add(iid)
+                added_count += 1
+
+        self.seen_item_ids = {str(it.get("item_id", "")).strip() for it in self.results if it.get("item_id")}
+        self._repopulate_results_table()
+
+        if hasattr(self, "btn_view_dossier"):
+            self.btn_view_dossier.config(text=f"📁 Staged ({len(self.staged_dossier)})")
+
+        self._log(f"📥 [STAGING VAULT] Moved {added_count} verified target(s) into Dossier Staging Vault (Total Staged: {len(self.staged_dossier)}). Active table cleared for Wave 2.")
+        self._status(f"📥 Stashed {added_count} listings into Dossier Vault! Active table cleared.")
+        messagebox.showinfo("Dossier Staging Vault", f"Successfully moved {added_count} listing(s) into your Dossier Staging Vault!\n\n• Staged Dossier Total: {len(self.staged_dossier)} verified listings\n• Live Results Table: Cleared and ready for your next sweep wave.\n\nWhen ready, click '📁 Staged ({len(self.staged_dossier)})' to restore, or '💾 Export' to export all waves!")
+
+    def _view_or_restore_dossier(self):
+        """View or restore listings stored in the Dossier Staging Vault."""
+        if not self.staged_dossier:
+            messagebox.showinfo("Dossier Staging Vault", "Your Dossier Staging Vault is currently empty.\n\nTriage your harvest and click '📥 Stash to Dossier' to park verified targets and clear the screen before your next sweep wave!")
+            return
+
+        count = len(self.staged_dossier)
+        ans = messagebox.askyesnocancel("Dossier Staging Vault", f"Your Dossier Staging Vault currently contains {count} verified listings.\n\n• [Yes]: Restore all {count} listings back into the Live Results Table\n• [No]: Keep them safely parked in the vault\n• [Cancel]: Do nothing", icon="question")
+        if ans is True:
+            existing_ids = {str(it.get("item_id", "")).strip() for it in self.results}
+            restored = 0
+            for it in self.staged_dossier:
+                iid = str(it.get("item_id", "")).strip()
+                if iid not in existing_ids:
+                    self.results.append(it)
+                    existing_ids.add(iid)
+                    restored += 1
+            self.staged_dossier.clear()
+            if hasattr(self, "btn_view_dossier"):
+                self.btn_view_dossier.config(text="📁 Staged (0)")
+            self.seen_item_ids = {str(it.get("item_id", "")).strip() for it in self.results if it.get("item_id")}
+            self._repopulate_results_table()
+            self._log(f"📁 Restored {restored} listing(s) from Staging Vault back into Live Results Table.")
+            self._status(f"📁 Restored {restored} listings to Live Results Table.")
 
     def _on_filter_changed(self, *args):
         """Triggered on keystroke in live search filter entry."""
@@ -4521,6 +4694,17 @@ class EbayTool(tk.Tk):
                 else:
                     item["threat_badge"] = threat_display
 
+                # Evaluate Smart Triage (Universal Compatibility & Fluff Suppression)
+                is_fluff, fluff_reason = False, ""
+                if hasattr(self.data_store, "is_universal_fluff"):
+                    is_fluff, fluff_reason = self.data_store.is_universal_fluff(item.get("title", ""), item.get("product_type", ""))
+                
+                if is_fluff and hasattr(self, "smart_triage_var") and self.smart_triage_var.get():
+                    if not (hasattr(self, "show_fluff_var") and self.show_fluff_var.get()):
+                        continue
+                    else:
+                        threat_display = f"💨 Suppressed ({fluff_reason})"
+
                 # Check Only Benign vs Hide Benign filter checkboxes
                 if hasattr(self, "filter_only_benign_var") and self.filter_only_benign_var.get():
                     if not (item.get("visual_benign") or str(threat_display).startswith("🟢 Benign")):
@@ -4601,6 +4785,7 @@ class EbayTool(tk.Tk):
         is_thumbs = (cfg["img_size"] > 0)
         ph = self._get_placeholder_thumb(cfg["img_size"]) if is_thumbs else ""
 
+        suppressed_fluff_count = 0
         for item in self.results:
             if "product_type" not in item:
                 item["product_type"] = ""
@@ -4631,6 +4816,19 @@ class EbayTool(tk.Tk):
                 threat_display = item["threat_badge"]
             else:
                 item["threat_badge"] = threat_display
+
+            # Evaluate Smart Triage (Universal Compatibility & Fluff Suppression)
+            is_fluff, fluff_reason = False, ""
+            if hasattr(self.data_store, "is_universal_fluff"):
+                is_fluff, fluff_reason = self.data_store.is_universal_fluff(item.get("title", ""), item.get("product_type", ""))
+            
+            if is_fluff:
+                suppressed_fluff_count += 1
+                if hasattr(self, "smart_triage_var") and self.smart_triage_var.get():
+                    if not (hasattr(self, "show_fluff_var") and self.show_fluff_var.get()):
+                        continue
+                    else:
+                        threat_display = f"💨 Suppressed ({fluff_reason})"
 
             # Check Only Benign vs Hide Benign filter checkboxes
             if hasattr(self, "filter_only_benign_var") and self.filter_only_benign_var.get():
@@ -4666,6 +4864,9 @@ class EbayTool(tk.Tk):
             if is_thumbs and img_url:
                 self._fetch_inline_thumbnail(iid, img_url)
 
+        if hasattr(self, "fluff_btn"):
+            self.fluff_btn.config(text=f"💨 Show Suppressed Fluff ({suppressed_fluff_count})")
+
         self._update_result_count()
 
     def _sort_by_column(self, col):
@@ -4678,7 +4879,9 @@ class EbayTool(tk.Tk):
 
         def get_sort_key(item):
             val = item.get(field, "")
-            if col == "price":
+            if col in ("thumbnail", "#0"):
+                return str(item.get("phash", ""))
+            elif col == "price":
                 m = re.search(r"[\d,]+(?:\.\d+)?", str(val))
                 if m:
                     try:
@@ -6134,6 +6337,9 @@ class EbayTool(tk.Tk):
         cur_img_size = cur_cfg.get("img_size", 100)
 
         def _worker(sz_key=cur_size_key, sz_px=cur_img_size):
+            if not self.result_tree.exists(iid):
+                return
+
             # Cache size safeguard to prevent RAM bloat
             if len(self.raw_img_cache) > 800:
                 for k in list(self.raw_img_cache.keys())[:250]:
@@ -6142,14 +6348,19 @@ class EbayTool(tk.Tk):
                 for k in list(self.inline_img_cache.keys())[:250]:
                     self.inline_img_cache.pop(k, None)
 
-            for attempt in range(2):
-                try:
-                    req = urllib.request.Request(str(image_url), headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-                    with urllib.request.urlopen(req, timeout=7) as resp:
-                        data = resp.read()
-                    pil_img = Image.open(io.BytesIO(data)).convert("RGBA")
+            try:
+                resp = self.http_session.get(str(image_url), timeout=3.5)
+                if resp.status_code == 200:
+                    pil_img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
                     self.raw_img_cache[image_url] = pil_img
                     
+                    # Compute 64-bit pHash for sorting by thumbnail similarity!
+                    h = compute_phash(pil_img)
+                    for itm in self.results:
+                        if itm.get("image_url") == image_url:
+                            itm["phash"] = h
+                            break
+
                     # Auto-match against Visual Catalog (Benign vs Counterfeit)
                     try:
                         v_match = self.visual_catalog.match_image(pil_img)
@@ -6184,10 +6395,8 @@ class EbayTool(tk.Tk):
                             if self.result_tree.exists(iid) and self.thumb_size_var.get() != "Off (Text Only)":
                                 self.result_tree.item(iid, image=photo)
                         self.after(0, _apply)
-                    break
-                except Exception:
-                    if attempt == 0:
-                        time.sleep(0.4)
+            except Exception:
+                pass
 
         if hasattr(self, "thumb_executor"):
             self.thumb_executor.submit(_worker)
@@ -6561,12 +6770,33 @@ class EbayTool(tk.Tk):
     #  EXPORT
     # ══════════════════════════════════════════════════════════════════════════
     def _export(self):
-        if not self.results:
+        if not self.results and not self.staged_dossier:
             messagebox.showinfo("Export", "No results to export.")
             return
 
+        export_items = list(self.results)
+        if self.staged_dossier:
+            total_staged = len(self.staged_dossier)
+            total_active = len(self.results)
+            msg = (
+                f"You have {total_staged} listing(s) parked in your Staged Dossier and "
+                f"{total_active} listing(s) in your active results table.\n\n"
+                f"• [Yes]: Export MASTER DOSSIER (Combine both waves = {total_staged + total_active} listings)\n"
+                f"• [No]: Export ACTIVE RESULTS only ({total_active} listings)\n"
+                f"• [Cancel]: Cancel export"
+            )
+            ans = messagebox.askyesnocancel("Export Staged Dossier", msg, icon="question")
+            if ans is None:
+                return
+            elif ans is True:
+                seen_ids = {str(it.get("item_id", "")).strip() for it in export_items}
+                for it in self.staged_dossier:
+                    iid = str(it.get("item_id", "")).strip()
+                    if iid not in seen_ids:
+                        export_items.append(it)
+                        seen_ids.add(iid)
+
         # Determine items to export: honor active Hide Benign filter so benign packaging is not exported
-        export_items = self.results
         if hasattr(self, "filter_hide_benign_var") and self.filter_hide_benign_var.get():
             export_items = [
                 it for it in export_items
@@ -6574,7 +6804,7 @@ class EbayTool(tk.Tk):
             ]
 
         if not export_items:
-            messagebox.showinfo("Export", "No listings to export (all active listings are classified as Benign Packaging).")
+            messagebox.showinfo("Export", "No listings to export (all selected listings are classified as Benign Packaging).")
             return
 
         path = filedialog.asksaveasfilename(
@@ -10571,7 +10801,7 @@ class WhitelistManagerModal(tk.Toplevel):
         table_frame.rowconfigure(0, weight=1)
         table_frame.columnconfigure(0, weight=1)
 
-        cols = ("seller", "brand", "dealer_name", "notes", "added_at")
+        cols = ("seller", "brand", "dealer_name", "marketplace", "notes", "added_at")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", selectmode="extended", style="Whitelist.Treeview")
 
         style = ttk.Style()
@@ -10580,11 +10810,12 @@ class WhitelistManagerModal(tk.Toplevel):
         style.map("Whitelist.Treeview", background=[("selected", t["select_bg"])], foreground=[("selected", t["select_fg"])])
 
         col_cfg = {
-            "seller": ("Seller Handle / Store Slug", 180),
-            "brand": ("Brand Portfolio", 140),
-            "dealer_name": ("Dealership / Entity Name", 220),
-            "notes": ("Analyst Notes", 240),
-            "added_at": ("Date Added", 130)
+            "seller": ("Seller Handle / Store Slug", 160),
+            "brand": ("Brand Portfolio", 130),
+            "dealer_name": ("Dealership / Entity Name", 200),
+            "marketplace": ("Marketplace Scope", 140),
+            "notes": ("Analyst Notes", 220),
+            "added_at": ("Date Added", 120)
         }
         for c, (txt, w) in col_cfg.items():
             self.tree.heading(c, text=txt)
@@ -10599,12 +10830,14 @@ class WhitelistManagerModal(tk.Toplevel):
         hsb.grid(row=1, column=0, sticky="ew")
 
         self.tree.bind("<Button-3>", self._show_context_menu)
+        self.tree.bind("<Double-1>", lambda e: self._edit_dealer_dialog())
 
         # ── 4. Bottom Action Toolbar ──────────────────────────────────────────
         btn_bar = tk.Frame(self, bg=t["panel"], padx=16, pady=12, relief="flat", highlightbackground=t["border"], highlightthickness=1)
         btn_bar.pack(side="bottom", fill="x", padx=12, pady=(6, 12))
 
         tk.Button(btn_bar, text="➕ Add Dealer", command=self._add_dealer_dialog, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=14, pady=6).pack(side="left", padx=(0, 6))
+        tk.Button(btn_bar, text="✏️ Edit Dealer", command=self._edit_dealer_dialog, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="left", padx=4)
         tk.Button(btn_bar, text="📋 Bulk Import List", command=self._bulk_import_dialog, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="left", padx=4)
         tk.Button(btn_bar, text="🗑️ Remove Selected", command=self._remove_selected, bg=t["entry_bg"], fg=t["danger"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="left", padx=4)
         tk.Button(btn_bar, text="💾 Export CSV", command=self._export_csv, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="left", padx=4)
@@ -10622,16 +10855,17 @@ class WhitelistManagerModal(tk.Toplevel):
         for handle, data in sorted(wl.items()):
             b = data.get("brand", "")
             d_name = data.get("dealer_name", "")
+            mp = data.get("marketplace", "All Marketplaces")
             notes = data.get("notes", "")
-            date = data.get("added_at", "")
+            date = data.get("date_added") or data.get("added_at") or data.get("date_updated") or ""
 
             # Filter logic
             if brand_filter != "All Brands" and b.lower() != brand_filter.lower():
                 continue
-            if q and not any(q in str(x).lower() for x in (handle, b, d_name, notes)):
+            if q and not any(q in str(x).lower() for x in (handle, b, d_name, mp, notes)):
                 continue
 
-            self.tree.insert("", "end", values=(handle, b, d_name, notes, date))
+            self.tree.insert("", "end", values=(handle, b, d_name, mp, notes, date))
             shown += 1
 
         self.stat_lbl.config(text=f"{total} Authorized Dealers Registered ({shown} shown)")
@@ -10644,6 +10878,7 @@ class WhitelistManagerModal(tk.Toplevel):
         
         t = self.t
         menu = tk.Menu(self, tearoff=0, bg=t["panel"], fg=t["text"], activebackground=t["accent"], activeforeground="white")
+        menu.add_command(label="✏️ Edit Dealer", command=self._edit_dealer_dialog)
         menu.add_command(label="🗑️ Remove from Whitelist", command=self._remove_selected)
         menu.add_command(label="📋 Copy Seller Handle", command=self._copy_selected_handle)
         try:
@@ -10658,38 +10893,63 @@ class WhitelistManagerModal(tk.Toplevel):
             self.clipboard_clear()
             self.clipboard_append(handle)
 
-    def _add_dealer_dialog(self):
+    def _edit_dealer_dialog(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Select Dealer", "Please select an authorized dealer from the table to edit.")
+            return
+        vals = self.tree.item(sel[0])["values"]
+        handle = vals[0]
+        self._add_dealer_dialog(edit_handle=handle)
+
+    def _add_dealer_dialog(self, edit_handle=None):
         dlg = tk.Toplevel(self)
-        dlg.title("➕ Add Authorized Dealership")
-        dlg.geometry("460x340")
+        is_edit = bool(edit_handle)
+        dlg.title("✏️ Edit Authorized Dealership" if is_edit else "➕ Add Authorized Dealership")
+        dlg.geometry("480x380")
         dlg.configure(bg=self.t["bg"])
         dlg.transient(self)
         dlg.grab_set()
         self.parent._apply_dark_titlebar(dlg)
-        self.parent._center_window(dlg, 460, 340)
+        self.parent._center_window(dlg, 480, 380)
 
         t = self.t
         f = tk.Frame(dlg, bg=t["panel"], padx=16, pady=16)
         f.pack(fill="both", expand=True, padx=12, pady=12)
 
+        wl = self.data_store.get_whitelist()
+        existing_data = wl.get(edit_handle, {}) if is_edit else {}
+
         tk.Label(f, text="Seller Handle / Store URL:", bg=t["panel"], fg=t["text"], font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", pady=4)
         h_entry = tk.Entry(f, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], font=FONT_SM, width=32)
         h_entry.grid(row=0, column=1, sticky="w", pady=4)
-        h_entry.focus_set()
+        if is_edit:
+            h_entry.insert(0, edit_handle)
+            h_entry.config(state="disabled")
+        else:
+            h_entry.focus_set()
 
         tk.Label(f, text="Brand Portfolio:", bg=t["panel"], fg=t["text"], font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky="w", pady=4)
         brands = ["General / All Brands"] + sorted(list(self.data_store.get_brands().keys()))
         b_combo = ttk.Combobox(f, values=brands, font=FONT_SM, width=30)
         b_combo.grid(row=1, column=1, sticky="w", pady=4)
-        b_combo.set("Toyota")
+        b_combo.set(existing_data.get("brand", "Toyota") if is_edit else "Toyota")
 
         tk.Label(f, text="Dealership / Entity Name:", bg=t["panel"], fg=t["text"], font=("Segoe UI", 9, "bold")).grid(row=2, column=0, sticky="w", pady=4)
         d_entry = tk.Entry(f, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], font=FONT_SM, width=32)
         d_entry.grid(row=2, column=1, sticky="w", pady=4)
+        d_entry.insert(0, existing_data.get("dealer_name", "Authorized Dealership") if is_edit else "Authorized Dealership")
 
-        tk.Label(f, text="Analyst Notes:", bg=t["panel"], fg=t["text"], font=("Segoe UI", 9, "bold")).grid(row=3, column=0, sticky="w", pady=4)
+        tk.Label(f, text="Marketplace Scope:", bg=t["panel"], fg=t["text"], font=("Segoe UI", 9, "bold")).grid(row=3, column=0, sticky="w", pady=4)
+        mp_options = ["All Marketplaces (Global)", "eBay Only", "ManoMano Only", "TikTok Shop Only", "Mercado Libre Only", "Vinted Only"]
+        mp_combo = ttk.Combobox(f, values=mp_options, font=FONT_SM, width=30, state="readonly")
+        mp_combo.grid(row=3, column=1, sticky="w", pady=4)
+        mp_combo.set(existing_data.get("marketplace", "All Marketplaces (Global)") if is_edit else "All Marketplaces (Global)")
+
+        tk.Label(f, text="Analyst Notes:", bg=t["panel"], fg=t["text"], font=("Segoe UI", 9, "bold")).grid(row=4, column=0, sticky="w", pady=4)
         n_entry = tk.Entry(f, bg=t["entry_bg"], fg=t["text"], insertbackground=t["text"], font=FONT_SM, width=32)
-        n_entry.grid(row=3, column=1, sticky="w", pady=4)
+        n_entry.grid(row=4, column=1, sticky="w", pady=4)
+        n_entry.insert(0, existing_data.get("notes", "") if is_edit else "")
 
         def _close_dlg():
             try: dlg.grab_release()
@@ -10698,22 +10958,23 @@ class WhitelistManagerModal(tk.Toplevel):
         dlg.protocol("WM_DELETE_WINDOW", _close_dlg)
 
         def _save():
-            handle = h_entry.get().strip()
+            handle = edit_handle if is_edit else h_entry.get().strip()
             if not handle:
                 messagebox.showwarning("Missing Handle", "Please enter a seller handle or store URL.", parent=dlg)
                 return
             b = b_combo.get().strip()
             d = d_entry.get().strip() or "Authorized Dealership"
+            mp = mp_combo.get().strip() or "All Marketplaces (Global)"
             n = n_entry.get().strip()
-            self.data_store.add_to_whitelist(handle, brand=b, dealer_name=d, notes=n)
-            self.parent._log(f"🛡️ Whitelisted authorized dealer '{handle}' ({b}).")
+            self.data_store.add_to_whitelist(handle, brand=b, dealer_name=d, notes=n, marketplace=mp)
+            self.parent._log(f"🛡️ Whitelist updated for '{handle}' ({b} • {mp}).")
             self._refresh_table()
             _close_dlg()
 
         btn_box = tk.Frame(f, bg=t["panel"])
-        btn_box.grid(row=4, column=0, columnspan=2, pady=(16, 0), sticky="e")
+        btn_box.grid(row=5, column=0, columnspan=2, pady=(16, 0), sticky="e")
         tk.Button(btn_box, text="Cancel", command=_close_dlg, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=10, pady=4).pack(side="right", padx=4)
-        tk.Button(btn_box, text="💾 Save Dealer", command=_save, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=4).pack(side="right")
+        tk.Button(btn_box, text="💾 Save Changes" if is_edit else "💾 Save Dealer", command=_save, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=4).pack(side="right")
 
     def _bulk_import_dialog(self):
         dlg = tk.Toplevel(self)

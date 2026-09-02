@@ -1,10 +1,10 @@
 # visual_catalog_modal.py
 # Apollo Visual Threat & Packaging Intelligence Manager Dialog
-# Supports Multi-Hash Threat Asset Clusters and 1-Click Variant Merging
+# Supports Multi-Hash Threat Asset Clusters, 1-Click Variant Merging, and Cluster Inspector
 
 import os
 import io
-import urllib.request
+import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
@@ -14,6 +14,7 @@ FONT_BOLD = ("Segoe UI", 9, "bold")
 FONT_NORM = ("Segoe UI", 9)
 FONT_SM = ("Segoe UI", 8)
 
+
 class VisualCatalogModal(tk.Toplevel):
     def __init__(self, master, visual_catalog_manager, theme, on_update_callback=None):
         super().__init__(master)
@@ -22,15 +23,19 @@ class VisualCatalogModal(tk.Toplevel):
         self.on_update = on_update_callback
         self.photo_refs = []
         self.selected_card_ids = set()
+        self.card_registry = {}
 
         self.title("🖼️ Apollo Visual Packaging & Threat Intelligence Library")
-        self.geometry("880x660")
-        self.minsize(740, 520)
+        self.geometry("960x700")
+        self.minsize(780, 540)
         self.configure(bg=self._t("bg", "#121212"))
         self.transient(master)
         self.grab_set()
 
-        self._center_window(880, 660)
+        if hasattr(master, "_apply_dark_titlebar"):
+            master._apply_dark_titlebar(self)
+
+        self._center_window(960, 700)
         self._build_ui()
         self._load_gallery()
 
@@ -84,7 +89,7 @@ class VisualCatalogModal(tk.Toplevel):
         tk.Button(top_btns, text="🌐 Add URL", font=FONT_BOLD, bg=btn_bg, fg=btn_fg,
                   relief="flat", padx=8, pady=4, cursor="hand2", command=self._add_from_url).pack(side="left", padx=3)
 
-        # Control Bar: Filters & Sensitivity Slider
+        # Control Bar: Filters & Sensitivity Slider & Sorting
         ctrl_bar = tk.Frame(self, bg=panel_bg, padx=14, pady=8, bd=1, relief="solid")
         ctrl_bar.pack(fill="x", side="top", pady=(1, 0))
 
@@ -101,61 +106,53 @@ class VisualCatalogModal(tk.Toplevel):
                                 command=self._load_gallery)
             rb.pack(side="left", padx=4)
 
+        # Sort Dropdown
+        sort_box = tk.Frame(ctrl_bar, bg=panel_bg)
+        sort_box.pack(side="left", padx=(20, 0))
+        tk.Label(sort_box, text="Sort:", font=FONT_BOLD, bg=panel_bg, fg=text_color).pack(side="left", padx=(0, 4))
+        self.sort_var = tk.StringVar(value="Newest First")
+        sort_combo = ttk.Combobox(sort_box, textvariable=self.sort_var, values=["Newest First", "Brand / Label (A-Z)", "pHash", "Most Variants"], width=16, state="readonly", font=FONT_SM)
+        sort_combo.pack(side="left")
+        sort_combo.bind("<<ComboboxSelected>>", lambda e: self._load_gallery())
+
         # Sensitivity Slider
         slider_box = tk.Frame(ctrl_bar, bg=panel_bg)
         slider_box.pack(side="right")
 
-        tk.Label(slider_box, text="🎯 Matching Sensitivity:", font=FONT_BOLD, bg=panel_bg, fg=text_color).pack(side="left", padx=(0, 4))
-        
-        current_thresh = getattr(self.vcm, "match_threshold", 6)
-        self.thresh_var = tk.IntVar(value=current_thresh)
-        self.thresh_lbl = tk.Label(slider_box, text=self._format_thresh_label(current_thresh), font=FONT_SM,
-                                   bg=panel_bg, fg=accent_color, width=14, anchor="w")
-        
-        scale = tk.Scale(slider_box, from_=2, to_=14, orient="horizontal", variable=self.thresh_var,
-                         showvalue=0, length=120, bg=panel_bg, fg=accent_color,
-                         highlightthickness=0, troughcolor=self._t("entry_bg", "#1a1a1a"),
-                         command=self._on_threshold_change)
-        scale.pack(side="left", padx=4)
-        self.thresh_lbl.pack(side="left")
+        init_sens = getattr(self.vcm, "match_threshold", 6)
+        tk.Label(slider_box, text="Strictness (Hamming Dist):", font=FONT_BOLD, bg=panel_bg, fg=text_color).pack(side="left", padx=(0, 6))
+        self.sens_lbl = tk.Label(slider_box, text=f"{init_sens} (Normal)", font=FONT_BOLD, bg=panel_bg, fg=accent_color)
+        self.sens_lbl.pack(side="right", padx=(4, 0))
 
-        # Scrollable Gallery Frame
-        container = tk.Frame(self, bg=bg_color)
-        container.pack(fill="both", expand=True, padx=10, pady=10)
+        self.sens_slider = tk.Scale(slider_box, from_=2, to=14, orient="horizontal", length=140,
+                                    showvalue=False, bg=panel_bg, fg=text_color, highlightthickness=0,
+                                    activebackground=accent_color, command=self._on_slider_change)
+        self.sens_slider.set(init_sens)
+        self.sens_slider.pack(side="right")
 
-        self.canvas = tk.Canvas(container, bg=bg_color, highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(container, orient="vertical", command=self.canvas.yview)
+        # Scrollable Gallery Body
+        body = tk.Frame(self, bg=bg_color)
+        body.pack(fill="both", expand=True, side="top")
+
+        self.canvas = tk.Canvas(body, bg=bg_color, highlightthickness=0)
+        self.vsb = ttk.Scrollbar(body, orient="vertical", command=self.canvas.yview)
         self.gallery_frame = tk.Frame(self.canvas, bg=bg_color)
 
+        self.gallery_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas_window = self.canvas.create_window((0, 0), window=self.gallery_frame, anchor="nw")
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width))
-        self.gallery_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
+        self.canvas.configure(yscrollcommand=self.vsb.set)
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        self.vsb.pack(side="right", fill="y")
 
         self.bind("<MouseWheel>", self._on_mousewheel)
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    def _on_close(self):
-        self.destroy()
-
-    def _format_thresh_label(self, val):
+    def _on_slider_change(self, val):
         v = int(val)
-        if v <= 3:
-            return f"Strict ({v})"
-        elif v <= 6:
-            return f"Standard ({v})"
-        elif v <= 10:
-            return f"Loose ({v})"
-        else:
-            return f"Broad ({v})"
-
-    def _on_threshold_change(self, val):
-        v = int(val)
+        desc = "Strict" if v <= 4 else ("Normal" if v <= 7 else ("Loose" if v <= 10 else "Aggressive"))
+        self.sens_lbl.config(text=f"{v} ({desc})")
         self.vcm.match_threshold = v
-        self.thresh_lbl.config(text=self._format_thresh_label(v))
         if hasattr(self.master, "data_store"):
             self.master.data_store.set_setting("visual_match_threshold", v)
 
@@ -166,24 +163,47 @@ class VisualCatalogModal(tk.Toplevel):
     def _toggle_card_selection(self, entry_id):
         if entry_id in self.selected_card_ids:
             self.selected_card_ids.remove(entry_id)
+            is_sel = False
         else:
             self.selected_card_ids.add(entry_id)
+            is_sel = True
+
         self.merge_btn.config(text=f"🔗 Merge Selected ({len(self.selected_card_ids)})")
-        self._load_gallery()
+        
+        # In-place UI update: no gallery reload!
+        reg = self.card_registry.get(entry_id)
+        if reg:
+            reg["var"].set(is_sel)
+            accent_color = self._t("accent", "#00d2ff")
+            border_color = self._t("border", "#333333")
+            reg["card"].config(highlightbackground=accent_color if is_sel else border_color,
+                               bd=2 if is_sel else 1)
 
     def _load_gallery(self):
         for widget in self.gallery_frame.winfo_children():
             widget.destroy()
         self.photo_refs.clear()
+        self.card_registry.clear()
 
         bg_color = self._t("bg", "#121212")
         subtext_color = self._t("subtext", "#888888")
 
-        filter_type = self.filter_var.get()
-        entries = self.vcm.get_all_entries()
+        f_val = self.filter_var.get()
+        if f_val == "all":
+            entries = self.vcm.get_all_entries()
+        else:
+            entries = self.vcm.get_entries_by_type(f_val)
 
-        if filter_type != "all":
-            entries = [e for e in entries if e.get("type") == filter_type]
+        # Apply Sort
+        sort_mode = self.sort_var.get()
+        if sort_mode == "Newest First":
+            entries = sorted(entries, key=lambda e: str(e.get("created_at", "")), reverse=True)
+        elif sort_mode == "Brand / Label (A-Z)":
+            entries = sorted(entries, key=lambda e: str(e.get("label", "")).lower())
+        elif sort_mode == "pHash":
+            entries = sorted(entries, key=lambda e: str(e.get("hash", "")).lower())
+        elif sort_mode == "Most Variants":
+            entries = sorted(entries, key=lambda e: len(e.get("variants", [])) or len(e.get("hashes", [])) or 1, reverse=True)
 
         if not entries:
             msg_box = tk.Frame(self.gallery_frame, bg=bg_color, pady=60)
@@ -226,13 +246,15 @@ class VisualCatalogModal(tk.Toplevel):
                         highlightbackground=card_bd_color, highlightcolor=card_bd_color,
                         padx=10, pady=8)
 
-        # 0. Selection Checkbox
+        # Selection Checkbox
         sel_var = tk.BooleanVar(value=is_selected)
         chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=entry_bg,
                              activebackground=panel_bg, command=lambda: self._toggle_card_selection(eid))
         chk.pack(side="left", padx=(0, 6))
 
-        # 1. Thumbnail
+        self.card_registry[eid] = {"card": card, "var": sel_var, "chk": chk}
+
+        # Thumbnail
         tp = entry.get("thumb_path", "")
         photo = None
         if tp and os.path.exists(tp):
@@ -249,14 +271,21 @@ class VisualCatalogModal(tk.Toplevel):
         img_lbl.pack(side="left", padx=(0, 10))
         img_lbl.bind("<Button-1>", lambda e: self._toggle_card_selection(eid))
 
-        # 2. Right Action Buttons
+        # Right Action Buttons
         btn_box = tk.Frame(card, bg=panel_bg)
         btn_box.pack(side="right", fill="y", padx=(6, 0))
 
         del_btn = tk.Button(btn_box, text="🗑 Delete", font=FONT_SM, bg=danger_color, fg="white",
                             relief="flat", padx=6, pady=2, cursor="hand2",
                             command=lambda: self._delete_entry(eid))
-        del_btn.pack(anchor="ne", pady=(0, 6))
+        del_btn.pack(anchor="ne", pady=(0, 4))
+
+        variants_count = len(entry.get("variants", [])) or len(entry.get("hashes", [])) or 1
+        if variants_count > 1:
+            inspect_btn = tk.Button(btn_box, text=f"🔍 Cluster ({variants_count})", font=("Segoe UI", 8, "bold"),
+                                    bg=panel_bg, fg=accent_color, relief="solid", bd=1, padx=4, pady=2, cursor="hand2",
+                                    command=lambda: self._open_cluster_inspector(entry))
+            inspect_btn.pack(anchor="e", pady=(0, 4))
 
         sweep_btn = tk.Button(btn_box, text="📸 Sweep", font=("Segoe UI", 8, "bold"),
                               bg=accent_color, fg=accent_fg,
@@ -264,13 +293,12 @@ class VisualCatalogModal(tk.Toplevel):
                               command=lambda: self._sweep_from_card(entry))
         sweep_btn.pack(anchor="se")
 
-        # 3. Center Info Box
+        # Center Info Box
         info = tk.Frame(card, bg=panel_bg)
         info.pack(side="left", fill="both", expand=True)
 
         is_benign = entry.get("type") == "benign"
         badge_color = success_color if is_benign else danger_color
-        variants_count = len(entry.get("variants", [])) or len(entry.get("hashes", [])) or 1
 
         cluster_tag = f" • 🔗 {variants_count} VARIANTS" if variants_count > 1 else ""
         badge_text = ("🟢 BENIGN PACKAGING" if is_benign else "🔴 KNOWN COUNTERFEIT") + cluster_tag
@@ -278,17 +306,113 @@ class VisualCatalogModal(tk.Toplevel):
         b_lbl = tk.Label(info, text=badge_text, font=("Segoe UI", 8, "bold"), bg=panel_bg, fg=badge_color)
         b_lbl.pack(anchor="w")
 
-        lbl_text = entry.get("label", "Packaging")
-        if len(lbl_text) > 30: lbl_text = lbl_text[:28] + "..."
-        name_lbl = tk.Label(info, text=lbl_text, font=FONT_BOLD, bg=panel_bg, fg=text_color)
-        name_lbl.pack(anchor="w", pady=(1, 2))
+        title_lbl = tk.Label(info, text=entry.get("label", "Untitled Asset"), font=FONT_BOLD,
+                             bg=panel_bg, fg=text_color, anchor="w", wraplength=260, justify="left")
+        title_lbl.pack(anchor="w", pady=(2, 0))
 
-        h_val = entry.get("hash", "")[:14] + "..."
-        h_lbl = tk.Label(info, text=f"pHash: {h_val} | Matches: {entry.get('match_count', 0)}", font=FONT_SM,
-                         bg=panel_bg, fg=subtext_color)
-        h_lbl.pack(anchor="w")
+        phash_str = entry.get("hash", "")[:16] + "..." if entry.get("hash") else "No Hash"
+        details_txt = f"Hash: {phash_str} • Matches: {entry.get('match_count', 0)}"
+        dt_lbl = tk.Label(info, text=details_txt, font=FONT_SM, bg=panel_bg, fg=subtext_color, anchor="w")
+        dt_lbl.pack(anchor="w")
+
+        if entry.get("created_at"):
+            cr_lbl = tk.Label(info, text=f"Added: {entry.get('created_at')}", font=FONT_SM, bg=panel_bg, fg=subtext_color)
+            cr_lbl.pack(anchor="w")
 
         return card
+
+    def _open_cluster_inspector(self, entry):
+        """Open Cluster Inspector Modal to view and manage all variants in a cluster."""
+        win = tk.Toplevel(self)
+        win.title(f"🔍 Cluster Inspector: {entry.get('label', 'Multi-Hash Cluster')}")
+        win.geometry("680x520")
+        win.configure(bg=self._t("bg", "#121212"))
+        win.transient(self)
+        win.grab_set()
+
+        if hasattr(self.master, "_apply_dark_titlebar"):
+            self.master._apply_dark_titlebar(win)
+
+        p_bg = self._t("panel", "#1e1e1e")
+        txt_c = self._t("text", "#ffffff")
+        acc_c = self._t("accent", "#00d2ff")
+
+        top_f = tk.Frame(win, bg=p_bg, padx=14, pady=10)
+        top_f.pack(fill="x")
+        tk.Label(top_f, text=f"🔗 {entry.get('label')}", font=FONT_TITLE, bg=p_bg, fg=acc_c).pack(anchor="w")
+        
+        variants = entry.get("variants", [])
+        tk.Label(top_f, text=f"{len(variants)} Photo Variants Active in Parallel", font=FONT_SM, bg=p_bg, fg=self._t("subtext", "#888888")).pack(anchor="w")
+
+        # Rename Cluster
+        rename_f = tk.Frame(top_f, bg=p_bg)
+        rename_f.pack(fill="x", pady=(6, 0))
+        tk.Label(rename_f, text="Cluster Label:", font=FONT_BOLD, bg=p_bg, fg=txt_c).pack(side="left")
+        name_var = tk.StringVar(value=entry.get("label", ""))
+        name_e = tk.Entry(rename_f, textvariable=name_var, font=FONT_NORM, bg=self._t("entry_bg", "#1a1a1a"), fg=txt_c, insertbackground=txt_c, width=32)
+        name_e.pack(side="left", padx=6)
+        
+        def _save_label():
+            entry["label"] = name_var.get().strip() or entry["label"]
+            self.vcm._save_catalog()
+            self._load_gallery()
+            messagebox.showinfo("Saved", "Cluster label updated!", parent=win)
+
+        tk.Button(rename_f, text="💾 Save", font=FONT_SM, bg=acc_c, fg="black", relief="flat", padx=6, pady=2, command=_save_label).pack(side="left")
+
+        # Variants Grid
+        canv = tk.Canvas(win, bg=self._t("bg", "#121212"), highlightthickness=0)
+        sb = ttk.Scrollbar(win, orient="vertical", command=canv.yview)
+        grid_f = tk.Frame(canv, bg=self._t("bg", "#121212"), padx=12, pady=12)
+        grid_f.bind("<Configure>", lambda e: canv.configure(scrollregion=canv.bbox("all")))
+        canv.create_window((0, 0), window=grid_f, anchor="nw")
+        canv.configure(yscrollcommand=sb.set)
+        canv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        col = 0
+        row = 0
+        for i, v in enumerate(variants):
+            vf = tk.Frame(grid_f, bg=p_bg, bd=1, relief="solid", padx=8, pady=8)
+            vf.grid(row=row, column=col, padx=8, pady=8, sticky="nsew")
+
+            vp = v.get("thumb_path", "")
+            photo = None
+            if vp and os.path.exists(vp):
+                try:
+                    pimg = Image.open(vp).convert("RGBA")
+                    pimg.thumbnail((80, 80), Image.Resampling.LANCZOS)
+                    photo = ImageTk.PhotoImage(pimg)
+                    self.photo_refs.append(photo)
+                except Exception:
+                    pass
+
+            tk.Label(vf, image=photo if photo else "", text="[No Photo]" if not photo else "", bg=self._t("entry_bg", "#1a1a1a"), width=80, height=80).pack()
+            tk.Label(vf, text=f"Variant #{i+1}", font=FONT_BOLD, bg=p_bg, fg=txt_c).pack(pady=(4, 0))
+            tk.Label(vf, text=v.get("hash", "")[:12] + "...", font=FONT_SM, bg=p_bg, fg=self._t("subtext", "#888888")).pack()
+
+            # Delete variant button (if > 1 variant remaining)
+            def _make_del_v(var_hash=v.get("hash")):
+                def _do_del_v():
+                    if len(entry.get("variants", [])) <= 1:
+                        messagebox.showwarning("Cannot Delete", "A cluster must retain at least one photo variant.", parent=win)
+                        return
+                    entry["variants"] = [x for x in entry.get("variants", []) if x.get("hash") != var_hash]
+                    entry["hashes"] = [x.get("hash") for x in entry["variants"] if x.get("hash")]
+                    if entry.get("hash") == var_hash and entry["hashes"]:
+                        entry["hash"] = entry["hashes"][0]
+                    self.vcm._save_catalog()
+                    win.destroy()
+                    self._load_gallery()
+                    self._open_cluster_inspector(entry)
+                return _do_del_v
+
+            tk.Button(vf, text="🗑 Remove", font=FONT_SM, bg=self._t("danger", "#ff4444"), fg="white", relief="flat", padx=4, pady=1, command=_make_del_v()).pack(pady=(4, 0))
+
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
 
     def _merge_selected_cards(self):
         if len(self.selected_card_ids) < 2:
@@ -299,10 +423,13 @@ class VisualCatalogModal(tk.Toplevel):
         win = tk.Toplevel(self)
         win.title("Merge into Multi-Hash Threat Cluster")
         win.configure(bg=self._t("bg", "#121212"))
-        win.geometry("480x240")
+        win.geometry("500x260")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
+
+        if hasattr(self.master, "_apply_dark_titlebar"):
+            self.master._apply_dark_titlebar(win)
 
         selected_entries = [e for e in self.vcm.get_all_entries() if e.get("id") in self.selected_card_ids]
         suggested_label = selected_entries[0].get("label", "Threat Cluster")
@@ -343,208 +470,170 @@ class VisualCatalogModal(tk.Toplevel):
         if not source:
             messagebox.showwarning("Warning", "No source image available for this entry.")
             return
-        lbl = entry.get("label", "Visual Reference")
-        mkt = self.master.marketplace_var.get() if hasattr(self.master, "marketplace_var") else "eBay"
-        
-        reg = None
-        if "Vinted" in mkt and hasattr(self.master, "vinted_country_var"):
-            v_c = self.master.vinted_country_var.get()
-            for code, names in {
-                "UK": ["UK", "United Kingdom"], "FR": ["France", "FR"], "DE": ["Germany", "DE"],
-                "ES": ["Spain", "ES"], "IT": ["Italy", "IT"], "PL": ["Poland", "PL"],
-                "US": ["United States", "US"], "NL": ["Netherlands", "NL"], "BE": ["Belgium", "BE"],
-                "All": ["All", "Europe", "Global"]
-            }.items():
-                if any(n in v_c for n in names):
-                    reg = code
-                    break
-        elif "Mercado" in mkt and hasattr(self.master, "meli_country_var"):
-            reg = self.master.meli_country_var.get()
 
-        self.destroy()
+        label = entry.get("label", "Visual Search")
         if hasattr(self.master, "_reverse_visual_search_from_url"):
-            self.master._reverse_visual_search_from_url(source, label=lbl, marketplace=mkt, region=reg)
+            self.destroy()
+            self.master._reverse_visual_search_from_url(source, label=label)
 
     def _delete_entry(self, entry_id):
-        if messagebox.askyesno("Confirm Delete", "Remove this visual fingerprint from the catalog?"):
-            self.vcm.remove_entry(entry_id)
-            if entry_id in self.selected_card_ids:
-                self.selected_card_ids.remove(entry_id)
+        if messagebox.askyesno("Confirm Delete", "Remove this visual threat asset / cluster from your catalog?", parent=self):
+            if self.vcm.delete_entry(entry_id):
+                if entry_id in self.selected_card_ids:
+                    self.selected_card_ids.remove(entry_id)
                 self.merge_btn.config(text=f"🔗 Merge Selected ({len(self.selected_card_ids)})")
-            self._load_gallery()
-            if self.on_update:
-                self.on_update()
-
-    def _add_from_file(self):
-        fp = filedialog.askopenfilename(
-            parent=self,
-            title="Select Reference Packaging / Threat Photo",
-            filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.webp;*.bmp")]
-        )
-        if not fp:
-            return
-        try:
-            pil_img = Image.open(fp).convert("RGBA")
-            self._prompt_save_entry(pil_img, source_path=fp)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load image: {e}")
-
-    def _add_from_url(self):
-        panel_bg = self._t("panel", "#1e1e1e")
-        text_color = self._t("text", "#ffffff")
-        entry_bg = self._t("entry_bg", "#1a1a1a")
-        accent_color = self._t("accent", "#00d2ff")
-        subtext_color = self._t("subtext", "#888888")
-        bg_color = self._t("bg", "#121212")
-
-        win = tk.Toplevel(self)
-        win.title("Add Visual Fingerprint from URL")
-        win.configure(bg=bg_color)
-        win.geometry("450x180")
-        win.resizable(False, False)
-        win.transient(self)
-        win.grab_set()
-
-        tk.Label(win, text="Direct Image URL (PNG, JPG, WebP):", font=FONT_BOLD, bg=bg_color, fg=text_color).pack(anchor="w", padx=14, pady=(12, 4))
-        url_ent = tk.Entry(win, font=FONT_NORM, bg=entry_bg, fg=text_color, insertbackground=text_color)
-        url_ent.pack(fill="x", padx=14, pady=4)
-        url_ent.focus_set()
-
-        def _fetch():
-            url = url_ent.get().strip()
-            if not url:
-                return
-            win.destroy()
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    data = r.read()
-                pil_img = Image.open(io.BytesIO(data)).convert("RGBA")
-                self._prompt_save_entry(pil_img, source_url=url)
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to download image: {e}")
-
-        btn_box = tk.Frame(win, bg=bg_color)
-        btn_box.pack(fill="x", padx=14, pady=12)
-        tk.Button(btn_box, text="Fetch & Add", font=FONT_BOLD, bg=accent_color, fg="white",
-                  relief="flat", padx=10, pady=4, command=_fetch).pack(side="right")
-        tk.Button(btn_box, text="Cancel", font=FONT_NORM, bg=panel_bg, fg=subtext_color,
-                  relief="flat", padx=8, pady=4, command=win.destroy).pack(side="right", padx=6)
-
-    def _prompt_save_entry(self, pil_img, source_path="", source_url=""):
-        panel_bg = self._t("panel", "#1e1e1e")
-        text_color = self._t("text", "#ffffff")
-        entry_bg = self._t("entry_bg", "#1a1a1a")
-        accent_color = self._t("accent", "#00d2ff")
-        subtext_color = self._t("subtext", "#888888")
-        bg_color = self._t("bg", "#121212")
-
-        win = tk.Toplevel(self)
-        win.title("Save Visual Threat Entry")
-        win.configure(bg=bg_color)
-        win.geometry("460x280")
-        win.resizable(False, False)
-        win.transient(self)
-        win.grab_set()
-
-        preview = pil_img.copy()
-        preview.thumbnail((64, 64), Image.Resampling.LANCZOS)
-        p_photo = ImageTk.PhotoImage(preview)
-        self.photo_refs.append(p_photo)
-
-        top_f = tk.Frame(win, bg=bg_color, padx=14, pady=10)
-        top_f.pack(fill="x")
-        tk.Label(top_f, image=p_photo, bg=entry_bg, width=64, height=64).pack(side="left", padx=(0, 10))
-
-        tf_right = tk.Frame(top_f, bg=bg_color)
-        tf_right.pack(side="left", fill="both", expand=True)
-        tk.Label(tf_right, text="Catalog Classification:", font=FONT_BOLD, bg=bg_color, fg=text_color).pack(anchor="w")
-
-        type_var = tk.StringVar(value="benign")
-        tk.Radiobutton(tf_right, text="🟢 Known Benign Packaging", value="benign", variable=type_var,
-                       font=FONT_NORM, bg=bg_color, fg=text_color, selectcolor=panel_bg).pack(anchor="w")
-        tk.Radiobutton(tf_right, text="🔴 Known Counterfeit Photo", value="counterfeit", variable=type_var,
-                       font=FONT_NORM, bg=bg_color, fg=text_color, selectcolor=panel_bg).pack(anchor="w")
-
-        # Label input
-        tk.Label(win, text="Descriptive Label (e.g. Denso Blue Box, Fake Holo 90919):", font=FONT_BOLD,
-                 bg=bg_color, fg=text_color).pack(anchor="w", padx=14, pady=(6, 2))
-        lbl_ent = tk.Entry(win, font=FONT_NORM, bg=entry_bg, fg=text_color, insertbackground=text_color)
-        lbl_ent.pack(fill="x", padx=14, pady=4)
-        if source_path:
-            lbl_ent.insert(0, os.path.splitext(os.path.basename(source_path))[0])
-        else:
-            lbl_ent.insert(0, "Packaging Reference")
-        lbl_ent.focus_set()
-
-        def _save():
-            label = lbl_ent.get().strip() or "Visual Entry"
-            etype = type_var.get()
-            self.vcm.add_entry(pil_img, entry_type=etype, label=label, source_url=source_url or source_path)
-            win.destroy()
-            self._load_gallery()
-            if self.on_update:
-                self.on_update()
-            messagebox.showinfo("Saved", f"Fingerprint saved to {etype.upper()} catalog as '{label}'!")
-
-        btn_box = tk.Frame(win, bg=bg_color)
-        btn_box.pack(fill="x", padx=14, pady=14)
-        tk.Button(btn_box, text="Save Fingerprint", font=FONT_BOLD, bg=accent_color, fg="white",
-                  relief="flat", padx=12, pady=4, command=_save).pack(side="right")
-        tk.Button(btn_box, text="Cancel", font=FONT_NORM, bg=panel_bg, fg=subtext_color,
-                  relief="flat", padx=8, pady=4, command=win.destroy).pack(side="right", padx=6)
+                self._load_gallery()
+                if self.on_update:
+                    self.on_update()
 
     def _rescan_session_matches(self):
         if hasattr(self.master, "_rescan_visual_matches"):
             self.master._rescan_visual_matches()
-        else:
-            messagebox.showinfo("Re-Scan", "Re-evaluated visual matches against catalog.")
 
     def _export_visual_pack(self):
-        import intel_pack_manager
-        out_path = filedialog.asksaveasfilename(
+        dest = filedialog.asksaveasfilename(
             parent=self,
             title="Export Visual Threat Catalog",
-            defaultextension=".apollo",
-            filetypes=[("Apollo Intelligence Pack", "*.apollo"), ("Zip Archive", "*.zip")],
-            initialfile="visual_threat_catalog.apollo"
+            defaultextension=".json",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
         )
-        if not out_path:
-            return
-        try:
-            ds = getattr(self.master, "data_store", None)
-            manifest = intel_pack_manager.IntelPackManager.export_pack(
-                output_filepath=out_path,
-                data_store=ds,
-                visual_catalog=self.vcm,
-                scope="Visual Library Only",
-                notes="Exported Visual Threat & Benign Packaging Catalog"
-            )
-            messagebox.showinfo("Export Complete", f"Successfully exported {manifest['counts']['visual_catalog_entries']} visual threat fingerprints ({manifest['counts']['visual_thumbnails']} photos) to:\n\n{out_path}")
-        except Exception as e:
-            messagebox.showerror("Export Error", f"Failed exporting visual catalog: {e}", parent=self)
+        if dest:
+            if self.vcm.export_catalog(dest):
+                messagebox.showinfo("Export Successful", f"Visual Threat Catalog exported to:\n{dest}")
 
     def _import_visual_pack(self):
-        import intel_pack_manager
-        pack_fp = filedialog.askopenfilename(
+        src = filedialog.askopenfilename(
             parent=self,
-            title="Import Visual Threat Catalog (.apollo / .zip)",
-            filetypes=[("Apollo Intelligence Pack", "*.apollo;*.zip"), ("All Files", "*.*")]
+            title="Import Visual Threat Catalog",
+            filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")]
         )
-        if not pack_fp:
-            return
-        try:
-            ds = getattr(self.master, "data_store", None)
-            res = intel_pack_manager.IntelPackManager.import_pack(
-                pack_filepath=pack_fp,
-                data_store=ds,
-                visual_catalog=self.vcm,
-                merge_mode="merge"
-            )
+        if src:
+            imported = self.vcm.import_catalog(src)
             self._load_gallery()
             if self.on_update:
                 self.on_update()
-            r = res.get("results", {})
-            messagebox.showinfo("Import Complete", f"Successfully imported {r.get('visual_added', 0)} visual fingerprints and {r.get('thumbnails_extracted', 0)} photos into your catalog!")
-        except Exception as e:
-            messagebox.showerror("Import Error", f"Failed importing visual catalog: {e}", parent=self)
+            messagebox.showinfo("Import Complete", f"Successfully imported {imported} visual fingerprint entries!")
+
+    def _add_from_file(self):
+        filepath = filedialog.askopenfilename(
+            parent=self,
+            title="Select Packaging or Counterfeit Photo",
+            filetypes=[("Image Files", "*.jpg;*.jpeg;*.png;*.webp"), ("All Files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        self._show_add_dialog(filepath=filepath)
+
+    def _add_from_url(self):
+        win = tk.Toplevel(self)
+        win.title("Add Photo from Web URL")
+        win.configure(bg=self._t("bg", "#121212"))
+        win.geometry("480x160")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        if hasattr(self.master, "_apply_dark_titlebar"):
+            self.master._apply_dark_titlebar(win)
+
+        tk.Label(win, text="Direct Image URL (JPG/PNG/WEBP):", font=FONT_BOLD,
+                 bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff")).pack(anchor="w", padx=16, pady=(16, 4))
+
+        url_ent = tk.Entry(win, font=FONT_NORM, bg=self._t("entry_bg", "#1a1a1a"),
+                           fg=self._t("text", "#ffffff"), insertbackground=self._t("text", "#ffffff"))
+        url_ent.pack(fill="x", padx=16, pady=4)
+        url_ent.focus_set()
+
+        def _proceed():
+            u = url_ent.get().strip()
+            if not u:
+                return
+            win.destroy()
+            self._show_add_dialog(url=u)
+
+        btn_box = tk.Frame(win, bg=self._t("bg", "#121212"))
+        btn_box.pack(fill="x", padx=16, pady=10)
+        tk.Button(btn_box, text="Next ➔", font=FONT_BOLD, bg=self._t("accent", "#00d2ff"),
+                  fg="black" if self.theme.get("name","").startswith("⚡") else "white",
+                  relief="flat", padx=10, pady=4, command=_proceed).pack(side="right")
+        tk.Button(btn_box, text="Cancel", font=FONT_NORM, bg=self._t("panel", "#1e1e1e"),
+                  fg=self._t("subtext", "#888888"), relief="flat", padx=8, pady=4, command=win.destroy).pack(side="right", padx=6)
+
+    def _show_add_dialog(self, filepath=None, url=None):
+        dlg = tk.Toplevel(self)
+        dlg.title("Add Visual Asset to Catalog")
+        dlg.configure(bg=self._t("bg", "#121212"))
+        dlg.geometry("460x340")
+        dlg.resizable(False, False)
+        dlg.transient(self)
+        dlg.grab_set()
+
+        if hasattr(self.master, "_apply_dark_titlebar"):
+            self.master._apply_dark_titlebar(dlg)
+
+        # Asset Type Radio
+        type_var = tk.StringVar(value="benign")
+        tk.Label(dlg, text="Asset Classification:", font=FONT_BOLD,
+                 bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff")).pack(anchor="w", padx=16, pady=(14, 4))
+        type_frame = tk.Frame(dlg, bg=self._t("bg", "#121212"))
+        type_frame.pack(fill="x", padx=16)
+
+        tk.Radiobutton(type_frame, text="🟢 Known Benign Packaging (Filter Out)", value="benign", variable=type_var,
+                       font=FONT_NORM, bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff"),
+                       selectcolor=self._t("entry_bg", "#1a1a1a")).pack(anchor="w")
+        tk.Radiobutton(type_frame, text="🔴 Known Counterfeit Photo (High Threat)", value="counterfeit", variable=type_var,
+                       font=FONT_NORM, bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff"),
+                       selectcolor=self._t("entry_bg", "#1a1a1a")).pack(anchor="w")
+
+        # Label Field
+        tk.Label(dlg, text="Packaging / Asset Label:", font=FONT_BOLD,
+                 bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff")).pack(anchor="w", padx=16, pady=(10, 4))
+        lbl_ent = tk.Entry(dlg, font=FONT_NORM, bg=self._t("entry_bg", "#1a1a1a"),
+                           fg=self._t("text", "#ffffff"), insertbackground=self._t("text", "#ffffff"))
+        lbl_ent.pack(fill="x", padx=16)
+        lbl_ent.insert(0, "Genuine Retail Box" if type_var.get() == "benign" else "Counterfeit Bubble Packaging")
+
+        # Notes Field
+        tk.Label(dlg, text="Analyst Notes:", font=FONT_BOLD,
+                 bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff")).pack(anchor="w", padx=16, pady=(10, 4))
+        notes_ent = tk.Entry(dlg, font=FONT_NORM, bg=self._t("entry_bg", "#1a1a1a"),
+                             fg=self._t("text", "#ffffff"), insertbackground=self._t("text", "#ffffff"))
+        notes_ent.pack(fill="x", padx=16)
+
+        def _do_add():
+            l = lbl_ent.get().strip() or "Visual Asset"
+            t = type_var.get()
+            n = notes_ent.get().strip()
+
+            img = None
+            if filepath:
+                try:
+                    img = Image.open(filepath).convert("RGBA")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to load image file: {e}")
+                    return
+            elif url:
+                try:
+                    import requests
+                    resp = requests.get(url, timeout=10)
+                    img = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to download image URL: {e}")
+                    return
+
+            if img:
+                res = self.vcm.add_entry(img, entry_type=t, label=l, notes=n, source_url=url or filepath)
+                dlg.destroy()
+                self._load_gallery()
+                if self.on_update:
+                    self.on_update()
+                messagebox.showinfo("Saved", f"Successfully stored visual fingerprint: '{l}'!")
+
+        btn_box = tk.Frame(dlg, bg=self._t("bg", "#121212"))
+        btn_box.pack(fill="x", padx=16, pady=16)
+        tk.Button(btn_box, text="💾 Save Asset", font=FONT_BOLD, bg=self._t("accent", "#00d2ff"),
+                  fg="black" if self.theme.get("name","").startswith("⚡") else "white",
+                  relief="flat", padx=12, pady=4, command=_do_add).pack(side="right")
+        tk.Button(btn_box, text="Cancel", font=FONT_NORM, bg=self._t("panel", "#1e1e1e"),
+                  fg=self._t("subtext", "#888888"), relief="flat", padx=8, pady=4, command=dlg.destroy).pack(side="right", padx=6)
