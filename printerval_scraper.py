@@ -188,7 +188,7 @@ class PrintervalScraper:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=22000)
                     page.wait_for_timeout(2500)
                 except Exception as ex:
-                    _log(f"⚠️ Page load timeout on Printerval: {ex}")
+                    _log(f"⚠ Page load timeout on Printerval: {ex}")
 
                 # Extract product cards
                 page_items = page.evaluate("""
@@ -237,7 +237,7 @@ class PrintervalScraper:
                 """)
 
                 if not page_items:
-                    _log(f"ℹ️ [Printerval] No listing cards found on page {page_num}.")
+                    _log(f"ℹ [Printerval] No listing cards found on page {page_num}.")
                     break
 
                 new_count = 0

@@ -122,6 +122,12 @@ class DataStore:
     def unlock_wick(self):
         self.set_setting("unlocked_wick", True)
 
+    def is_brundo_unlocked(self) -> bool:
+        return bool(self.get_setting("unlocked_brundo", False))
+
+    def unlock_brundo(self):
+        self.set_setting("unlocked_brundo", True)
+
     # ── brands ────────────────────────────────────────────────────────────────
     def get_brands(self):
         return self._data.get("brands", {})
@@ -401,7 +407,7 @@ class DataStore:
         if total_bad >= 20 or (total_all > 0 and (total_bad / total_all) >= 0.5 and total_bad >= 5):
             entry["risk_tier"] = "🚨 Critical Recidivist (Syndicate)"
         elif total_bad >= 5:
-            entry["risk_tier"] = "⚠️ High Risk (Repeat Offender)"
+            entry["risk_tier"] = "⚠ High Risk (Repeat Offender)"
         elif total_bad >= 1:
             entry["risk_tier"] = "🟡 Moderate (Flagged)"
         else:
@@ -529,7 +535,7 @@ class DataStore:
             badge = "🚨 Foreign Drop-Ship Hub"
             is_high = True
         elif is_foreign_risk:
-            badge = "⚠️ Cross-Border Direct"
+            badge = "⚠ Cross-Border Direct"
             is_high = True
         elif any(c in orig_clean for c in ("mexico", "brazil", "argentina", "colombia", "chile", "peru")):
             badge = "🌎 Latin America Hub"

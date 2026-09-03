@@ -118,14 +118,14 @@ class RedbubbleScraper:
 
                 resp = session.get(target_url, timeout=15)
                 if resp.status_code != 200:
-                    _log(f"⚠️ [Redbubble] HTTP status {resp.status_code} on page {page}.")
+                    _log(f"⚠ [Redbubble] HTTP status {resp.status_code} on page {page}.")
                     break
 
                 soup = BeautifulSoup(resp.text, "html.parser")
                 product_links = soup.find_all("a", href=re.compile(r"^/i/"))
 
                 if not product_links:
-                    _log(f"ℹ️ [Redbubble] No listing cards found on page {page}.")
+                    _log(f"ℹ [Redbubble] No listing cards found on page {page}.")
                     break
 
                 new_count = 0

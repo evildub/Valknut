@@ -146,7 +146,7 @@ class VisualHarvester:
                 dist = hamming_distance(target_phash, cand_phash)
                 if dist <= max_distance:
                     sim_pct = max(0, int((1.0 - (dist / 64.0)) * 100))
-                    match_label = f"🎯 Exact Match ({sim_pct}%)" if sim_pct >= 98 else f"🖼️ Visual Clone ({sim_pct}%)"
+                    match_label = f"🎯 Exact Match ({sim_pct}%)" if sim_pct >= 98 else f"🖼 Visual Clone ({sim_pct}%)"
                     cand["similarity"] = match_label
                     cand["match_type"] = match_label
                     cand["threat_badge"] = f"🚨 Visual Clone ({sim_pct}%)"

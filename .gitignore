@@ -18,6 +18,10 @@ data/browser_session/
 
 # Local logs, test files & scratch files
 *.log
+*.old
+icon.ico
+icon.png
+*.txt
 .system_generated/
 STRATEGY_AND_CAREER_ROADMAP.md
 *ROADMAP*.md

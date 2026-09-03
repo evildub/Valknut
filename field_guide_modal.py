@@ -15,6 +15,70 @@ FONT_BOLD = ("Segoe UI", 9, "bold")
 FONT_CODE = ("Consolas", 9)
 FONT_SM = ("Segoe UI", 8)
 
+# ── Master Operations Playbook Data ──
+PLAYBOOK_DATA = [
+    {
+        "step": "Phase 1: Marketplace & Target Setup",
+        "icon": "🌐",
+        "summary": "Configure target stores, global keyword sweeps, and exclusion boundaries.",
+        "details": [
+            ("Platform Selection", "Switch between eBay, TikTok Shop, Vinted, ManoMano, AliExpress, Temu, Wish, Mercado Libre, or POD platforms."),
+            ("Brand Library Targeting", "Select client brands (🎯 Target) and competitor/stemming noise (🚫 Exclude)."),
+            ("1-Click Sweep Presets", "Use saved client presets (e.g. GM, Toyota, Denso) to automatically load complete keyword portfolios.")
+        ]
+    },
+    {
+        "step": "Phase 2: Live Sweep & Smart Triage",
+        "icon": "▶",
+        "summary": "Execute parallel sweeps and filter out non-enforceable universal fluff.",
+        "details": [
+            ("Queue Execution", "Run multi-store sweeps with real-time progress, live logging, and anti-rate-limit pacing."),
+            ("Smart Triage", "Automatically suppresses universal title spam (seat covers, sunshades) while preserving high-risk components (spark plugs, emblems, fobs)."),
+            ("Fluff Audit Mode", "Click '💨 Show Suppressed Fluff' to audit hidden items and verify suppression reasons.")
+        ]
+    },
+    {
+        "step": "Phase 3: Threat Intelligence & 3PL Detection",
+        "icon": "🕵",
+        "summary": "Unmask overseas drop-shipping rings and corporate origin smokescreens.",
+        "details": [
+            ("Origin Resolution", "Resolves true registered corporate headquarters (e.g. Shenzhen/Guangdong) against domestic dispatch locations (e.g. California 3PL hub)."),
+            ("Threat Badging", "Automatically tags listings with 🇨🇳 Cross-Border Direct, 🚨 Foreign Drop-Ship Hub, or 🚩 Burner Handle."),
+            ("Session Auto-Propagation", "Resolving one seller immediately propagates the threat profile to all listings from that seller across the table.")
+        ]
+    },
+    {
+        "step": "Phase 4: Visual Catalog & Reverse Dredge",
+        "icon": "🖼",
+        "summary": "Manage counterfeit visual fingerprints and execute parallel reverse sweeps.",
+        "details": [
+            ("Dual-Sided Catalog", "Maintain Red Catalog (counterfeit packaging/stock photos) and Green Catalog (authorized packaging)."),
+            ("Multi-Hash Clustering", "Merge multiple variant photos/angles into one master cluster card."),
+            ("Reverse Visual Dredge", "Right-click any photo to sweep 35 parallel workers across marketplaces finding exact clone listings.")
+        ]
+    },
+    {
+        "step": "Phase 5: Dealership Whitelist & Repeat Offender Registry",
+        "icon": "🛡",
+        "summary": "Shield authorized distributors and track repeat recidivist storefronts.",
+        "details": [
+            ("Authorized Whitelist", "Add official dealer handles to shield them across all scrapers with 🛡 (Authorized) badges."),
+            ("Enforcement Registry", "Track multi-strike repeat offender stores, total infringing market value, and known 3PL locations."),
+            ("In-Place Intel Editor", "Edit seller handles, corporate origins, and analyst notes directly in the registry.")
+        ]
+    },
+    {
+        "step": "Phase 6: Dossier Export & Enterprise Intake",
+        "icon": "📄",
+        "summary": "Generate court-admissible dossiers and standardized takedown packages.",
+        "details": [
+            ("Standard Excel Export", "Export formatted spreadsheets compliant with enterprise intake gateways (Ctrl+E)."),
+            ("French Canadian Compliance", "Automatically formats French Canadian eBay listings strictly as 'ebay.ca - cafr'."),
+            ("A2C2 Master Dossier", "Export executive brand protection dossiers detailing repeat offenders, brands infringed, and financial damages.")
+        ]
+    }
+]
+
 # ── Master Glossary Data ──
 GLOSSARY_DATA = [
     {
@@ -28,7 +92,7 @@ GLOSSARY_DATA = [
     {
         "term": "NWOT (New Without Tags)",
         "category": "P2P / Apparel Heuristics",
-        "badge": "⚠️ Condition Indicator",
+        "badge": "⚠ Condition Indicator",
         "desc": "Merchandise that is brand-new/unworn but missing original store tags.",
         "intel": "Frequently used by replica liquidators to explain away missing authentic security tags or RFID tracking tags.",
         "action": "Examine stitching quality, interior care label wash tags, and check seller history for repeated NWOT bulk volume."
@@ -68,7 +132,7 @@ GLOSSARY_DATA = [
     {
         "term": "VeRO (Verified Rights Owner)",
         "category": "Enforcement & Compliance",
-        "badge": "⚖️ eBay Enforcement",
+        "badge": "⚖ eBay Enforcement",
         "desc": "eBay's official Intellectual Property rights protection program allowing brand owners to report and takedown infringing listings.",
         "intel": "Requires specific NOCI (Notice of Claimed Infringement) legal reasoning (Trademark Counterfeit, Copyright Image Infringement, or Patent Violation).",
         "action": "Use Apollo's Enforcement Registry and Artemis modal to log, draft, and track VeRO submission batches."
@@ -76,7 +140,7 @@ GLOSSARY_DATA = [
     {
         "term": "BPP (Brand Protection Program)",
         "category": "Enforcement & Compliance",
-        "badge": "⚖️ Mercado Libre BPP",
+        "badge": "⚖ Mercado Libre BPP",
         "desc": "Mercado Libre's dedicated IP protection and notice-and-takedown portal across Latin America (Mexico, Brazil, Argentina, Colombia, Chile, Peru).",
         "intel": "Provides fast-track takedowns for authenticated rights owners with regional trademark registrations.",
         "action": "Export MeLi enforcement batches directly formatted for BPP bulk submission."
@@ -148,7 +212,7 @@ SYNTAX_DATA = [
 # ── Master Modal & Tools Directory ──
 TOOLS_DATA = [
     {
-        "name": "🖼️ Visual Threat Catalog & Packaging Manager",
+        "name": "🖼 Visual Threat Catalog & Packaging Manager",
         "shortcut": "Visual Library Button / F2",
         "purpose": "Central visual intelligence hub for managing known counterfeit photos (Red Catalog) and authorized authentic packaging (Green Catalog).",
         "workflow": "1. Add known replica photos via '🔴 Mark as Counterfeit' from the right-click menu or local upload.\n2. Merge visual variants into multi-image cluster cards.\n3. Click 'Dredge' on any card to execute a 35-thread parallel visual clone sweep across eBay, Vinted, AliExpress, or Mercado Libre."
@@ -175,7 +239,7 @@ TOOLS_DATA = [
         "name": "🛡 Authorized Dealer Whitelist Manager",
         "shortcut": "Settings ➔ Whitelist / Toolbar Button",
         "purpose": "Protects verified client partners, retail channels, and authorized distributors from inadvertent enforcement.",
-        "workflow": "Add official seller handles. Whitelisted accounts receive a '🛡️ (Authorized)' badge and are automatically excluded from takedown queues."
+        "workflow": "Add official seller handles. Whitelisted accounts receive a '🛡 (Authorized)' badge and are automatically excluded from takedown queues."
     },
     {
         "name": "📥 Adhoc Batch URL & File Importer",
@@ -329,20 +393,25 @@ class FieldGuideModal(tk.Toplevel):
         self.nb.pack(fill="both", expand=True, padx=12, pady=8)
         self.nb.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
-        # Tab 1: Glossary
-        self.tab_glossary = tk.Frame(self.nb, bg=self._t("bg", "#121212"))
-        self.nb.add(self.tab_glossary, text="🚨 Threat Signals & Acronyms")
-        self._populate_glossary_tab()
+        # Tab 1: Operations Playbook
+        self.tab_playbook = tk.Frame(self.nb, bg=self._t("bg", "#121212"))
+        self.nb.add(self.tab_playbook, text="📖 Operations Playbook")
+        self._populate_playbook_tab()
 
-        # Tab 2: Search Syntax
+        # Tab 2: Tool Directory
+        self.tab_tools = tk.Frame(self.nb, bg=self._t("bg", "#121212"))
+        self.nb.add(self.tab_tools, text="🛠 Apollo Tools & Modules")
+        self._populate_tools_tab()
+
+        # Tab 3: Search Syntax
         self.tab_syntax = tk.Frame(self.nb, bg=self._t("bg", "#121212"))
-        self.nb.add(self.tab_syntax, text="🔍 Search Syntax & Live Filtering")
+        self.nb.add(self.tab_syntax, text="🔍 Search Syntax & Live Filters")
         self._populate_syntax_tab()
 
-        # Tab 3: Tool Directory
-        self.tab_tools = tk.Frame(self.nb, bg=self._t("bg", "#121212"))
-        self.nb.add(self.tab_tools, text="🛠️ Apollo Tools & Modal Guide")
-        self._populate_tools_tab()
+        # Tab 4: Glossary
+        self.tab_glossary = tk.Frame(self.nb, bg=self._t("bg", "#121212"))
+        self.nb.add(self.tab_glossary, text="🚨 Threat Glossary & Signals")
+        self._populate_glossary_tab()
 
     def _on_tab_changed(self, event=None):
         current_tab = self.nb.select()
@@ -401,7 +470,107 @@ class FieldGuideModal(tk.Toplevel):
 
         return scrollable_frame, canvas
 
-    # ── Tab 1: Threat Signals & Acronyms ──
+    # ── Tab 1: Operations Playbook ──
+    def _populate_playbook_tab(self):
+        self.playbook_container, self.playbook_canvas = self._create_scrollable_container(self.tab_playbook)
+        self._render_playbook_cards()
+
+    def _render_playbook_cards(self, query: str = ""):
+        for w in self.playbook_container.winfo_children():
+            w.destroy()
+
+        q = query.lower().strip()
+        matched = 0
+
+        # Top Playbook Banner
+        top_box = tk.Frame(self.playbook_container, bg=self._t("panel", "#1e1e1e"), padx=16, pady=12, relief="solid", bd=1)
+        top_box.pack(fill="x", padx=8, pady=6)
+        tk.Label(
+            top_box,
+            text="📖 Apollo Brand Protection — Standard Operational Procedure (SOP)",
+            font=FONT_TITLE,
+            bg=self._t("panel", "#1e1e1e"),
+            fg=self._t("accent", "#38bdf8")
+        ).pack(anchor="w")
+        tk.Label(
+            top_box,
+            text="End-to-end investigative methodology for cross-border marketplace sweeps, visual clustering, 3PL detection, and court-admissible dossier delivery.",
+            font=FONT_NORM,
+            bg=self._t("panel", "#1e1e1e"),
+            fg=self._t("subtext", "#94a3b8")
+        ).pack(anchor="w", pady=(2, 0))
+
+        for item in PLAYBOOK_DATA:
+            full_text = f"{item['step']} {item['summary']} " + " ".join(f"{t} {d}" for t, d in item["details"])
+            if q and q not in full_text.lower():
+                continue
+
+            matched += 1
+            card = tk.Frame(
+                self.playbook_container,
+                bg=self._t("panel", "#1e1e1e"),
+                relief="solid",
+                bd=1,
+                padx=16,
+                pady=12
+            )
+            card.pack(fill="x", padx=8, pady=6)
+
+            top = tk.Frame(card, bg=self._t("panel", "#1e1e1e"))
+            top.pack(fill="x")
+
+            tk.Label(
+                top,
+                text=f"{item['icon']} {item['step']}",
+                font=FONT_TITLE,
+                bg=self._t("panel", "#1e1e1e"),
+                fg=self._t("accent", "#38bdf8")
+            ).pack(side="left")
+
+            tk.Label(
+                card,
+                text=item["summary"],
+                font=FONT_BOLD,
+                bg=self._t("panel", "#1e1e1e"),
+                fg=self._t("text", "#f8fafc")
+            ).pack(anchor="w", pady=(4, 6))
+
+            det_box = tk.Frame(card, bg=self._t("entry_bg", "#262626"), padx=12, pady=8, relief="flat")
+            det_box.pack(fill="x")
+
+            for sub_title, sub_desc in item["details"]:
+                row = tk.Frame(det_box, bg=self._t("entry_bg", "#262626"), pady=3)
+                row.pack(fill="x")
+                tk.Label(
+                    row,
+                    text=f"• {sub_title}:",
+                    font=FONT_BOLD,
+                    bg=self._t("entry_bg", "#262626"),
+                    fg=self._t("accent", "#38bdf8"),
+                    width=22,
+                    anchor="w"
+                ).pack(side="left")
+                tk.Label(
+                    row,
+                    text=sub_desc,
+                    font=FONT_NORM,
+                    bg=self._t("entry_bg", "#262626"),
+                    fg=self._t("text", "#f8fafc"),
+                    justify="left",
+                    wraplength=660
+                ).pack(side="left", fill="x", expand=True)
+
+        if matched == 0:
+            tk.Label(
+                self.playbook_container,
+                text=f"No operational steps matching '{query}'.",
+                font=FONT_HEADING,
+                bg=self._t("bg", "#121212"),
+                fg=self._t("subtext", "#94a3b8"),
+                pady=40
+            ).pack()
+
+    # ── Tab 4: Threat Signals & Acronyms ──
     def _populate_glossary_tab(self):
         self.glossary_container, self.glossary_canvas = self._create_scrollable_container(self.tab_glossary)
         self._render_glossary_cards()
@@ -680,9 +849,10 @@ class FieldGuideModal(tk.Toplevel):
 
     def _on_search_changed(self, *args):
         query = self.search_var.get()
-        self._render_glossary_cards(query)
-        self._render_syntax_cards(query)
+        self._render_playbook_cards(query)
         self._render_tools_cards(query)
+        self._render_syntax_cards(query)
+        self._render_glossary_cards(query)
 
     def _build_footer(self):
         ftr = tk.Frame(self, bg=self._t("panel", "#1e1e1e"), padx=14, pady=8)

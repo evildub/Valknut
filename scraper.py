@@ -405,9 +405,9 @@ class EbayScraper:
                         self.is_bot_challenge = True
                         self.blocked_store_name = seller_label
                         self.blocked_store_url = url
-                        self.last_scrape_warning = f"⚠️ [IP THROTTLE / BOT CHALLENGE] eBay returned a security rate-limit / CAPTCHA challenge on '{seller_label}' — zero results returned due to IP block, not empty inventory."
+                        self.last_scrape_warning = f"⚠ [IP THROTTLE / BOT CHALLENGE] eBay returned a security rate-limit / CAPTCHA challenge on '{seller_label}' — zero results returned due to IP block, not empty inventory."
                     elif any(t in html_low for t in ("error page | ebay", "does not exist", "store not found", "seller not found", "we looked everywhere")):
-                        self.last_scrape_warning = f"ℹ️ Store/Seller '{seller_label}' returned 0 results or store was not found on eBay."
+                        self.last_scrape_warning = f"ℹ Store/Seller '{seller_label}' returned 0 results or store was not found on eBay."
                     else:
                         self.last_scrape_warning = ""
                 else:
@@ -710,8 +710,8 @@ class EbayScraper:
                 title = title.replace("Opens in a new window or tab", "").strip()
             if title.startswith("New Listing"):
                 title = title.replace("New Listing", "", 1).strip()
-            # Clean eBay inline vehicle compatibility tags like (For: Chevrolet) or (Fits: ...)
-            title = re.sub(r'\s*\((?:For|Fits):\s*[^)]+\)\s*$', '', title, flags=re.IGNORECASE).strip()
+            # Clean surgical eBay inline vehicle compatibility tags ONLY at the very end in parentheses
+            title = re.sub(r'\s*\((?:For|Fits|Compatible with|Fits for):\s*[^)]+\)\s*$', '', title, flags=re.IGNORECASE).strip()
 
             # 3. Price
             price_el = (
@@ -722,7 +722,7 @@ class EbayScraper:
             )
             price = price_el.get_text(strip=True) if price_el else ""
 
-            # 4. Thumbnail Image URL Extraction
+            # 4. Thumbnail Image URL & Authoritative Title Extraction
             img_url = ""
             img_el = (
                 card.select_one('img[src*="ebayimg.com"]') or
@@ -733,6 +733,12 @@ class EbayScraper:
                 card.select_one("img")
             )
             if img_el:
+                # If img_el has a clean, original seller title in alt, prefer it over eBay's modified card span
+                alt_txt = (img_el.get("alt") or "").strip()
+                if len(alt_txt) >= 8 and not alt_txt.lower().startswith(("opens in", "item", "product", "image", "thumbnail")):
+                    if title.startswith(alt_txt) or "(for:" in title.lower() or "(fits:" in title.lower():
+                        title = alt_txt
+
                 candidates = [
                     img_el.get("data-src"),
                     img_el.get("data-lazy"),
@@ -989,8 +995,13 @@ class EbayScraper:
                         if (m && !seen.has(m[1])) {
                             seen.add(m[1]);
                             const card = a.closest('li, div[class*="item"], div[class*="card"], div[class*="merch"], div[class*="carousel"], div[class*="slider"]') || a.parentElement;
+                            const imgEl = card ? card.querySelector('img') : a.querySelector('img');
+                            const imgAlt = imgEl ? (imgEl.getAttribute('alt') || '').trim() : '';
+
                             let title = '';
-                            if (a.innerText && a.innerText.trim().length > 5) {
+                            if (imgAlt && imgAlt.length >= 8 && !imgAlt.toLowerCase().startsWith('opens in') && !imgAlt.toLowerCase().startsWith('item') && !imgAlt.toLowerCase().startsWith('image')) {
+                                title = imgAlt;
+                            } else if (a.innerText && a.innerText.trim().length > 5) {
                                 title = a.innerText.trim();
                             } else if (a.getAttribute('title')) {
                                 title = a.getAttribute('title').trim();
@@ -1000,10 +1011,14 @@ class EbayScraper:
                                 const tEl = card.querySelector('h3, [class*="title"], [class*="desc"], [class*="text"], span');
                                 if (tEl) title = tEl.innerText.trim();
                             }
+                            if (title.startsWith("New Listing")) title = title.replace("New Listing", "").trim();
+                            if (title.includes("Opens in a new window")) title = title.replace(/Opens in a new window.*/i, "").trim();
+                            // Surgically strip ONLY parenthetical compatibility suffixes at the very end
+                            title = title.replace(/\\s*\\((?:For|Fits|Fits for|Compatible with|Replacement for):\\s*[^)]+\\)\\s*$/i, '').trim();
+
                             if (!title) title = 'Discovered Listing ' + m[1];
                             
                             let img = '';
-                            const imgEl = card ? card.querySelector('img') : a.querySelector('img');
                             if (imgEl) {
                                 img = imgEl.getAttribute('data-defer-src') || 
                                       imgEl.getAttribute('data-highres-src') || 
@@ -1100,7 +1115,7 @@ class EbayScraper:
                                 elif dist_val <= 8:
                                     sim_label = "🔍 Near-Exact Photo (~90%)"
                                 elif dist_val <= 14:
-                                    sim_label = "🖼️ High Visual Similarity (~75%)"
+                                    sim_label = "🖼 High Visual Similarity (~75%)"
                                 elif dist_val <= 20:
                                     sim_label = "📷 Similar Photo Theme"
                         except Exception:
@@ -1203,7 +1218,7 @@ class EbayScraper:
         if not seller_handle or seller_handle in ("Unknown", "Resolving..."):
             return {"seller": seller_handle, "country": "Unknown", "member_since": ""}
 
-        clean = str(seller_handle).replace("🛡️", "").replace("(Authorized)", "").strip()
+        clean = str(seller_handle).replace("🛡", "").replace("(Authorized)", "").strip()
         if "/str/" in clean or "/usr/" in clean:
             clean = clean.split("/str/")[-1].split("/usr/")[-1].split("?")[0].split("/")[0].strip()
 
@@ -1352,6 +1367,9 @@ class EbayScraper:
                 s = res.get("seller", "")
                 if s and s != "eBay Seller":
                     item["seller"] = s
+                    c_info = self.resolve_seller_country(s)
+                    if c_info and c_info.get("country") and c_info["country"] != "Unknown":
+                        item["seller_origin"] = c_info["country"]
                 if res.get("price") and item.get("price") in ("$0.00", "", None):
                     item["price"] = res["price"]
                 if res.get("location") and not item.get("location"):

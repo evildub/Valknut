@@ -278,7 +278,7 @@ class MercadoLibreScraper:
             # 2. Captcha Wall Handling
             if "captcha/wall" in cur_url or "seguridad" in cur_title:
                 if not self.headless:
-                    log_func("⚠️ [Mercado Libre] Security captcha challenge presented. Please solve the captcha in the browser window...")
+                    log_func("⚠ [Mercado Libre] Security captcha challenge presented. Please solve the captcha in the browser window...")
                     for sec in range(45):
                         cur_url = page.url.lower()
                         cur_title = page.title().lower()
@@ -288,7 +288,7 @@ class MercadoLibreScraper:
                             break
                         page.wait_for_timeout(1000)
                 else:
-                    log_func("⚠️ [Mercado Libre] Security verification prompt (reCAPTCHA wall) active.")
+                    log_func("⚠ [Mercado Libre] Security verification prompt (reCAPTCHA wall) active.")
                     log_func("💡 Tip: Toggle off '👻 Stealth Mode' in top bar to solve once and store trust cookies.")
                     for sec in range(6):
                         cur_url = page.url.lower()
@@ -346,7 +346,7 @@ class MercadoLibreScraper:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
                     page.wait_for_timeout(3000)
                 except Exception as ex:
-                    log_func(f"⚠️ Search navigation after login: {ex}")
+                    log_func(f"⚠ Search navigation after login: {ex}")
 
             # 4. Check if listing cards are present on page
             cards_count = page.evaluate("""() => {
@@ -427,7 +427,7 @@ class MercadoLibreScraper:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
                     page.wait_for_timeout(2500)
                 except Exception as ex:
-                    _log(f"⚠️ Page load timeout on Mercado Libre: {ex}")
+                    _log(f"⚠ Page load timeout on Mercado Libre: {ex}")
 
                 # Ensure page has cleared security challenge, login redirects, and reached search results
                 self._ensure_search_page_loaded(page, target_url, _log)
@@ -483,7 +483,7 @@ class MercadoLibreScraper:
                 """)
 
                 if not page_items:
-                    _log(f"ℹ️ [Mercado Libre] No additional listing cards found on page {page_num}.")
+                    _log(f"ℹ [Mercado Libre] No additional listing cards found on page {page_num}.")
                     break
 
                 new_count = 0
@@ -907,7 +907,7 @@ class MercadoLibreScraper:
                         if (secTitle.toLowerCase().includes('vendedor')) {
                             secType = '🏪 Seller\\'s Other Products';
                         } else if (secTitle.toLowerCase().includes('opciones de compra') || secTitle.toLowerCase().includes('otras opciones')) {
-                            secType = '⚔️ Buy Box Competitor';
+                            secType = '⚔ Buy Box Competitor';
                         } else if (secTitle.toLowerCase().includes('vieron') || secTitle.toLowerCase().includes('compraron')) {
                             secType = '👥 Customers Also Viewed';
                         }

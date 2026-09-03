@@ -90,9 +90,9 @@ class TemuScraper:
         return items
 
     def _build_search_url(self, store_info: dict, keyword: str, page: int = 1) -> str:
-        """Construct the search URL on Temu.com."""
+        """Construct the organic search URL on Temu.com."""
         enc_kw = quote_plus(keyword)
-        return f"https://www.temu.com/search_result.html?search_key={enc_kw}"
+        return f"https://www.temu.com/search_result.html?search_key={enc_kw}&search_method=user&refer_page_el_sn=200010"
 
     def _search_via_playwright(self, store_info: dict,
                                include_term: str, excludes: list[str],
@@ -595,3 +595,46 @@ class TemuScraper:
                     pass
 
         return items
+
+    def launch_interactive_auth(self):
+        """Launch visible Edge browser session for user to dismiss Temu login/guest wall and save persistent profile."""
+        with sync_playwright() as p:
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--start-maximized",
+                "--no-sandbox"
+            ]
+            try:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=self.profile_dir,
+                    channel="msedge",
+                    headless=False,
+                    args=launch_args,
+                    locale="en-US"
+                )
+            except Exception:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=self.profile_dir,
+                    headless=False,
+                    args=launch_args,
+                    locale="en-US"
+                )
+            page = context.pages[0] if context.pages else context.new_page()
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+            """)
+            page.goto("https://www.temu.com", wait_until="domcontentloaded", timeout=60000)
+            
+            # Keep browser alive until user manually closes the window
+            while True:
+                try:
+                    if not context.pages or all(pg.is_closed() for pg in context.pages):
+                        break
+                    time.sleep(1)
+                except Exception:
+                    break
+            try:
+                context.close()
+            except Exception:
+                pass

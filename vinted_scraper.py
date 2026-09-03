@@ -139,6 +139,34 @@ class VintedScraper:
             logger.debug(f"Error loading saved Vinted cookies: {e}")
             return 0
 
+    def _refresh_session_token(self, domain: Optional[str] = None):
+        """Force clean session recreation and homepage visit to refresh expired Vinted auth tokens."""
+        dom = domain or self.get_active_domain()
+        if HAS_CURL_CFFI:
+            session = curl_requests.Session(impersonate="chrome124")
+        else:
+            session = curl_requests.Session()
+        session.headers.update({
+            "User-Agent": DEFAULT_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+            "Upgrade-Insecure-Requests": "1",
+        })
+        try:
+            session.get(f"https://www.{dom}", timeout=12)
+        except Exception:
+            pass
+        session.headers.update({
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"https://www.{dom}/catalog",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        })
+        self._sessions[dom] = session
+        self._warmed_domains.add(dom)
+        return session
+
     def _warmup_session(self, domain: Optional[str] = None):
         """Visit home page to generate valid anonymous session cookies (__cf_bm, anon_id, v_udt)."""
         dom = domain or self.get_active_domain()
@@ -307,9 +335,14 @@ class VintedScraper:
                 resp = session.get(api_url, params=params, headers=headers, timeout=15)
 
                 if resp.status_code in (401, 403):
-                    if dom != "vinted.co.uk":
-                        _log(f"⚠️ {dom} challenged. Seamlessly routing search through Global Vinted gateway...")
-                        s_uk = self._get_session(domain="vinted.co.uk")
+                    _log(f"⚠ Vinted authentication expired on {dom} (HTTP {resp.status_code}). Regenerating fresh session token...")
+                    session = self._refresh_session_token(domain=dom)
+                    headers["Referer"] = f"https://www.{dom}/catalog" if not is_seller else f"https://www.{dom}/member/{user_id}"
+                    resp = session.get(api_url, params=params, headers=headers, timeout=15)
+
+                    if resp.status_code in (401, 403) and dom != "vinted.co.uk":
+                        _log(f"⚠ Re-routing search through Global Vinted gateway (vinted.co.uk)...")
+                        s_uk = self._refresh_session_token(domain="vinted.co.uk")
                         headers_uk = {
                             "Referer": "https://www.vinted.co.uk/catalog" if not is_seller else f"https://www.vinted.co.uk/member/{user_id}",
                         }
@@ -317,13 +350,13 @@ class VintedScraper:
                         resp = s_uk.get(api_url_uk, params=params, headers=headers_uk, timeout=15)
 
                 if resp.status_code != 200:
-                    _log(f"⚠️ Vinted API returned HTTP {resp.status_code} on page {page_num}.", error=True)
+                    _log(f"⚠ Vinted API returned HTTP {resp.status_code} on page {page_num}.", error=True)
                     break
 
                 data = resp.json()
                 raw_items = data.get("items", [])
                 if not raw_items:
-                    _log(f"ℹ️ Reached end of listings on page {page_num}.")
+                    _log(f"ℹ Reached end of listings on page {page_num}.")
                     break
 
                 page_matched = 0
@@ -397,7 +430,7 @@ class VintedScraper:
                         threat_badge = "🚨 NWT Counterfeit Risk (High)"
                         threat_score = 90
                     elif is_nwt:
-                        threat_badge = "⚠️ NWT Luxury / Streetwear"
+                        threat_badge = "⚠ NWT Luxury / Streetwear"
                         threat_score = 75
                     elif is_burner_handle:
                         threat_badge = "🚩 Suspicious Burner Handle"
@@ -436,7 +469,7 @@ class VintedScraper:
                 time.sleep(random.uniform(0.6, 1.2))
 
             except Exception as e:
-                _log(f"⚠️ Error fetching Vinted page {page_num}: {e}", error=True)
+                _log(f"⚠ Error fetching Vinted page {page_num}: {e}", error=True)
                 break
 
         _log(f"🏁 Vinted harvest complete! Total verified listings harvested: {len(all_items)}")
@@ -493,7 +526,7 @@ class VintedScraper:
                         seen_all_ids.add(it["item_id"])
                         all_multi_items.append(it)
             except Exception as e:
-                _log(f"⚠️ Error scanning region {reg}: {e}", error=True)
+                _log(f"⚠ Error scanning region {reg}: {e}", error=True)
 
         _log(f"🏁 [Vinted Multi-Region Sweep Complete] Harvested {len(all_multi_items)} listings across all {len(target_regions)} locales!")
         return all_multi_items

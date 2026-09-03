@@ -301,8 +301,65 @@ class AliExpressScraper:
                         let seller = '';
 
                         if (card) {
-                            const imgEl = card.querySelector('img');
-                            if (imgEl) img = imgEl.src || imgEl.getAttribute('data-src') || '';
+                            // Prioritize product gallery containers and video posters
+                            const mainImg = card.querySelector('.image-view-v2--previewBox img, .magnifier--image, [class*="product-img"] img, [class*="gallery"] img, [class*="main-image"] img, img.s-item__image-img');
+                            const videoPoster = card.querySelector('video[poster]');
+                            if (videoPoster && videoPoster.getAttribute('poster')) {
+                                img = videoPoster.getAttribute('poster');
+                            } else if (mainImg && (mainImg.src || mainImg.getAttribute('data-src'))) {
+                                const mSrc = mainImg.src || mainImg.getAttribute('data-src') || '';
+                                if (mSrc && !mSrc.toLowerCase().endsWith('.png') && !mSrc.toLowerCase().includes('.png')) {
+                                    img = mSrc;
+                                }
+                            }
+
+                            if (!img) {
+                                const allImgs = Array.from(card.querySelectorAll('img'));
+                                for (const im of allImgs) {
+                                    const src = im.src || im.getAttribute('data-src') || '';
+                                    const alt = (im.alt || '').toLowerCase();
+                                    const cls = (im.className || '').toLowerCase();
+                                    const lowSrc = src.toLowerCase();
+                                    const isBadge = lowSrc.includes('cross-border') || 
+                                                    lowSrc.includes('service-commitment') || 
+                                                    lowSrc.includes('service_commitment') ||
+                                                    lowSrc.includes('brand-logo') || 
+                                                    lowSrc.includes('badge') || 
+                                                    lowSrc.includes('icon') || 
+                                                    lowSrc.includes('banner') || 
+                                                    lowSrc.includes('choice') || 
+                                                    lowSrc.includes('sale') || 
+                                                    lowSrc.includes('promotion') || 
+                                                    lowSrc.endsWith('.svg') || 
+                                                    lowSrc.endsWith('.png') ||
+                                                    lowSrc.includes('.png') ||
+                                                    alt.includes('choice') || 
+                                                    alt.includes('top sale') || 
+                                                    alt.includes('sale') ||
+                                                    cls.includes('badge') || 
+                                                    cls.includes('service') || 
+                                                    cls.includes('commitment');
+                                    if (src && !isBadge) {
+                                        img = src;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!img && allImgs.length > 0) {
+                                for (const im of allImgs) {
+                                    const src = im.src || im.getAttribute('data-src') || '';
+                                    if (src && !src.includes('cross-border') && !src.includes('service-commitment') && !src.endsWith('.svg') && !src.endsWith('.png')) {
+                                        img = src;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (img) {
+                                img = img.replace(/\\.jpg_[^?#]+/i, '.jpg')
+                                         .replace(/\\.png_[^?#]+/i, '.png')
+                                         .replace(/_\\.avif$/i, '')
+                                         .replace(/_\\.webp$/i, '');
+                            }
                             
                             const priceEl = card.querySelector('div[class*="price"], span[class*="price"], div[class*="sale"]');
                             if (priceEl) price = priceEl.innerText.trim();
@@ -421,14 +478,28 @@ class AliExpressScraper:
             if any(ex in title_lower for ex in excludes):
                 continue
 
-            # 3. Image extraction
+            # 3. Image extraction (filter out promo badge icons)
             img_url = ""
             if card:
-                img_tag = card.find("img")
-                if img_tag:
-                    img_url = img_tag.get("src") or img_tag.get("data-src") or ""
-                    if img_url.startswith("//"):
-                        img_url = "https:" + img_url
+                for img_tag in card.find_all("img"):
+                    src = img_tag.get("src") or img_tag.get("data-src") or ""
+                    alt = (img_tag.get("alt") or "").lower()
+                    cls = " ".join(img_tag.get("class", [])).lower()
+                    low_src = src.lower()
+                    is_badge = any(k in low_src for k in ("cross-border", "service-commitment", "service_commitment", "brand-logo", "badge", "icon", "banner", ".svg", ".png", "logo", "choice", "sale", "promotion")) or \
+                               any(k in alt for k in ("choice", "top sale", "sale", "service", "commitment")) or \
+                               any(k in cls for k in ("badge", "service", "commitment"))
+                    if src and not is_badge:
+                        img_url = src
+                        break
+                if not img_url:
+                    for first_img in card.find_all("img"):
+                        cand = first_img.get("src") or first_img.get("data-src") or ""
+                        if cand and not any(k in cand.lower() for k in ("cross-border", "service-commitment", ".svg", ".png")):
+                            img_url = cand
+                            break
+                if img_url.startswith("//"):
+                    img_url = "https:" + img_url
 
             # 4. Per-card seller extraction
             card_seller = seller_label

@@ -24,10 +24,11 @@ class VisualCatalogModal(tk.Toplevel):
         self.photo_refs = []
         self.selected_card_ids = set()
         self.card_registry = {}
+        self._card_thumb_cache = {}
 
-        self.title("🖼️ Apollo Visual Packaging & Threat Intelligence Library")
-        self.geometry("960x700")
-        self.minsize(780, 540)
+        self.title("🖼 Apollo Visual Packaging & Threat Intelligence Library")
+        self.geometry("1180x760")
+        self.minsize(880, 580)
         self.configure(bg=self._t("bg", "#121212"))
         self.transient(master)
         self.grab_set()
@@ -35,7 +36,7 @@ class VisualCatalogModal(tk.Toplevel):
         if hasattr(master, "_apply_dark_titlebar"):
             master._apply_dark_titlebar(self)
 
-        self._center_window(960, 700)
+        self._center_window(1180, 760)
         self._build_ui()
         self._load_gallery()
 
@@ -64,7 +65,7 @@ class VisualCatalogModal(tk.Toplevel):
         lbl_box = tk.Frame(header, bg=panel_bg)
         lbl_box.pack(side="left")
 
-        tk.Label(lbl_box, text="🖼️ Visual Threat Intelligence Catalog", font=FONT_TITLE,
+        tk.Label(lbl_box, text="🖼 Visual Threat Intelligence Catalog", font=FONT_TITLE,
                  bg=panel_bg, fg=accent_color).pack(anchor="w")
         tk.Label(lbl_box, text="Multi-Hash Threat Clusters • Match Benign Packaging & Flag Counterfeit Photo Syndicates",
                  font=FONT_SM, bg=panel_bg, fg=subtext_color).pack(anchor="w")
@@ -101,7 +102,7 @@ class VisualCatalogModal(tk.Toplevel):
         tk.Label(tab_box, text="Filter:", font=FONT_BOLD, bg=panel_bg, fg=text_color).pack(side="left", padx=(0, 6))
         for text, val in [("📁 All", "all"), ("🟢 Benign Packaging", "benign"), ("🔴 Known Counterfeits", "counterfeit")]:
             rb = tk.Radiobutton(tab_box, text=text, value=val, variable=self.filter_var,
-                                font=FONT_NORM, bg=panel_bg, fg=text_color, selectcolor=bg_color,
+                                font=FONT_NORM, bg=panel_bg, fg=text_color, selectcolor=accent_color,
                                 activebackground=panel_bg, activeforeground=accent_color,
                                 command=self._load_gallery)
             rb.pack(side="left", padx=4)
@@ -258,7 +259,7 @@ class VisualCatalogModal(tk.Toplevel):
 
         # Selection Checkbox
         sel_var = tk.BooleanVar(value=is_selected)
-        chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=entry_bg,
+        chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=accent_color,
                              activebackground=panel_bg, command=lambda: self._toggle_card_selection(eid))
         chk.pack(side="left", padx=(0, 6))
 
@@ -274,13 +275,19 @@ class VisualCatalogModal(tk.Toplevel):
         tp = entry.get("thumb_path", "")
         photo = None
         if tp and os.path.exists(tp):
-            try:
-                pimg = Image.open(tp).convert("RGBA")
-                pimg.thumbnail((sz, sz), Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(pimg)
+            cache_key = (sz, tp)
+            if cache_key in self._card_thumb_cache:
+                photo = self._card_thumb_cache[cache_key]
                 self.photo_refs.append(photo)
-            except Exception:
-                pass
+            else:
+                try:
+                    pimg = Image.open(tp).convert("RGBA")
+                    pimg.thumbnail((sz, sz), Image.Resampling.BILINEAR)
+                    photo = ImageTk.PhotoImage(pimg)
+                    self._card_thumb_cache[cache_key] = photo
+                    self.photo_refs.append(photo)
+                except Exception:
+                    pass
 
         img_lbl = tk.Label(card, image=photo if photo else "", text="[No Photo]" if not photo else "",
                            bg=entry_bg, width=sz, height=sz, cursor="hand2")
@@ -385,6 +392,14 @@ class VisualCatalogModal(tk.Toplevel):
         canv.configure(yscrollcommand=sb.set)
         canv.pack(side="left", fill="both", expand=True)
         sb.pack(side="right", fill="y")
+
+        def _on_wheel(e):
+            try:
+                canv.yview_scroll(int(-1 * (e.delta / 120)), "units")
+            except Exception:
+                pass
+        canv.bind_all("<MouseWheel>", _on_wheel)
+        win.bind("<Destroy>", lambda e: canv.unbind_all("<MouseWheel>"))
 
         col = 0
         row = 0
@@ -597,10 +612,10 @@ class VisualCatalogModal(tk.Toplevel):
 
         tk.Radiobutton(type_frame, text="🟢 Known Benign Packaging (Filter Out)", value="benign", variable=type_var,
                        font=FONT_NORM, bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff"),
-                       selectcolor=self._t("entry_bg", "#1a1a1a")).pack(anchor="w")
+                       selectcolor=self._t("accent", "#f59e0b")).pack(anchor="w")
         tk.Radiobutton(type_frame, text="🔴 Known Counterfeit Photo (High Threat)", value="counterfeit", variable=type_var,
                        font=FONT_NORM, bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff"),
-                       selectcolor=self._t("entry_bg", "#1a1a1a")).pack(anchor="w")
+                       selectcolor=self._t("accent", "#f59e0b")).pack(anchor="w")
 
         # Label Field
         tk.Label(dlg, text="Packaging / Asset Label:", font=FONT_BOLD,

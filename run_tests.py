@@ -425,7 +425,7 @@ class TestApolloCoreFeatures(unittest.TestCase):
 
         # 2. India seller shipping directly from India -> Cross-Border Direct
         res_direct = self.data_store.compute_threat_assessment(origin="India", location="New Delhi, India")
-        self.assertEqual(res_direct["badge"], "⚠️ Cross-Border Direct")
+        self.assertEqual(res_direct["badge"], "⚠ Cross-Border Direct")
         self.assertTrue(res_direct["is_high_risk"])
         self.assertFalse(res_direct["is_3pl_hub"])
 

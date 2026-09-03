@@ -98,7 +98,7 @@ def git_commit_and_push(version_tag, message=""):
         subprocess.run(["git", "push", "-u", "origin", "main"], cwd=TOOL_DIR, check=True)
         print("  ✓ Pushed source to GitHub origin/main.")
     except Exception as e:
-        print(f"⚠️ Git sync notice: {e}")
+        print(f"⚠ Git sync notice: {e}")
 
 def publish_github_release(version_tag, zip_paths, title="", notes=""):
     """Publish a release to GitHub with the attached zip files."""
@@ -125,7 +125,7 @@ def publish_github_release(version_tag, zip_paths, title="", notes=""):
         print(res.stdout.strip())
     except subprocess.CalledProcessError as e:
         if "already exists" in e.stderr.lower():
-            print(f"ℹ️ Release {version_tag} already exists. Uploading zip assets...")
+            print(f"ℹ Release {version_tag} already exists. Uploading zip assets...")
             for zp in zip_paths:
                 up_cmd = [GH_PATH, "release", "upload", version_tag, zp, "--clobber"]
                 subprocess.run(up_cmd, cwd=TOOL_DIR, check=True)
@@ -151,7 +151,7 @@ def main():
             notes_content = f.read()
 
     print("==================================================")
-    print(f"☀️ APOLLO AUTOMATED RELEASE ENGINE — {tag}")
+    print(f"☀ APOLLO AUTOMATED RELEASE ENGINE — {tag}")
     print("==================================================")
 
     if not args.skip_git:

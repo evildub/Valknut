@@ -329,33 +329,50 @@ class TikTokScraper:
                     context = p.chromium.launch_persistent_context(self.profile_dir, **launch_kwargs)
                     page = context.pages[0] if context.pages else context.new_page()
                     
-                    search_url = f"https://shop.tiktok.com/us/search?q={urllib.parse.quote_plus(query)}"
-                    page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
-                    time.sleep(2.5)
+                    target_search_url = f"https://shop.tiktok.com/us/s?q={urllib.parse.quote_plus(query)}&source=ecommerce_mall&enter_method=search"
+                    page.goto(target_search_url, wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(3.0)
 
-                    for _ in range(3):
+                    for _ in range(4):
                         if stop_event and stop_event.is_set(): break
-                        page.evaluate("window.scrollBy(0, 1000)")
+                        page.evaluate("window.scrollBy(0, 1200)")
                         time.sleep(0.8)
 
-                    html = page.content()
-                    soup = BeautifulSoup(html, "html.parser")
-                    
-                    seen_pdp = set()
-                    for a in soup.select('a[href*="/pdp/"]'):
-                        href = a.get("href", "")
-                        if not href: continue
-                        if not href.startswith("http"):
-                            href = urllib.parse.urljoin("https://shop.tiktok.com", href)
-                        
-                        m_id = re.search(r'/pdp/(?:[^/]+/)?(\d{15,25})', href)
-                        p_id = m_id.group(1) if m_id else href
-                        if p_id in seen_pdp: continue
-                        seen_pdp.add(p_id)
+                    raw_cards = page.evaluate("""() => {
+                        const res = [];
+                        const seen = new Set();
+                        document.querySelectorAll('a').forEach(a => {
+                            const href = a.href || '';
+                            const m = href.match(/\\/pdp\\/(?:[^/]+\\/)?(\\d{15,25})/) || href.match(/\\/product\\/(\\d{15,25})/) || href.match(/(\\d{17,21})/);
+                            if (m && !seen.has(m[1]) && !href.includes('campaign') && !href.includes('seller-us') && !href.includes('account')) {
+                                seen.add(m[1]);
+                                let title = a.innerText.trim();
+                                if (!title) {
+                                    const h = a.querySelector('h1, h2, h3, [class*="title"], [class*="name"]');
+                                    if (h) title = h.innerText.trim();
+                                }
+                                let imgUrl = '';
+                                let p = a;
+                                for (let i = 0; i < 5; i++) {
+                                    if (!p) break;
+                                    const im = p.querySelector('img');
+                                    if (im && (im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src'))) {
+                                        imgUrl = im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src');
+                                        break;
+                                    }
+                                    p = p.parentElement;
+                                }
+                                res.push({id: m[1], url: href, title: title, image_url: imgUrl});
+                            }
+                        });
+                        return res;
+                    }""")
 
-                        title = a.get_text(strip=True) or f"TikTok Product {p_id}"
-                        img = a.select_one("img")
-                        img_url = img.get("src") or img.get("data-src") if img else ""
+                    for rc in raw_cards:
+                        p_id = rc.get("id")
+                        title = rc.get("title") or f"TikTok Product {p_id}"
+                        href = rc.get("url")
+                        img_url = rc.get("image_url", "")
 
                         items.append({
                             "title": title,
