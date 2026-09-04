@@ -339,7 +339,7 @@ class ExcelExporter:
                         locale_url = f"https://{domain}/{item_id}"
                     else:
                         locale_url = f"https://www.{domain}/articulo/{item_id}"
-                elif domain in ("cafr.ebay.ca", "befr.ebay.be", "benl.ebay.be"):
+                elif domain == "cafr.ebay.ca":
                     locale_url = f"https://{domain}/itm/{item_id}"
                 else:
                     locale_url = f"https://www.{domain}/itm/{item_id}"

@@ -30,8 +30,6 @@ class VisualCatalogModal(tk.Toplevel):
         self.geometry("1180x760")
         self.minsize(880, 580)
         self.configure(bg=self._t("bg", "#121212"))
-        self.transient(master)
-        self.grab_set()
 
         if hasattr(master, "_apply_dark_titlebar"):
             master._apply_dark_titlebar(self)
@@ -45,8 +43,20 @@ class VisualCatalogModal(tk.Toplevel):
 
     def _center_window(self, width, height):
         self.update_idletasks()
-        x = (self.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.winfo_screenheight() // 2) - (height // 2)
+        try:
+            m_x = self.master.winfo_rootx()
+            m_y = self.master.winfo_rooty()
+            m_w = self.master.winfo_width()
+            m_h = self.master.winfo_height()
+            if m_w > 100 and m_h > 100:
+                x = m_x + (m_w - width) // 2
+                y = m_y + (m_h - height) // 2
+            else:
+                x = m_x + 20
+                y = m_y + 20
+        except Exception:
+            x = (self.winfo_screenwidth() // 2) - (width // 2)
+            y = (self.winfo_screenheight() // 2) - (height // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _build_ui(self):
@@ -94,18 +104,43 @@ class VisualCatalogModal(tk.Toplevel):
         ctrl_bar = tk.Frame(self, bg=panel_bg, padx=14, pady=8, bd=1, relief="solid")
         ctrl_bar.pack(fill="x", side="top", pady=(1, 0))
 
-        # Filter Tabs
-        self.filter_var = tk.StringVar(value="all")
+        # Filter Tabs (Segmented Button Bar)
+        self.filter_var = tk.StringVar(value="counterfeit")
         tab_box = tk.Frame(ctrl_bar, bg=panel_bg)
         tab_box.pack(side="left")
 
         tk.Label(tab_box, text="Filter:", font=FONT_BOLD, bg=panel_bg, fg=text_color).pack(side="left", padx=(0, 6))
-        for text, val in [("📁 All", "all"), ("🟢 Benign Packaging", "benign"), ("🔴 Known Counterfeits", "counterfeit")]:
-            rb = tk.Radiobutton(tab_box, text=text, value=val, variable=self.filter_var,
-                                font=FONT_NORM, bg=panel_bg, fg=text_color, selectcolor=accent_color,
-                                activebackground=panel_bg, activeforeground=accent_color,
-                                command=self._load_gallery)
-            rb.pack(side="left", padx=4)
+
+        self.filter_btns = {}
+        filter_options = [
+            ("📁 All", "all"),
+            ("🟢 Benign Packaging", "benign"),
+            ("🔴 Known Counterfeits", "counterfeit")
+        ]
+
+        def _on_filter_click(val):
+            self.filter_var.set(val)
+            self._update_filter_btn_styles()
+            self._load_gallery()
+
+        self._on_filter_click = _on_filter_click
+
+        for text, val in filter_options:
+            btn = tk.Button(
+                tab_box,
+                text=text,
+                font=FONT_BOLD if val == self.filter_var.get() else FONT_NORM,
+                relief="flat",
+                bd=0,
+                padx=10,
+                pady=3,
+                cursor="hand2",
+                command=lambda v=val: _on_filter_click(v)
+            )
+            btn.pack(side="left", padx=2)
+            self.filter_btns[val] = btn
+
+        self._update_filter_btn_styles()
 
         # Sort Dropdown
         sort_box = tk.Frame(ctrl_bar, bg=panel_bg)
@@ -157,6 +192,28 @@ class VisualCatalogModal(tk.Toplevel):
         self.vsb.pack(side="right", fill="y")
 
         self.bind("<MouseWheel>", self._on_mousewheel)
+
+    def _update_filter_btn_styles(self):
+        cur_val = self.filter_var.get()
+        accent_color = self.theme.get("accent", "#38bdf8")
+        entry_bg = self.theme.get("entry_bg", "#262626")
+        text_color = self.theme.get("text", "#ffffff")
+        subtext = self.theme.get("subtext", "#888888")
+        is_gold = str(self.theme.get("name", "")).startswith("⚡")
+
+        for val, btn in getattr(self, "filter_btns", {}).items():
+            if val == cur_val:
+                btn.configure(
+                    bg=accent_color,
+                    fg="black" if is_gold else "white",
+                    font=FONT_BOLD
+                )
+            else:
+                btn.configure(
+                    bg=entry_bg,
+                    fg=subtext,
+                    font=FONT_NORM
+                )
 
     def _on_slider_change(self, val):
         v = int(val)
@@ -504,7 +561,6 @@ class VisualCatalogModal(tk.Toplevel):
 
         label = entry.get("label", "Visual Search")
         if hasattr(self.master, "_reverse_visual_search_from_url"):
-            self.destroy()
             self.master._reverse_visual_search_from_url(source, label=label)
 
     def _delete_entry(self, entry_id):

@@ -64,14 +64,10 @@ class HoverTip:
         border_bg = t.get("border", "#334155")
 
         try:
-            x = self.widget.winfo_rootx() + 10
-            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+            x = self.widget.winfo_rootx() + 8
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
         except Exception:
             return
-
-        # Ensure tooltip does not render off-screen
-        screen_w = self.widget.winfo_screenwidth()
-        screen_h = self.widget.winfo_screenheight()
 
         self._tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
@@ -96,10 +92,22 @@ class HoverTip:
         w = tw.winfo_width()
         h = tw.winfo_height()
 
-        if x + w > screen_w - 10:
-            x = max(10, screen_w - w - 10)
-        if y + h > screen_h - 40:
-            y = max(10, self.widget.winfo_rooty() - h - 6)
+        # Multi-monitor safe boundary check using top-level window bounds
+        try:
+            top_win = self.widget.winfo_toplevel()
+            top_x = top_win.winfo_rootx()
+            top_y = top_win.winfo_rooty()
+            top_w = top_win.winfo_width()
+            top_h = top_win.winfo_height()
+
+            # If tooltip extends past right edge of parent window, align to right side of widget
+            if x + w > top_x + top_w:
+                x = max(top_x, self.widget.winfo_rootx() + self.widget.winfo_width() - w)
+            # If tooltip extends below bottom edge of parent window, display above widget
+            if y + h > top_y + top_h:
+                y = self.widget.winfo_rooty() - h - 4
+        except Exception:
+            pass
 
         tw.wm_geometry(f"+{x}+{y}")
 

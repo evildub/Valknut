@@ -64,12 +64,12 @@ class PrintervalScraper:
         return next((p for p in edge_paths if os.path.exists(p)), None)
 
     def _get_context(self):
-        """Initialize or return existing Playwright context with stealth evasions."""
+        """Initialize or return existing Playwright context with stealth evasions and persistent profile."""
         from playwright.sync_api import sync_playwright
         if self._pw is None:
             self._pw = sync_playwright().start()
 
-        if self._browser is None:
+        if self._context is None:
             edge_path = self._find_edge_path()
             args = [
                 "--disable-blink-features=AutomationControlled",
@@ -79,8 +79,12 @@ class PrintervalScraper:
             ]
 
             kwargs = {
+                "user_data_dir": self.profile_dir,
                 "headless": self.headless,
                 "args": args,
+                "viewport": {"width": 1366, "height": 850},
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "locale": "en-US",
             }
             if edge_path:
                 kwargs["executable_path"] = edge_path
@@ -88,18 +92,11 @@ class PrintervalScraper:
                 kwargs["channel"] = "msedge"
 
             try:
-                self._browser = self._pw.chromium.launch(**kwargs)
+                self._context = self._pw.chromium.launch_persistent_context(**kwargs)
             except Exception:
                 kwargs.pop("executable_path", None)
                 kwargs["channel"] = "msedge"
-                self._browser = self._pw.chromium.launch(**kwargs)
-
-        if self._context is None:
-            self._context = self._browser.new_context(
-                viewport={"width": 1366, "height": 850},
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-                locale="en-US",
-            )
+                self._context = self._pw.chromium.launch_persistent_context(**kwargs)
 
         return self._context
 
@@ -491,3 +488,206 @@ class PrintervalScraper:
                 self.close()
 
         return items
+
+    def expand_design_variants(self, items: List[Dict],
+                               existing_item_ids: Optional[set] = None,
+                               progress_callback=None,
+                               stop_event: threading.Event = None,
+                               log_callback=None) -> List[Dict]:
+        """
+        Dredge and harvest all Print-on-Demand (POD) design variants for given Printerval listings.
+        Each parent design listing can expand into 40-50+ real product listings
+        (Hoodies, Mugs, Stickers, Onesies, Tank Tops, House Flags, Baseball Caps, Blankets, Bags, etc.).
+        
+        Args:
+            items: List of parent design listing dicts to expand.
+            existing_item_ids: Optional set of already known item IDs to prevent duplicates.
+            progress_callback: Optional callable(current, total, new_variants_found, item)
+            stop_event: Optional threading.Event to abort early.
+            log_callback: Optional live logger callable.
+            
+        Returns:
+            List of newly discovered variant listing dicts.
+        """
+        def _log(msg):
+            if log_callback:
+                try: log_callback(msg)
+                except Exception: pass
+            logger.info(msg)
+
+        if not items:
+            return []
+
+        known_ids = set(existing_item_ids or set())
+        for it in items:
+            iid = str(it.get("item_id", "")).strip()
+            if iid:
+                known_ids.add(iid)
+
+        expanded_results = []
+        context = self._get_context()
+        page = context.pages[0] if context.pages else context.new_page()
+
+        page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            window.chrome = { runtime: {} };
+        """)
+
+        try:
+            total_parents = len(items)
+            for idx, parent in enumerate(items):
+                if stop_event and stop_event.is_set():
+                    _log("⏹ [Printerval] Variant expansion cancelled by user.")
+                    break
+
+                parent_id = str(parent.get("item_id", "")).strip()
+                raw_url = parent.get("url", "")
+                url = raw_url if raw_url.startswith("http") else f"https://printerval.com/product-p{parent_id}"
+                seller = parent.get("seller") or "Printerval Creator"
+                brand = parent.get("brand", "")
+                keyword = parent.get("keyword", "")
+
+                _log(f"👕 [Printerval] Expanding variants for [{idx+1}/{total_parents}]: '{parent.get('title', '')[:35]}...'")
+
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=25000)
+                    page.wait_for_timeout(2500)
+
+                    # Click 'See all items' if present to expand full catalog modal/drawer
+                    page.evaluate("""() => {
+                        const btn = document.querySelector('.show-more-also-available, .component-seemore');
+                        if (btn) {
+                            btn.scrollIntoView({behavior: 'smooth', block: 'center'});
+                            btn.click();
+                        } else {
+                            const spans = Array.from(document.querySelectorAll('a, span, button, div'));
+                            for (let s of spans) {
+                                if ((s.innerText || '').trim().toLowerCase() === 'see all items') {
+                                    s.scrollIntoView({behavior: 'smooth', block: 'center'});
+                                    s.click();
+                                    break;
+                                }
+                            }
+                        }
+                    }""")
+                    page.wait_for_timeout(2000)
+
+                    # Extract all variant links and metadata
+                    extracted_variants = page.evaluate("""(parentId) => {
+                        const items = [];
+                        const seen = new Set();
+                        
+                        const selectors = [
+                            '.tab-more-also-available-product a[href*="-p"]',
+                            '.tab-more-also-available-product-wrapper a[href*="-p"]',
+                            '.available-product-wrapper a[href*="-p"]',
+                            '.js-also-available-on-box a[href*="-p"]',
+                            'a.js-also-available-product',
+                            'a[href*="-p"]'
+                        ];
+                        
+                        const allElements = document.querySelectorAll(selectors.join(', '));
+                        for (let a of allElements) {
+                            const rawHref = a.href || '';
+                            const m = rawHref.match(/-p(\\d+)/);
+                            if (!m) continue;
+                            
+                            const vId = m[1];
+                            if (vId === parentId || seen.has(vId)) continue;
+                            seen.add(vId);
+                            
+                            const cleanUrl = rawHref.split('?')[0];
+                            
+                            // Text / Title
+                            let title = '';
+                            const titleEl = a.querySelector('[class*="title"], h3, h2, h4, span.title, p') || a;
+                            if (titleEl) {
+                                title = (titleEl.innerText || titleEl.getAttribute('title') || '').trim();
+                            }
+                            
+                            // Price
+                            let price = '';
+                            const parentEl = a.closest('div.item, div.product-item, div') || a;
+                            const priceEl = parentEl.querySelector('[class*="price"], .product-price-current, span');
+                            if (priceEl) {
+                                const mP = (priceEl.innerText || '').match(/\\$\\s*[\\d,]+(?:\\.\\d+)?/);
+                                if (mP) price = mP[0];
+                            }
+                            
+                            // Image
+                            let img = '';
+                            const imgEl = a.querySelector('img') || parentEl.querySelector('img');
+                            if (imgEl) {
+                                img = imgEl.currentSrc || imgEl.src || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-original') || '';
+                            }
+                            
+                            items.push({
+                                item_id: vId,
+                                url: cleanUrl,
+                                title: title,
+                                price: price,
+                                image_url: img
+                            });
+                        }
+                        return items;
+                    }""", parent_id)
+
+                    new_for_this_parent = 0
+                    for v in extracted_variants:
+                        v_id = str(v.get("item_id", "")).strip()
+                        if not v_id or v_id in known_ids:
+                            continue
+                        known_ids.add(v_id)
+
+                        u = v.get("url", "")
+                        slug = u.split("/")[-1].split("-p")[0]
+                        
+                        # Derive clean product type
+                        type_part = slug.split("-")[-1].title() if "-" in slug else "Merchandise"
+                        if len(type_part) <= 2:
+                            type_part = "Merchandise"
+
+                        v_title = v.get("title", "").replace("\n", " ").strip()
+                        if not v_title or len(v_title) < 4 or v_title.startswith("$") or v_title.lower().startswith("discover"):
+                            # Synthesize clean title from slug
+                            v_title = slug.replace("-", " ").title()
+
+                        price = v.get("price") or parent.get("price") or "$19.95"
+
+                        variant_item = {
+                            "brand": brand,
+                            "product_type": type_part,
+                            "title": v_title,
+                            "item_id": v_id,
+                            "price": price,
+                            "seller": seller,
+                            "location": "United States",
+                            "image_url": v.get("image_url", ""),
+                            "url": u,
+                            "marketplace": "Printerval",
+                            "condition": "New",
+                            "keyword": keyword
+                        }
+                        expanded_results.append(variant_item)
+                        new_for_this_parent += 1
+
+                    _log(f"  ✓ Harvested +{new_for_this_parent} POD product variants for '{parent.get('title', '')[:30]}...' (Total new: {len(expanded_results)})")
+
+                    if progress_callback:
+                        progress_callback(idx + 1, total_parents, len(expanded_results), parent)
+
+                except Exception as ex:
+                    _log(f"⚠ [Printerval] Error expanding variants for {url}: {ex}")
+
+                time.sleep(random.uniform(0.8, 1.5))
+
+        except Exception as e:
+            _log(f"❌ [Printerval] Error during variant expansion batch: {e}")
+            logger.exception("Printerval variant expansion failure")
+        finally:
+            if self.headless:
+                self.close()
+
+        _log(f"✅ [Printerval] Variant dredge complete: Added {len(expanded_results)} new POD listing URLs.")
+        return expanded_results
+

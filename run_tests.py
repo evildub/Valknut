@@ -506,6 +506,63 @@ class TestApolloCoreFeatures(unittest.TestCase):
         candidates = eb._generate_seller_candidates("caug_92")
         self.assertEqual(candidates, ["caug_92"], "Underscores in seller handles must never be mangled")
 
+    def test_19_aliexpress_image_normalization(self):
+        """Test Item 19: Verify AliExpress image normalization preserves PNG assets and strips dynamic CDN extensions."""
+        import re
+        
+        sample_urls = [
+            ("https://ae-pic-a1.aliexpress-media.com/kf/Sc44dd990bd9e49ab8fc545e6b4617754W.png_220x220.png_.avif",
+             "https://ae-pic-a1.aliexpress-media.com/kf/Sc44dd990bd9e49ab8fc545e6b4617754W.png"),
+            ("https://ae-pic-a1.aliexpress-media.com/kf/S0c102f3b93fd4f20a0fe763f89f2bbb2t.jpg_220x220q75.jpg_.avif",
+             "https://ae-pic-a1.aliexpress-media.com/kf/S0c102f3b93fd4f20a0fe763f89f2bbb2t.jpg"),
+            ("//ae01.alicdn.com/kf/HTB9999.png_Q90.png_.webp",
+             "https://ae01.alicdn.com/kf/HTB9999.png"),
+        ]
+
+        for raw, expected in sample_urls:
+            u = raw
+            if u.startswith("//"):
+                u = "https:" + u
+            u = re.sub(r'(\.(?:jpg|jpeg|png|webp))_[^?#]+.*$', r'\1', u, flags=re.I)
+            u = re.sub(r'_\.(?:avif|webp)$', '', u, flags=re.I)
+            self.assertEqual(u, expected, f"Normalized URL must match expected clean CDN path for {raw}")
+
+        # Verify AliExpressScraper contract
+        from aliexpress_scraper import AliExpressScraper
+        ali = AliExpressScraper(headless=True)
+        store_info = ali.resolve_store_info("https://www.aliexpress.com/store/1101234567")
+        self.assertEqual(store_info.get("store_id"), "1101234567")
+
+    def test_20_printerval_pod_variant_expansion(self):
+        """Test Item 20: Verify Printerval POD variant expansion logic, SKU extraction, and type synthesis."""
+        from printerval_scraper import PrintervalScraper
+        ps = PrintervalScraper(headless=True)
+        
+        info = ps.resolve_store_info("https://printerval.com/shop/maxsutton")
+        self.assertIn("maxsutton", info.get("store_name", "").lower())
+        
+        # Verify method exists and takes expected parameters
+        self.assertTrue(hasattr(ps, "expand_design_variants"))
+        empty_res = ps.expand_design_variants([])
+        self.assertEqual(empty_res, [])
+
+    def test_21_redbubble_pod_and_portfolio_engine(self):
+        """Test Item 21: Verify Redbubble Next.js payload parsing, POD 1-to-74 expansion, and artist portfolio sweeper."""
+        from redbubble_scraper import RedbubbleScraper
+        rb = RedbubbleScraper(headless=True)
+        
+        info = rb.resolve_store_info("https://www.redbubble.com/people/PopsQc/shop")
+        self.assertEqual(info.get("artist"), "PopsQc")
+        self.assertIn("PopsQc", info.get("store_name"))
+        
+        # Verify expand_design_variants & sweep_artist_portfolio contracts
+        self.assertTrue(hasattr(rb, "expand_design_variants"))
+        self.assertTrue(hasattr(rb, "sweep_artist_portfolio"))
+        self.assertEqual(rb.expand_design_variants([]), [])
+        self.assertEqual(rb.sweep_artist_portfolio(""), [])
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

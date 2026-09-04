@@ -31,6 +31,7 @@ class WishScraper:
         session persistence, smooth scroll harvesting, and client-side exclusion filtering.
         """
         self.headless = headless
+        self.max_items = 50
         self.profile_dir = os.path.join(tempfile.gettempdir(), "wish_harvester_profile")
 
     def resolve_store_info(self, raw_input: str) -> dict:
@@ -73,10 +74,11 @@ class WishScraper:
                exclude_terms: list[str] = None,
                condition: str = "all",
                stop_event: threading.Event = None,
-               pause_event: threading.Event = None) -> list[dict]:
+               pause_event: threading.Event = None,
+               max_items: int = None) -> list[dict]:
         """
         Search Wish.com catalog or merchant store for include_term, client-filtering exclude_terms.
-        Supports real-time pause and cancel events.
+        Supports real-time pause and cancel events and configurable item depth.
         """
         store_info = self.resolve_store_info(store_url)
         exclude_terms = [e.strip().lower() for e in (exclude_terms or []) if e.strip()]
@@ -88,7 +90,8 @@ class WishScraper:
             try:
                 items = self._search_via_playwright(
                     store_info, include_term, exclude_terms, condition, seen_ids,
-                    stop_event=stop_event, pause_event=pause_event
+                    stop_event=stop_event, pause_event=pause_event,
+                    max_items=max_items
                 )
                 if items or (stop_event and stop_event.is_set()):
                     return items
@@ -123,10 +126,12 @@ class WishScraper:
                                include_term: str, excludes: list[str],
                                condition: str, seen_ids: set,
                                stop_event: threading.Event = None,
-                               pause_event: threading.Event = None) -> list[dict]:
-        """Execute stealth Playwright browser scraping for Wish.com."""
+                               pause_event: threading.Event = None,
+                               max_items: int = None) -> list[dict]:
+        """Execute stealth Playwright browser scraping for Wish.com with configurable scroll depth."""
         items = []
         seller_label = store_info.get("store_name", "Wish Merchant")
+        target_count = max_items or getattr(self, "max_items", 50)
 
         with sync_playwright() as p:
             launch_args = [
@@ -179,16 +184,47 @@ class WishScraper:
                 except Exception:
                     pass
 
-                # Progressive scrolling to trigger infinite grid loading
-                for _ in range(5):
+                # Adaptive progressive scrolling based on target max_items
+                max_scroll_cycles = max(5, min(40, int(target_count / 4)))
+                consecutive_no_change = 0
+                last_count = 0
+
+                for _ in range(max_scroll_cycles):
                     if stop_event and stop_event.is_set():
                         break
-                    time.sleep(0.6)
+                    if pause_event:
+                        while pause_event.is_set():
+                            if stop_event and stop_event.is_set():
+                                break
+                            time.sleep(0.5)
+
+                    current_count = page.evaluate("""() => {
+                        const seen = new Set();
+                        document.querySelectorAll('a[href*="/product/"], a[href*="/c/"]').forEach(a => {
+                            const m = (a.href || '').match(/\\/(?:product|c)\\/([a-zA-Z0-9]+)/);
+                            if (m) seen.add(m[1]);
+                        });
+                        return seen.size;
+                    }""")
+
+                    if current_count >= target_count:
+                        break
+
+                    if current_count > 0 and current_count == last_count:
+                        consecutive_no_change += 1
+                        if consecutive_no_change >= 3:
+                            break
+                    else:
+                        consecutive_no_change = 0
+                    last_count = current_count
+
                     try:
-                        page.evaluate("window.scrollBy(0, 900)")
+                        page.evaluate("window.scrollBy(0, 1200)")
                     except Exception:
                         pass
-                time.sleep(1.0)
+                    time.sleep(0.7)
+
+                time.sleep(0.8)
 
                 html = page.content()
                 page_items = self._parse_html(html, seller_label, include_term, excludes)
@@ -202,6 +238,8 @@ class WishScraper:
                     if dedup_key and dedup_key not in seen_ids:
                         seen_ids.add(dedup_key)
                         items.append(it)
+                        if len(items) >= target_count:
+                            break
 
             finally:
                 try:
@@ -221,37 +259,48 @@ class WishScraper:
                     const seen = new Set();
 
                     links.forEach(a => {
-                        const href = a.href;
+                        const href = a.href || '';
                         const m = href.match(/\\/(?:product|c)\\/([a-zA-Z0-9]+)/);
                         if (!m) return;
                         const itemId = m[1];
                         if (seen.has(itemId)) return;
                         seen.add(itemId);
 
-                        const card = a.closest('div[class*="ProductGridItem"], div[class*="ProductCard"], div[class*="FeedItem"]') || a.parentElement;
+                        const card = a.closest('div[class*="ProductGridItem"], div[class*="ProductCard"], div[class*="FeedItem"], [data-testid*="product-card"]') || a.parentElement;
                         
-                        let title = a.innerText.trim() || '';
+                        let title = a.innerText.trim() || a.getAttribute('title') || '';
                         let img = '';
                         let price = '';
                         let seller = '';
 
                         if (card) {
                             const imgEl = card.querySelector('img');
-                            if (imgEl) img = imgEl.src || imgEl.getAttribute('data-src') || '';
-                            
-                            const priceEl = card.querySelector('div[class*="Price"], span[class*="Price"], div[class*="price"]');
+                            if (imgEl) {
+                                img = imgEl.currentSrc || imgEl.src || imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+                                if (!img && imgEl.srcset) {
+                                    const parts = imgEl.srcset.split(',');
+                                    if (parts.length > 0) img = parts[parts.length - 1].trim().split(' ')[0];
+                                }
+                            }
+                            if (!title) {
+                                const titleEl = card.querySelector('h1, h2, h3, div[class*="Title"], span[class*="Title"], [class*="product-title"]');
+                                if (titleEl) title = titleEl.innerText.trim();
+                            }
+                            const priceEl = card.querySelector('div[class*="Price"], span[class*="Price"], div[class*="price"], [class*="product-price"]');
                             if (priceEl) price = priceEl.innerText.trim();
 
-                            const storeEl = card.querySelector('a[href*="/merchant/"], span[class*="merchant"]');
+                            const storeEl = card.querySelector('a[href*="/merchant/"], span[class*="merchant"], [class*="store-name"]');
                             if (storeEl) seller = storeEl.innerText.trim();
                         }
 
+                        if (img && img.startsWith('//')) img = 'https:' + img;
+
                         results.push({
-                            title: title,
+                            title: title || `Wish Product ${itemId}`,
                             url: href.split('?')[0],
                             item_id: itemId,
                             image_url: img,
-                            price: price,
+                            price: price || "$0.00",
                             seller: seller
                         });
                     });

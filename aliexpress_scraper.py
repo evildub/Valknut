@@ -306,17 +306,14 @@ class AliExpressScraper:
                             const videoPoster = card.querySelector('video[poster]');
                             if (videoPoster && videoPoster.getAttribute('poster')) {
                                 img = videoPoster.getAttribute('poster');
-                            } else if (mainImg && (mainImg.src || mainImg.getAttribute('data-src'))) {
-                                const mSrc = mainImg.src || mainImg.getAttribute('data-src') || '';
-                                if (mSrc && !mSrc.toLowerCase().endsWith('.png') && !mSrc.toLowerCase().includes('.png')) {
-                                    img = mSrc;
-                                }
+                            } else if (mainImg) {
+                                img = mainImg.currentSrc || mainImg.src || mainImg.getAttribute('src') || mainImg.getAttribute('data-src') || '';
                             }
 
                             if (!img) {
                                 const allImgs = Array.from(card.querySelectorAll('img'));
                                 for (const im of allImgs) {
-                                    const src = im.src || im.getAttribute('data-src') || '';
+                                    const src = im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src') || '';
                                     const alt = (im.alt || '').toLowerCase();
                                     const cls = (im.className || '').toLowerCase();
                                     const lowSrc = src.toLowerCase();
@@ -324,41 +321,30 @@ class AliExpressScraper:
                                                     lowSrc.includes('service-commitment') || 
                                                     lowSrc.includes('service_commitment') ||
                                                     lowSrc.includes('brand-logo') || 
-                                                    lowSrc.includes('badge') || 
                                                     lowSrc.includes('icon') || 
                                                     lowSrc.includes('banner') || 
                                                     lowSrc.includes('choice') || 
-                                                    lowSrc.includes('sale') || 
                                                     lowSrc.includes('promotion') || 
-                                                    lowSrc.endsWith('.svg') || 
-                                                    lowSrc.endsWith('.png') ||
-                                                    lowSrc.includes('.png') ||
-                                                    alt.includes('choice') || 
-                                                    alt.includes('top sale') || 
-                                                    alt.includes('sale') ||
+                                                    lowSrc.endsWith('.svg') ||
                                                     cls.includes('badge') || 
                                                     cls.includes('service') || 
                                                     cls.includes('commitment');
-                                    if (src && !isBadge) {
+                                    if (src && !isBadge && (src.includes('alicdn') || src.includes('aliexpress') || src.includes('/kf/'))) {
                                         img = src;
                                         break;
                                     }
                                 }
                             }
-                            if (!img && allImgs.length > 0) {
-                                for (const im of allImgs) {
-                                    const src = im.src || im.getAttribute('data-src') || '';
-                                    if (src && !src.includes('cross-border') && !src.includes('service-commitment') && !src.endsWith('.svg') && !src.endsWith('.png')) {
-                                        img = src;
-                                        break;
-                                    }
+                            if (!img) {
+                                const anyImg = card.querySelector('img');
+                                if (anyImg) {
+                                    img = anyImg.currentSrc || anyImg.src || anyImg.getAttribute('src') || anyImg.getAttribute('data-src') || '';
                                 }
                             }
                             if (img) {
-                                img = img.replace(/\\.jpg_[^?#]+/i, '.jpg')
-                                         .replace(/\\.png_[^?#]+/i, '.png')
-                                         .replace(/_\\.avif$/i, '')
-                                         .replace(/_\\.webp$/i, '');
+                                if (img.startsWith('//')) img = 'https:' + img;
+                                img = img.replace(/(\\.(?:jpg|jpeg|png|webp))_[^?#]+.*$/i, '$1');
+                                img = img.replace(/_\\.(?:avif|webp)$/i, '');
                             }
                             
                             const priceEl = card.querySelector('div[class*="price"], span[class*="price"], div[class*="sale"]');
@@ -486,20 +472,23 @@ class AliExpressScraper:
                     alt = (img_tag.get("alt") or "").lower()
                     cls = " ".join(img_tag.get("class", [])).lower()
                     low_src = src.lower()
-                    is_badge = any(k in low_src for k in ("cross-border", "service-commitment", "service_commitment", "brand-logo", "badge", "icon", "banner", ".svg", ".png", "logo", "choice", "sale", "promotion")) or \
-                               any(k in alt for k in ("choice", "top sale", "sale", "service", "commitment")) or \
+                    is_badge = any(k in low_src for k in ("cross-border", "service-commitment", "service_commitment", "brand-logo", "icon", "banner", ".svg", "logo", "choice", "promotion")) or \
+                               any(k in alt for k in ("choice", "top sale", "service", "commitment")) or \
                                any(k in cls for k in ("badge", "service", "commitment"))
-                    if src and not is_badge:
+                    if src and not is_badge and ("alicdn" in low_src or "aliexpress" in low_src or "/kf/" in low_src):
                         img_url = src
                         break
                 if not img_url:
                     for first_img in card.find_all("img"):
                         cand = first_img.get("src") or first_img.get("data-src") or ""
-                        if cand and not any(k in cand.lower() for k in ("cross-border", "service-commitment", ".svg", ".png")):
+                        if cand and not any(k in cand.lower() for k in ("cross-border", "service-commitment", ".svg")):
                             img_url = cand
                             break
-                if img_url.startswith("//"):
-                    img_url = "https:" + img_url
+                if img_url:
+                    if img_url.startswith("//"):
+                        img_url = "https:" + img_url
+                    img_url = re.sub(r'(\.(?:jpg|jpeg|png|webp))_[^?#]+.*$', r'\1', img_url, flags=re.I)
+                    img_url = re.sub(r'_\.(?:avif|webp)$', '', img_url, flags=re.I)
 
             # 4. Per-card seller extraction
             card_seller = seller_label
@@ -572,11 +561,15 @@ class AliExpressScraper:
                 it["seller"] = cached_info.get("seller", it.get("seller"))
                 if cached_info.get("store_id"):
                     it["store_id"] = cached_info.get("store_id")
+                if cached_info.get("image_url") and not it.get("image_url"):
+                    it["image_url"] = cached_info.get("image_url")
                 if progress_callback:
                     progress_callback(idx + 1, len(items), it)
             else:
                 current_seller = it.get("seller", "")
-                if not current_seller or any(g in current_seller.lower() for g in ("global", "seller", "aliexpress store", "unknown")):
+                needs_seller = not current_seller or any(g in current_seller.lower() for g in ("global", "seller", "aliexpress store", "unknown"))
+                needs_image = not it.get("image_url") or it.get("image_url") == ""
+                if needs_seller or needs_image:
                     items_to_fetch.append((idx, it))
 
         if not items_to_fetch:
@@ -735,11 +728,30 @@ class AliExpressScraper:
                                     store_id = f"110{short_hash}"
                                     s_name = f"Shop{store_id} Store"
 
+                            # Extract PDP Image if missing
+                            pdp_img = page.evaluate("""() => {
+                                const og = document.querySelector('meta[property="og:image"]');
+                                if (og && og.content) return og.content;
+                                const main = document.querySelector('.image-view-v2--previewBox img, .magnifier--image, [class*="product-img"] img, [class*="gallery"] img, [class*="main-image"] img, img');
+                                if (main) return main.currentSrc || main.src || main.getAttribute('src') || main.getAttribute('data-src') || '';
+                                return '';
+                            }""")
+                            if pdp_img:
+                                if pdp_img.startswith('//'): pdp_img = 'https:' + pdp_img
+                                pdp_img = re.sub(r'(\.(?:jpg|jpeg|png|webp))_[^?#]+.*$', r'\1', pdp_img, flags=re.I)
+                                pdp_img = re.sub(r'_\.(?:avif|webp)$', '', pdp_img, flags=re.I)
+                                if not it.get("image_url") or it.get("image_url") == "":
+                                    it["image_url"] = pdp_img
+
                             it["seller"] = s_name
                             if store_id:
                                 it["store_id"] = store_id
 
-                            cache[item_id] = {"seller": s_name, "store_id": store_id}
+                            cache[item_id] = {
+                                "seller": s_name,
+                                "store_id": store_id,
+                                "image_url": pdp_img or it.get("image_url", "")
+                            }
                             processed_in_chunk += 1
 
                             if progress_callback:
@@ -768,7 +780,7 @@ class AliExpressScraper:
             s_name = f"Shop{store_id} Store"
             it["seller"] = s_name
             it["store_id"] = store_id
-            cache[item_id] = {"seller": s_name, "store_id": store_id}
+            cache[item_id] = {"seller": s_name, "store_id": store_id, "image_url": it.get("image_url", "")}
             if progress_callback:
                 progress_callback(idx + 1, len(items), it)
 

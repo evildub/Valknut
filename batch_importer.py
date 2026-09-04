@@ -714,6 +714,7 @@ def _fetch_aliexpress_item(url: str, headless: bool = True) -> dict:
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
+                    channel="msedge",
                     headless=headless,
                     args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
                 )
@@ -733,21 +734,37 @@ def _fetch_aliexpress_item(url: str, headless: bool = True) -> dict:
 
                 # Seller / Store Name
                 s_res = page.evaluate("""() => {
-                    const el = document.querySelector('[class*="store-detail--storeName"], [class*="seller-info--name"], a[href*="/store/"]');
-                    return el ? el.innerText.trim() : '';
+                    const el = document.querySelector('[class*="store-detail--storeName"], [class*="seller-info--name"], [class*="store-header--name"], a[href*="/store/"]');
+                    if (el) {
+                        const lines = (el.innerText || el.textContent || '').split('\\n').map(l => l.trim()).filter(l => l && !l.toLowerCase().includes('sold by') && !l.includes('('));
+                        if (lines.length > 0) return lines[0];
+                    }
+                    return '';
                 }""")
                 if s_res:
                     seller = s_res
 
                 if not seller:
-                    m_sold = re.search(r'Sold By\s*\n\s*([^\n\r]+)', page.inner_text("body"), re.I)
+                    m_sold = re.search(r'Sold By\s*\n\s*([^\n\r(]+)', page.inner_text("body"), re.I)
                     if m_sold:
                         seller = m_sold.group(1).strip()
+                if seller:
+                    seller = re.sub(r'^(?:Sold By\s*|Shop:\s*)', '', seller, flags=re.I).strip()
+                    seller = re.sub(r'\s*\([^)]*\)$', '', seller).strip()
 
                 # Image
-                img_el = page.query_selector(".magnifier-image, .image-view--previewBox--3rJ405Z img, img[class*='gallery']")
-                if img_el:
-                    image_url = img_el.get_attribute("src") or ""
+                og_img = page.evaluate("""() => {
+                    const og = document.querySelector('meta[property="og:image"]');
+                    if (og && og.content) return og.content;
+                    const im = document.querySelector('.image-view-v2--previewBox img, .magnifier--image, [class*="product-img"] img, [class*="gallery"] img, [class*="main-image"] img, img');
+                    if (im) return im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src') || '';
+                    return '';
+                }""")
+                if og_img:
+                    if og_img.startswith("//"): og_img = "https:" + og_img
+                    og_img = re.sub(r'(\.(?:jpg|jpeg|png|webp))_[^?#]+.*$', r'\1', og_img, flags=re.I)
+                    og_img = re.sub(r'_\.(?:avif|webp)$', '', og_img, flags=re.I)
+                    image_url = og_img
 
                 context.close()
         except Exception as e:
@@ -782,6 +799,7 @@ def _fetch_wish_item(url: str, headless: bool = True) -> dict:
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
+                    channel="msedge",
                     headless=headless,
                     args=["--disable-blink-features=AutomationControlled"]
                 )
@@ -834,6 +852,7 @@ def _fetch_temu_item(url: str, headless: bool = True) -> dict:
             with sync_playwright() as p:
                 context = p.chromium.launch_persistent_context(
                     user_data_dir=profile_dir,
+                    channel="msedge",
                     headless=headless,
                     args=["--disable-blink-features=AutomationControlled"]
                 )

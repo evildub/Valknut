@@ -1348,18 +1348,47 @@ class EbayScraper:
     def enrich_ebay_seller_info(self, items: list, progress_callback=None, stop_event=None) -> list:
         """
         Enrich real seller usernames for eBay listings that were imported with generic or missing handles.
-        Uses fast HTTP and Playwright fallback to scrape listing item cards.
+        Uses fast HTTP and Playwright fallback with instant store/seller deduplication caching.
         """
         import batch_importer
         total = len(items)
+        seller_country_cache = {}
+        store_cache = {}
+
         for i, item in enumerate(items):
             if stop_event and stop_event.is_set():
                 break
+
+            orig_seller = str(item.get("seller", "")).strip()
+            store_id = str(item.get("store_id", "")).strip()
+            store_url = str(item.get("store_url", "")).strip()
+
+            # 1. Check if store / seller signature is already resolved in memory
+            cached_seller_data = None
+            if orig_seller and orig_seller not in ("eBay Seller", "Unknown", "Resolving...", "Global Search") and orig_seller in store_cache:
+                cached_seller_data = store_cache[orig_seller]
+            elif store_id and store_id in store_cache:
+                cached_seller_data = store_cache[store_id]
+            elif store_url and store_url in store_cache:
+                cached_seller_data = store_cache[store_url]
+
+            if cached_seller_data:
+                item["seller"] = cached_seller_data.get("seller", item.get("seller"))
+                if cached_seller_data.get("seller_origin") and not item.get("seller_origin"):
+                    item["seller_origin"] = cached_seller_data["seller_origin"]
+                if cached_seller_data.get("location") and not item.get("location"):
+                    item["location"] = cached_seller_data["location"]
+                if progress_callback:
+                    progress_callback(i + 1, total, item)
+                continue
+
             url = item.get("url", "")
             item_id = str(item.get("item_id", "")).strip()
             if not url and item_id:
                 url = f"https://www.ebay.com/itm/{item_id}"
             if not url:
+                if progress_callback:
+                    progress_callback(i + 1, total, item)
                 continue
 
             try:
@@ -1367,9 +1396,28 @@ class EbayScraper:
                 s = res.get("seller", "")
                 if s and s != "eBay Seller":
                     item["seller"] = s
-                    c_info = self.resolve_seller_country(s)
+                    if s in seller_country_cache:
+                        c_info = seller_country_cache[s]
+                    else:
+                        c_info = self.resolve_seller_country(s)
+                        seller_country_cache[s] = c_info
                     if c_info and c_info.get("country") and c_info["country"] != "Unknown":
                         item["seller_origin"] = c_info["country"]
+
+                    # Populate deduplication cache so all identical sellers resolve in 0ms
+                    resolved_payload = {
+                        "seller": s,
+                        "seller_origin": item.get("seller_origin"),
+                        "location": res.get("location") or item.get("location")
+                    }
+                    store_cache[s] = resolved_payload
+                    if orig_seller:
+                        store_cache[orig_seller] = resolved_payload
+                    if store_id:
+                        store_cache[store_id] = resolved_payload
+                    if store_url:
+                        store_cache[store_url] = resolved_payload
+
                 if res.get("price") and item.get("price") in ("$0.00", "", None):
                     item["price"] = res["price"]
                 if res.get("location") and not item.get("location"):

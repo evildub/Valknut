@@ -333,10 +333,67 @@ class TikTokScraper:
                     page.goto(target_search_url, wait_until="domcontentloaded", timeout=30000)
                     time.sleep(3.0)
 
-                    for _ in range(4):
-                        if stop_event and stop_event.is_set(): break
-                        page.evaluate("window.scrollBy(0, 1200)")
-                        time.sleep(0.8)
+                    # Adaptive deep scroll & "View more" click pagination loop
+                    max_scroll_cycles = 16
+                    consecutive_no_change = 0
+                    last_card_count = 0
+
+                    for cycle in range(max_scroll_cycles):
+                        if stop_event and stop_event.is_set():
+                            break
+                        if pause_event:
+                            while pause_event.is_set():
+                                if stop_event and stop_event.is_set():
+                                    break
+                                time.sleep(0.5)
+
+                        # Count visible PDP / product cards
+                        current_card_count = page.evaluate("""() => {
+                            const seen = new Set();
+                            document.querySelectorAll('a').forEach(a => {
+                                const href = a.href || '';
+                                const m = href.match(/\\/pdp\\/(?:[^/]+\\/)?(\\d{15,25})/) || href.match(/\\/product\\/(\\d{15,25})/) || href.match(/(\\d{17,21})/);
+                                if (m && !href.includes('campaign') && !href.includes('seller-us') && !href.includes('account')) {
+                                    seen.add(m[1]);
+                                }
+                            });
+                            return seen.size;
+                        }""")
+
+                        if current_card_count > 0 and current_card_count == last_card_count:
+                            consecutive_no_change += 1
+                        else:
+                            consecutive_no_change = 0
+                        last_card_count = current_card_count
+
+                        # If we have reached a generous amount (100+) or no new items after 3 attempts, finish
+                        if current_card_count >= 100 or consecutive_no_change >= 3:
+                            if consecutive_no_change >= 3:
+                                break
+
+                        # 1. Scroll down
+                        page.evaluate("window.scrollBy(0, 1600);")
+                        time.sleep(0.6)
+
+                        # 2. Look for and click any "View more" / "Load more" / "See more" / "Show more" button
+                        clicked = page.evaluate("""() => {
+                            const candidates = Array.from(document.querySelectorAll('button, div[role="button"], a[role="button"], [class*="button"], [class*="btn"], [class*="viewMore"], [class*="loadMore"], [class*="load-more"], [class*="view-more"]'));
+                            for (const b of candidates) {
+                                const txt = (b.innerText || '').trim().toLowerCase();
+                                if (txt === 'view more' || txt === 'see more' || txt === 'load more' || txt === 'show more' ||
+                                    txt.includes('view more') || txt.includes('load more') || txt.includes('see more')) {
+                                    b.scrollIntoView({behavior: 'smooth', block: 'center'});
+                                    b.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }""")
+
+                        if clicked:
+                            time.sleep(1.5)
+                        else:
+                            time.sleep(0.8)
 
                     raw_cards = page.evaluate("""() => {
                         const res = [];
@@ -352,17 +409,47 @@ class TikTokScraper:
                                     if (h) title = h.innerText.trim();
                                 }
                                 let imgUrl = '';
+                                let seller = '';
+                                let price = '$0.00';
                                 let p = a;
-                                for (let i = 0; i < 5; i++) {
+                                for (let i = 0; i < 6; i++) {
                                     if (!p) break;
-                                    const im = p.querySelector('img');
-                                    if (im && (im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src'))) {
-                                        imgUrl = im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src');
-                                        break;
+                                    if (!imgUrl) {
+                                        const im = p.querySelector('img');
+                                        if (im) {
+                                            imgUrl = im.currentSrc || im.src || im.getAttribute('src') || im.getAttribute('data-src') || '';
+                                            if (!imgUrl && im.srcset) {
+                                                const parts = im.srcset.split(',');
+                                                if (parts.length > 0) {
+                                                    imgUrl = parts[parts.length - 1].trim().split(' ')[0];
+                                                }
+                                            }
+                                        }
+                                        if (!imgUrl) {
+                                            const bgDiv = p.querySelector('[style*="background-image"]');
+                                            if (bgDiv) {
+                                                const bgMatch = bgDiv.style.backgroundImage.match(/url\\(["']?([^"']+)["']?\\)/);
+                                                if (bgMatch) imgUrl = bgMatch[1];
+                                            }
+                                        }
+                                    }
+                                    if (!seller) {
+                                        const sEl = p.querySelector('[class*="shop-name"], [class*="seller-name"], [class*="store-name"], [class*="shopName"], [class*="sellerName"], a[href*="/@"], a[href*="/store/"], a[href*="/shop/"]');
+                                        if (sEl) {
+                                            const sTxt = sEl.innerText.trim();
+                                            if (sTxt && !sTxt.toLowerCase().includes('sold') && !sTxt.toLowerCase().includes('ratings')) seller = sTxt;
+                                        }
+                                    }
+                                    if (price === '$0.00') {
+                                        const pMatch = p.innerText.match(/\\$\\s*\\d+(?:\\.\\d{2})?/);
+                                        if (pMatch) price = pMatch[0];
                                     }
                                     p = p.parentElement;
                                 }
-                                res.push({id: m[1], url: href, title: title, image_url: imgUrl});
+                                if (!title) {
+                                    title = `TikTok Product ${m[1]}`;
+                                }
+                                res.push({id: m[1], url: href, title: title, image_url: imgUrl, seller: seller, price: price});
                             }
                         });
                         return res;
@@ -373,13 +460,18 @@ class TikTokScraper:
                         title = rc.get("title") or f"TikTok Product {p_id}"
                         href = rc.get("url")
                         img_url = rc.get("image_url", "")
+                        s_name = rc.get("seller") or "TikTok Shop Merchant"
+                        pr = rc.get("price") or "$0.00"
+
+                        if exclude_terms and any(ex in title.lower() for ex in exclude_terms):
+                            continue
 
                         items.append({
                             "title": title,
                             "item_id": p_id,
                             "url": href,
-                            "price": "$0.00",
-                            "seller": "TikTok Shop Merchant",
+                            "price": pr,
+                            "seller": s_name,
                             "location": "United States",
                             "image_url": img_url,
                             "marketplace": "shop.tiktok.com",
@@ -388,5 +480,39 @@ class TikTokScraper:
                     context.close()
             except Exception as e:
                 logger.debug(f"TikTok search error: {e}")
+
+        return items
+
+    def enrich_seller_info(self, items: list[dict],
+                           progress_callback=None,
+                           stop_event: threading.Event = None) -> list[dict]:
+        """Fetch and enrich exact TikTok Shop merchant names and business entities."""
+        if not items:
+            return items
+
+        for idx, it in enumerate(items):
+            if stop_event and stop_event.is_set():
+                break
+
+            url = it.get("url", "")
+            if url:
+                try:
+                    pdp_info = self.fetch_single_listing(url)
+                    if pdp_info:
+                        if pdp_info.get("seller") and pdp_info.get("seller") != "TikTok Shop Merchant":
+                            it["seller"] = pdp_info["seller"]
+                        if pdp_info.get("price") and pdp_info.get("price") != "$0.00":
+                            it["price"] = pdp_info["price"]
+                        if pdp_info.get("business_entity"):
+                            it["business_entity"] = pdp_info["business_entity"]
+                        if pdp_info.get("location") and pdp_info.get("location") != "United States":
+                            it["location"] = pdp_info["location"]
+                        if pdp_info.get("sold_count"):
+                            it["sold_count"] = pdp_info["sold_count"]
+                except Exception as e:
+                    logger.debug(f"Error enriching TikTok item {url}: {e}")
+
+            if progress_callback:
+                progress_callback(idx + 1, len(items), it)
 
         return items

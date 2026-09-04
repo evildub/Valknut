@@ -649,8 +649,6 @@ EBAY_LOCALES = [
     {"code": "IE", "name": "Ireland", "domain": "ebay.ie", "region": "Europe", "flag": "🇮🇪"},
     {"code": "AT", "name": "Austria", "domain": "ebay.at", "region": "Europe", "flag": "🇦🇹"},
     {"code": "CH", "name": "Switzerland", "domain": "ebay.ch", "region": "Europe", "flag": "🇨🇭"},
-    {"code": "BE_FR", "name": "Belgium (FR)", "domain": "befr.ebay.be", "region": "Europe", "flag": "🇧🇪"},
-    {"code": "BE_NL", "name": "Belgium (NL)", "domain": "benl.ebay.be", "region": "Europe", "flag": "🇧🇪"},
     {"code": "PL", "name": "Poland", "domain": "ebay.pl", "region": "Europe", "flag": "🇵🇱"},
 ]
 
@@ -975,7 +973,7 @@ class EbayTool(tk.Tk):
 
         self.market_combo = ttk.Combobox(top_right, textvariable=self.marketplace_var,
                                          values=["🛒 eBay.com", "🧰 ManoMano", "🎵 TikTok Shop", "👗 Vinted", "🌐 AliExpress.com", "🌠 Wish.com", "🟠 Temu.com", "🛍 Mercado Libre", "🎨 Redbubble.com", "👕 Printerval.com"],
-                                         state="readonly", width=16, font=FONT_SM)
+                                         state="readonly", width=19, font=FONT_SM)
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
 
@@ -1074,6 +1072,19 @@ class EbayTool(tk.Tk):
         self.vinted_login_btn = self._btn(top_right, "👗 Vinted Connect", self._launch_vinted_session)
         self.tiktok_login_btn = self._btn(top_right, "🎵 TikTok Connect", self._launch_tiktok_session)
         self.temu_login_btn = self._btn(top_right, "🟠 Temu Connect", self._launch_temu_session)
+        self.pod_expand_btn = self._btn(top_right, "👕 Expand POD Variants", self._expand_pod_variants, accent=True)
+
+        # Wish Infinite Scroll Depth Controls (packed dynamically when Wish is active)
+        self.wish_depth_var = tk.StringVar(value="Medium (50 Items)")
+        self.wish_depth_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.wish_depth_var,
+            values=["Quick (25 Items)", "Medium (50 Items)", "Deep (100 Items)", "Maximum (200 Items)"],
+            state="readonly",
+            width=18,
+            font=FONT_SM
+        )
+        self.wish_depth_combo.bind("<<ComboboxSelected>>", lambda e: self._log(f"🌠 Wish scan depth set to: {self.wish_depth_var.get()}"))
 
         # Main Toolbar Operational Action Buttons
         self.btn_import = self._btn(top_right, "📥 Import", self._open_adhoc_importer_window, accent=True)
@@ -1482,9 +1493,11 @@ class EbayTool(tk.Tk):
         excl_sec_div.pack(side="left", fill="x", expand=True, padx=6)
         self.themed_widgets["dividers"].append(excl_sec_div)
 
-        self.excl_toggle_btn = tk.Button(excl_sec_frame, text="▲", command=_toggle_excl_visibility, bg=t["bg"], fg=t["subtext"],
-                                         relief="flat", bd=0, font=("Segoe UI", 8, "bold"), cursor="hand2", padx=4, pady=0)
+        self.excl_toggle_btn = tk.Button(excl_sec_frame, text="⤢", command=_toggle_excl_visibility, bg=t["bg"], fg=t["subtext"],
+                                         relief="flat", bd=0, font=("Segoe UI", 8, "bold"), cursor="hand2", padx=4, pady=0,
+                                         activebackground=t["bg"], activeforeground=t["accent"])
         self.excl_toggle_btn.pack(side="right")
+        self.themed_widgets["text_labels"].append(self.excl_toggle_btn)
         excl_sec_lbl.bind("<Double-Button-1>", lambda e: _toggle_excl_visibility())
 
         self.excl_container = tk.Frame(frame, bg=t["bg"])
@@ -1674,7 +1687,7 @@ class EbayTool(tk.Tk):
 
         self.thumb_size_combo = ttk.Combobox(toolbar, textvariable=self.thumb_size_var,
                                              values=list(THUMB_CONFIG.keys()),
-                                             width=11, state="readonly", font=FONT_SM)
+                                             width=15, state="readonly", font=FONT_SM)
         self.thumb_size_combo.pack(side="left", padx=(0, 6))
         self.thumb_size_combo.bind("<<ComboboxSelected>>", self._on_thumb_size_changed)
 
@@ -1722,7 +1735,7 @@ class EbayTool(tk.Tk):
         self.filter_col_var = tk.StringVar(value="Title")
         filter_cols = ["Title", "Seller", "Origin", "Threat Intel", "Item ID", "Brand", "Product Type", "Price", "Location", "All Columns"]
         self.filter_col_combo = ttk.Combobox(filter_bar, textvariable=self.filter_col_var,
-                                             values=filter_cols, width=12, state="readonly", font=FONT_SM)
+                                             values=filter_cols, width=14, state="readonly", font=FONT_SM)
         self.filter_col_combo.pack(side="left", padx=(0, 4))
         self.filter_col_combo.bind("<<ComboboxSelected>>", lambda e: self._repopulate_results_table())
 
@@ -1744,24 +1757,21 @@ class EbayTool(tk.Tk):
         self.benign_filter_var = tk.StringVar(value="🛡 Hide Benign")
         self.benign_filter_combo = ttk.Combobox(filter_bar, textvariable=self.benign_filter_var,
                                                 values=["🛡 Hide Benign", "📁 Show All", "🟢 Benign Only"],
-                                                width=14, state="readonly", font=FONT_SM)
+                                                width=15, state="readonly", font=FONT_SM)
         self.benign_filter_combo.pack(side="left", padx=(2, 3))
         self.benign_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._repopulate_results_table())
-        add_tooltip(self.benign_filter_combo, "Benign Packaging Filter:\n• 🛡 Hide Benign: Filter out authentic packaging (Default)\n• 📁 Show All: Display all listings\n• 🟢 Benign Only: Isolate verified authentic stock photos")
 
         self.st_cb = tk.Checkbutton(filter_bar, text="⚡ Smart Triage", variable=self.smart_triage_var,
                                     command=self._repopulate_results_table, bg=t["panel"], fg="#38BDF8",
                                     selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
         self.st_cb.pack(side="left", padx=(2, 2))
         self.themed_widgets["checks"].append(self.st_cb)
-        add_tooltip(self.st_cb, "Automatically suppresses multi-brand title spam and non-enforceable universal accessory fluff (seat covers, sunshades, floor mats, universal holders) while preserving 100% of high-risk components (spark plugs, oil filters, emblems, fobs).")
 
         self.fluff_btn = tk.Checkbutton(filter_bar, text="💨 Show Suppressed Fluff (0)", variable=self.show_fluff_var,
                                         command=self._repopulate_results_table, bg=t["panel"], fg=t["subtext"],
                                         selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
         self.fluff_btn.pack(side="left", padx=(2, 4))
         self.themed_widgets["checks"].append(self.fluff_btn)
-        add_tooltip(self.fluff_btn, "Toggle audit view of suppressed universal compatibility listings.")
 
         self._btn(filter_bar, "✕ Clear", self._clear_filter).pack(side="left", padx=(0, 4))
         self._btn(filter_bar, "✓ Select All Visible", self._select_all_visible).pack(side="left", padx=(0, 4))
@@ -1819,7 +1829,7 @@ class EbayTool(tk.Tk):
             "Wheel Caps",
         ]
         self.bulk_product_combo = ttk.Combobox(tag_bar, textvariable=self.bulk_product_var,
-                                               values=product_categories, width=22, font=FONT_SM)
+                                               values=product_categories, width=26, font=FONT_SM)
         self.bulk_product_combo.pack(side="left", padx=(0, 8))
 
         self._btn(tag_bar, "⚡ Apply to Selected", self._apply_bulk_tag, accent=True).pack(side="left", padx=(0, 6))
@@ -1894,8 +1904,7 @@ class EbayTool(tk.Tk):
             w = saved_col_widths.get(c, col_widths.get(c, 120)) if isinstance(saved_col_widths, dict) else col_widths.get(c, 120)
             self.result_tree.heading(c, text=self.col_labels[c], anchor="w",
                                      command=lambda _c=c: self._sort_by_column(_c))
-            can_stretch = c in ("title", "url")
-            self.result_tree.column(c, width=w, minwidth=60, stretch=can_stretch, anchor="w")
+            self.result_tree.column(c, width=w, minwidth=50, stretch=False, anchor="w")
         self._style_tree(self.result_tree)
         self._apply_column_visibility()
 
@@ -1916,6 +1925,7 @@ class EbayTool(tk.Tk):
         self.result_tree.bind("<Control-a>", self._select_all_results)
         self.result_tree.bind("<Control-A>", self._select_all_results)
         self.result_tree.bind("<<TreeviewSelect>>", self._on_result_tree_select)
+        self.result_tree.bind("<ButtonRelease-1>", self._on_column_resized)
         
         # Hover thumbnail event bindings
         self.result_tree.bind("<Motion>", self._on_tree_mouse_motion)
@@ -1923,9 +1933,33 @@ class EbayTool(tk.Tk):
 
         return frame
 
+    def _on_column_resized(self, event=None):
+        """Persist column widths whenever an analyst adjusts column separators."""
+        try:
+            if hasattr(self, "result_tree"):
+                col_w = {c: self.result_tree.column(c, "width") for c in self.result_tree["columns"]}
+                self.data_store.set_setting("column_widths", col_w)
+        except Exception:
+            pass
+
     # ══════════════════════════════════════════════════════════════════════════
     #  FULL DYNAMIC THEME ENGINE
     # ══════════════════════════════════════════════════════════════════════════
+    def _refresh_theme_menu(self):
+        """Dynamically repopulate theme radio choices including unlocked secret themes."""
+        if hasattr(self, "theme_menu") and self.theme_menu:
+            self.theme_menu.delete(0, "end")
+            current_key = self.current_theme_key
+            for k, th in THEMES.items():
+                is_unlocked = (k == "continental" and self.data_store.is_wick_unlocked()) or (k == "brundo_recon" and self.data_store.is_brundo_unlocked())
+                if not th.get("hidden", False) or k == current_key or is_unlocked:
+                    self.theme_menu.add_radiobutton(
+                        label=th["name"],
+                        value=th["name"],
+                        variable=self.theme_var,
+                        command=self._on_theme_changed
+                    )
+
     def _on_theme_changed(self, event=None):
         selected_name = self.theme_var.get()
         for k, v in THEMES.items():
@@ -1936,7 +1970,8 @@ class EbayTool(tk.Tk):
                 self._apply_full_theme()
                 break
         try:
-            self.theme_combo.selection_clear()
+            if hasattr(self, "theme_combo") and self.theme_combo:
+                self.theme_combo.selection_clear()
             self.focus_set()
         except Exception:
             pass
@@ -2457,6 +2492,18 @@ class EbayTool(tk.Tk):
                 self.temu_login_btn.pack(side="left", padx=(0, 4), after=self.market_combo)
             else:
                 self.temu_login_btn.pack_forget()
+
+        if hasattr(self, "wish_depth_combo"):
+            if "Wish" in market:
+                self.wish_depth_combo.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.wish_depth_combo.pack_forget()
+
+        if hasattr(self, "pod_expand_btn"):
+            if "Printerval" in market or "Redbubble" in market:
+                self.pod_expand_btn.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.pod_expand_btn.pack_forget()
 
         if "TikTok" in market:
             self.store_placeholder = "🎵 TikTok Shop Search: https://shop.tiktok.com/us\n(Leave blank to sweep TikTok Shop, or enter specific product/store URLs: https://shop.tiktok.com/us/pdp/...)"
@@ -3898,13 +3945,16 @@ class EbayTool(tk.Tk):
             self.progress.stop()
 
     def _stop_scan(self):
-        if not self.running:
-            return
-        self._log("⏹ Stopping scan (finishing current item)...")
-        self._status("Stopping scan...")
+        self._log("⏹ Stop requested: Halting current operation...")
+        self._status("Halting operation...")
         self.stop_event.set()
         self.pause_event.set()
         self.stop_btn.config(state="disabled")
+        if hasattr(self, "progress"):
+            try:
+                self.progress.stop()
+            except Exception:
+                pass
 
     def _process_queue(self, use_api=False, app_id="", cert_id="", is_headless=True, default_mkt="eBay", meli_c="Mexico", meli_d="2 Pages (100)", vinted_c="United Kingdom", vinted_d="2 Pages (192)"):
         # Ensure scrapers honor current headless background mode
@@ -4027,11 +4077,19 @@ class EbayTool(tk.Tk):
                     self._log(f"Searching [{platform_name}]: {term_display} in {seller_label} (Condition: {job.get('condition','all')})")
                     
                     if is_wish:
+                        wish_items_target = 50
+                        if hasattr(self, "wish_depth_var"):
+                            try:
+                                m = re.search(r'(\d+)', self.wish_depth_var.get())
+                                if m: wish_items_target = int(m.group(1))
+                            except Exception:
+                                pass
+                        self.wish_scraper.max_items = wish_items_target
                         target_url = self.wish_scraper._build_search_url(
                             self.wish_scraper.resolve_store_info(store_raw),
                             actual_term
                         )
-                        self._log(f"  🔗 URL: {target_url}")
+                        self._log(f"  🔗 URL: {target_url} (Target Depth: {wish_items_target} items)")
                         job_record["url"] = target_url
                         items = self.wish_scraper.search(
                             store_raw,
@@ -4039,7 +4097,8 @@ class EbayTool(tk.Tk):
                             job["excludes"],
                             condition=job.get("condition", "all"),
                             stop_event=self.stop_event,
-                            pause_event=self.pause_event
+                            pause_event=self.pause_event,
+                            max_items=wish_items_target
                         )
                     elif is_temu:
                         target_url = self.temu_scraper._build_search_url(
@@ -4210,6 +4269,15 @@ class EbayTool(tk.Tk):
                                 except Exception: pass
                             if hasattr(client, "max_pages"):
                                 client.max_pages = ali_pages
+                        elif "wish" in mkt_tag.lower():
+                            wish_items_target = 50
+                            if hasattr(self, "wish_depth_var"):
+                                try:
+                                    m = re.search(r'(\d+)', self.wish_depth_var.get())
+                                    if m: wish_items_target = int(m.group(1))
+                                except Exception: pass
+                            if hasattr(client, "max_items"):
+                                client.max_items = wish_items_target
                         items = client.search(
                             store_raw,
                             actual_term,
@@ -5356,6 +5424,34 @@ class EbayTool(tk.Tk):
         menu = tk.Menu(self, tearoff=0, bg=t["panel"], fg=t["text"],
                        activebackground=t["accent"], activeforeground="black" if t.get("name","").startswith("⚡") else "white")
 
+        # Check if selected rows contain POD listings (Printerval, Redbubble, etc.)
+        has_pod_items = False
+        for item_iid in selected:
+            vals = self.result_tree.item(item_iid)["values"]
+            if len(vals) > 8:
+                mkt = str(vals[8]).strip().lower() if len(vals) > 8 else ""
+                url_val = str(vals[10]).strip().lower() if len(vals) > 10 else ""
+                if "printerval" in mkt or "printerval.com" in url_val or "redbubble" in mkt or "redbubble.com" in url_val:
+                    has_pod_items = True
+                    break
+
+        has_redbubble_items = False
+        for item_iid in selected:
+            vals = self.result_tree.item(item_iid)["values"]
+            if len(vals) > 8:
+                mkt = str(vals[8]).strip().lower() if len(vals) > 8 else ""
+                url_val = str(vals[10]).strip().lower() if len(vals) > 10 else ""
+                if "redbubble" in mkt or "redbubble.com" in url_val:
+                    has_redbubble_items = True
+                    break
+
+        if has_pod_items:
+            menu.add_command(label="👕 Expand POD Design Variants (50-74 Products)", font=("Segoe UI", 9, "bold"), command=self._expand_pod_variants_selected)
+        if has_redbubble_items:
+            menu.add_command(label="🎨 Sweep Artist's Full Portfolio (Find All Designs)", font=("Segoe UI", 9, "bold"), command=self._sweep_redbubble_artist_selected)
+        if has_pod_items or has_redbubble_items:
+            menu.add_separator()
+
         menu.add_command(label="✏ Edit Listing Values (F2)", command=self._edit_selected_listing)
         menu.add_command(label="🔄 Refresh / Rescrape Selected", command=self._rescrape_selected_listings)
         menu.add_separator()
@@ -5481,6 +5577,12 @@ class EbayTool(tk.Tk):
             add_tooltip(self.filter_entry, "Live filter results. Type words to search. Use +term for mandatory inclusion, -term for exclusion (e.g. 'fleece +jacket -pants').", theme_provider=t_func, is_enabled_callback=e_func)
         if hasattr(self, "filter_col_combo"):
             add_tooltip(self.filter_col_combo, "Target live search to a specific column (e.g. Title, Seller, Threat Intel).", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "benign_filter_combo"):
+            add_tooltip(self.benign_filter_combo, "Benign Packaging Filter:\n• 🛡 Hide Benign: Filter out authentic packaging (Default)\n• 📁 Show All: Display all listings\n• 🟢 Benign Only: Isolate verified authentic stock photos", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "st_cb"):
+            add_tooltip(self.st_cb, "Automatically suppresses multi-brand title spam and non-enforceable universal accessory fluff while preserving 100% of high-risk components.", theme_provider=t_func, is_enabled_callback=e_func)
+        if hasattr(self, "fluff_btn"):
+            add_tooltip(self.fluff_btn, "Toggle audit view of suppressed universal compatibility listings.", theme_provider=t_func, is_enabled_callback=e_func)
         if hasattr(self, "hr_cb"):
             add_tooltip(self.hr_cb, "Isolate confirmed 3PL drop-ship hubs, Vinted NWT replica risks, burner handles, and visual clones in 1 click.", theme_provider=t_func, is_enabled_callback=e_func)
         if hasattr(self, "hb_cb"):
@@ -6381,8 +6483,42 @@ class EbayTool(tk.Tk):
             def _on_prog(current, total, item):
                 nonlocal enriched_count
                 s_name = str(item.get("seller", "")).strip()
-                if s_name and not any(g in s_name.lower() for g in ("ebay seller", "global search", "aliexpress global", "unknown")):
+                if s_name and not any(g in s_name.lower() for g in ("ebay seller", "global search", "aliexpress global", "unknown", "tiktok shop merchant")):
                     enriched_count += 1
+                    
+                    # Auto-update sibling listings in current results that share the same store/seller
+                    store_id = str(item.get("store_id", "")).strip()
+                    store_url = str(item.get("store_url", "")).strip()
+                    seller_origin = item.get("seller_origin")
+                    location = item.get("location")
+                    business_entity = item.get("business_entity")
+                    threat_badge = item.get("threat_badge")
+                    threat_score = item.get("threat_score")
+                    
+                    for other in self.results:
+                        if other is item:
+                            continue
+                        is_match = False
+                        if store_id and str(other.get("store_id", "")).strip() == store_id:
+                            is_match = True
+                        elif store_url and str(other.get("store_url", "")).strip() == store_url:
+                            is_match = True
+                        elif s_name and other.get("seller") == s_name:
+                            is_match = True
+
+                        if is_match:
+                            other["seller"] = s_name
+                            if seller_origin and not other.get("seller_origin"):
+                                other["seller_origin"] = seller_origin
+                            if location and not other.get("location"):
+                                other["location"] = location
+                            if business_entity and not other.get("business_entity"):
+                                other["business_entity"] = business_entity
+                            if threat_badge:
+                                other["threat_badge"] = threat_badge
+                            if threat_score:
+                                other["threat_score"] = threat_score
+
                 self.after(0, lambda: self._status(f"🏪 Enriching Sellers: {current}/{total} -> '{s_name}'"))
                 self.after(0, lambda: self._log(f"  ✓ [{item.get('marketplace', 'Platform')}] Enriched: '{item.get('title', '')[:40]}...' → Seller: '{s_name}', Price: {item.get('price', '')}"))
                 self.after(0, lambda: self._repopulate_results_table())
@@ -6395,6 +6531,7 @@ class EbayTool(tk.Tk):
                 temu_items = [it for it in target_items if "temu" in it.get("marketplace", "").lower() or "temu" in it.get("url", "").lower()]
                 meli_items = [it for it in target_items if "mercadolibre" in it.get("marketplace", "").lower() or "mercadolivre" in it.get("marketplace", "").lower() or "mercadolibre" in it.get("url", "").lower() or "mercadolivre" in it.get("url", "").lower()]
                 printerval_items = [it for it in target_items if "printerval" in it.get("marketplace", "").lower() or "printerval" in it.get("url", "").lower()]
+                tiktok_items = [it for it in target_items if "tiktok" in it.get("marketplace", "").lower() or "tiktok" in it.get("url", "").lower()]
 
                 if ebay_items and not self.stop_event.is_set():
                     self.scraper.enrich_ebay_seller_info(
@@ -6438,10 +6575,231 @@ class EbayTool(tk.Tk):
                         stop_event=self.stop_event
                     )
 
+                if tiktok_items and not self.stop_event.is_set():
+                    self.tiktok_scraper.enrich_seller_info(
+                        tiktok_items,
+                        progress_callback=_on_prog,
+                        stop_event=self.stop_event
+                    )
+
             finally:
                 self.after(0, lambda: self.stop_btn.config(state="disabled"))
-                self.after(0, lambda: self._status(f"🏪 Seller enrichment complete! ({enriched_count} updated)"))
-                self.after(0, lambda: self._log(f"🏪 Seller enrichment finished: Updated store names for {enriched_count} item(s)."))
+                if self.stop_event.is_set():
+                    self.after(0, lambda: self._status(f"⏹ Seller enrichment halted ({enriched_count} updated)."))
+                    self.after(0, lambda: self._log(f"⏹ Seller enrichment halted by user ({enriched_count} item(s) updated before stopping)."))
+                else:
+                    self.after(0, lambda: self._status(f"🏪 Seller enrichment complete! ({enriched_count} updated)"))
+                    self.after(0, lambda: self._log(f"🏪 Seller enrichment finished: Updated store names for {enriched_count} item(s)."))
+                self.after(0, lambda: self._repopulate_results_table())
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _expand_pod_variants_selected(self):
+        """Expand POD variants specifically for selected table rows."""
+        self._expand_pod_variants(selected_only=True)
+
+    def _expand_pod_variants(self, selected_only=False):
+        """
+        Dredge and expand all Print-on-Demand (POD) product variants (50+ items per design)
+        across Printerval, Redbubble, etc., for confirmed infringing designs.
+        """
+        if not self.results:
+            messagebox.showinfo("Expand POD Variants", "No harvested listings in table.")
+            return
+
+        selected_iids = self.result_tree.selection()
+        target_items = []
+
+        if selected_only or selected_iids:
+            for item_iid in selected_iids:
+                vals = self.result_tree.item(item_iid)["values"]
+                if len(vals) > 3:
+                    item_id = str(vals[3]).strip()
+                    title_val = str(vals[2]).strip() if len(vals) > 2 else ""
+                    url_val = str(vals[10]).strip() if len(vals) > 10 else (str(vals[8]).strip() if len(vals) > 8 else "")
+                    for it in self.results:
+                        if (item_id and str(it.get("item_id", "")).strip() == item_id) or \
+                           (url_val and str(it.get("url", "")).strip() == url_val) or \
+                           (title_val and str(it.get("title", "")).strip() == title_val):
+                            if it not in target_items:
+                                target_items.append(it)
+                            break
+        else:
+            # Check all items in session from POD marketplaces
+            for it in self.results:
+                mkt = it.get("marketplace", "").lower()
+                url = it.get("url", "").lower()
+                if "printerval" in mkt or "printerval.com" in url or "redbubble" in mkt or "redbubble.com" in url:
+                    target_items.append(it)
+
+        # Filter only POD items
+        pod_targets = [
+            it for it in target_items
+            if "printerval" in it.get("marketplace", "").lower() or "printerval.com" in it.get("url", "").lower()
+            or "redbubble" in it.get("marketplace", "").lower() or "redbubble.com" in it.get("url", "").lower()
+        ]
+
+        if not pod_targets:
+            messagebox.showinfo(
+                "Expand POD Variants",
+                "No Print-on-Demand (Printerval / Redbubble) listings found in current selection.\n\n"
+                "Please select one or more Printerval/Redbubble listings to expand."
+            )
+            return
+
+        scope_desc = f"{len(pod_targets)} selected design(s)" if (selected_only or selected_iids) else f"all {len(pod_targets)} POD design(s)"
+        if not messagebox.askyesno(
+            "Expand POD Variants",
+            f"Expand all product merchandise variants (Hoodies, Mugs, Onesies, Stickers, Flags, Caps, etc.) for {scope_desc}?\n\n"
+            f"This will visit each confirmed design and pull in ~40-50+ real product URLs into your results table."
+        ):
+            return
+
+        is_headless = self.headless_var.get()
+        self.printerval_scraper.headless = is_headless
+
+        self._log(f"👕 Starting POD Variant Expansion for {len(pod_targets)} parent design(s)...")
+        self._status(f"👕 Expanding POD variants for {len(pod_targets)} design(s)...")
+        self.stop_event.clear()
+        self.stop_btn.config(state="normal")
+
+        def _worker():
+            total_added = 0
+            existing_ids = {str(it.get("item_id", "")).strip() for it in self.results if it.get("item_id")}
+
+            def _on_prog(current, total, new_count, item):
+                self.after(0, lambda: self._status(f"👕 Expanding POD Variants: {current}/{total} -> +{new_count} items found"))
+
+            try:
+                printerval_targets = [
+                    it for it in pod_targets
+                    if "printerval" in it.get("marketplace", "").lower() or "printerval.com" in it.get("url", "").lower()
+                ]
+                redbubble_targets = [
+                    it for it in pod_targets
+                    if "redbubble" in it.get("marketplace", "").lower() or "redbubble.com" in it.get("url", "").lower()
+                ]
+
+                if printerval_targets and not self.stop_event.is_set():
+                    new_variants = self.printerval_scraper.expand_design_variants(
+                        printerval_targets,
+                        existing_item_ids=existing_ids,
+                        progress_callback=_on_prog,
+                        stop_event=self.stop_event,
+                        log_callback=lambda msg: self.after(0, lambda: self._log(msg))
+                    )
+
+                    if new_variants:
+                        for v in new_variants:
+                            self.results.append(v)
+                            try:
+                                if hasattr(self, "data_store"):
+                                    self.data_store.add_or_update_listing(v)
+                            except Exception:
+                                pass
+                        total_added += len(new_variants)
+
+                if redbubble_targets and not self.stop_event.is_set():
+                    new_rb_variants = self.redbubble_scraper.expand_design_variants(
+                        redbubble_targets,
+                        existing_item_ids=existing_ids,
+                        progress_callback=_on_prog,
+                        stop_event=self.stop_event,
+                        log_callback=lambda msg: self.after(0, lambda: self._log(msg))
+                    )
+
+                    if new_rb_variants:
+                        for v in new_rb_variants:
+                            self.results.append(v)
+                            try:
+                                if hasattr(self, "data_store"):
+                                    self.data_store.add_or_update_listing(v)
+                            except Exception:
+                                pass
+                        total_added += len(new_rb_variants)
+
+            finally:
+                self.after(0, lambda: self.stop_btn.config(state="disabled"))
+                if self.stop_event.is_set():
+                    self.after(0, lambda: self._status(f"⏹ POD variant expansion halted (+{total_added} added)."))
+                    self.after(0, lambda: self._log(f"⏹ POD variant expansion halted by user (+{total_added} variant listing(s) added)."))
+                else:
+                    self.after(0, lambda: self._status(f"👕 POD variant expansion complete! (+{total_added} variants added)"))
+                    self.after(0, lambda: self._log(f"👕 POD variant expansion complete: Successfully added +{total_added} variant listing(s) to table."))
+                self.after(0, lambda: self._repopulate_results_table())
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _sweep_redbubble_artist_selected(self):
+        """Sweep full Redbubble artist shop portfolio (/people/<artist>/shop) for selected listing(s)."""
+        selected_iids = self.result_tree.selection()
+        if not selected_iids:
+            messagebox.showinfo("Sweep Artist Portfolio", "Please select a Redbubble listing first.")
+            return
+
+        target_artists = set()
+        brand_keyword = self.keyword_entry.get().strip() if hasattr(self, "keyword_entry") else ""
+
+        for item_iid in selected_iids:
+            vals = self.result_tree.item(item_iid)["values"]
+            if len(vals) > 5:
+                artist = str(vals[5]).strip()
+                if artist and artist not in ("Redbubble Artist", "GLOBAL", "unknown", "Printerval Creator"):
+                    target_artists.add(artist)
+
+        if not target_artists:
+            messagebox.showinfo("Sweep Artist Portfolio", "No specific Redbubble artist names identified in selection.")
+            return
+
+        artist_list_str = ", ".join(list(target_artists)[:3]) + ("..." if len(target_artists) > 3 else "")
+        if not messagebox.askyesno(
+            "Sweep Artist Portfolio",
+            f"Sweep complete shop portfolios for artist(s): {artist_list_str}?\n\n"
+            f"This will search their full catalog for '{brand_keyword or 'all designs'}' to uncover additional hidden infringements."
+        ):
+            return
+
+        self._log(f"🎨 Starting Redbubble Artist Portfolio Sweeps for {len(target_artists)} creator(s)...")
+        self._status(f"🎨 Sweeping artist portfolios ({len(target_artists)} creators)...")
+        self.stop_event.clear()
+        self.stop_btn.config(state="normal")
+
+        def _worker():
+            total_found = 0
+            existing_ids = {str(it.get("item_id", "")).strip() for it in self.results if it.get("item_id")}
+
+            try:
+                for artist in target_artists:
+                    if self.stop_event.is_set():
+                        break
+
+                    portfolio_items = self.redbubble_scraper.sweep_artist_portfolio(
+                        artist_name=artist,
+                        brand_keyword=brand_keyword,
+                        max_items=100,
+                        existing_item_ids=existing_ids,
+                        stop_event=self.stop_event,
+                        log_callback=lambda msg: self.after(0, lambda: self._log(msg))
+                    )
+
+                    if portfolio_items:
+                        for it in portfolio_items:
+                            self.results.append(it)
+                            try:
+                                if hasattr(self, "data_store"):
+                                    self.data_store.add_or_update_listing(it)
+                            except Exception:
+                                pass
+                        total_found += len(portfolio_items)
+
+            finally:
+                self.after(0, lambda: self.stop_btn.config(state="disabled"))
+                if self.stop_event.is_set():
+                    self.after(0, lambda: self._status(f"⏹ Artist portfolio sweep halted (+{total_found} added)."))
+                    self.after(0, lambda: self._log(f"⏹ Artist sweep halted by user (+{total_found} design(s) added)."))
+                else:
+                    self.after(0, lambda: self._status(f"🎨 Artist portfolio sweep finished! (+{total_found} designs added)"))
+                    self.after(0, lambda: self._log(f"🎨 Artist portfolio sweep finished: Successfully added +{total_found} designs to table."))
                 self.after(0, lambda: self._repopulate_results_table())
 
         threading.Thread(target=_worker, daemon=True).start()
@@ -6729,11 +7087,8 @@ class EbayTool(tk.Tk):
             pass
 
         self.data_store.unlock_wick()
+        self._refresh_theme_menu()
         secret_name = THEMES["continental"]["name"]
-        vals = list(self.theme_combo["values"])
-        if secret_name not in vals:
-            vals.append(secret_name)
-            self.theme_combo["values"] = vals
         self.theme_var.set(secret_name)
         self._on_theme_changed()
 
@@ -6796,11 +7151,8 @@ class EbayTool(tk.Tk):
             pass
 
         self.data_store.unlock_brundo()
+        self._refresh_theme_menu()
         secret_name = THEMES["brundo_recon"]["name"]
-        vals = list(self.theme_combo["values"])
-        if secret_name not in vals:
-            vals.append(secret_name)
-            self.theme_combo["values"] = vals
         self.theme_var.set(secret_name)
         self._on_theme_changed()
 
@@ -6881,11 +7233,8 @@ class EbayTool(tk.Tk):
 
         # Reveal and switch to Eleanor theme
         if "eleanor" in THEMES:
+            self._refresh_theme_menu()
             secret_name = THEMES["eleanor"]["name"]
-            vals = list(self.theme_combo["values"])
-            if secret_name not in vals:
-                vals.append(secret_name)
-                self.theme_combo["values"] = vals
             self.theme_var.set(secret_name)
             self._on_theme_changed()
 
@@ -6906,11 +7255,8 @@ class EbayTool(tk.Tk):
             pass
 
         # Reveal and switch to secret Synthwave theme
+        self._refresh_theme_menu()
         secret_name = THEMES["synthwave"]["name"]
-        vals = list(self.theme_combo["values"])
-        if secret_name not in vals:
-            vals.append(secret_name)
-            self.theme_combo["values"] = vals
         self.theme_var.set(secret_name)
         self._on_theme_changed()
 
@@ -8947,8 +9293,12 @@ class EbayTool(tk.Tk):
 
         tri_hdr = tk.Label(tri_frame, text="🏛 The Enterprise Tactical Suite:",
                            font=("Segoe UI", 10, "bold"), bg=t["entry_bg"], fg=t["accent"])
-        tri_hdr.pack(anchor="w", pady=(0, 6))
+        tri_hdr.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
         tri_hdr.bind("<MouseWheel>", _on_mousewheel)
+
+        tri_frame.grid_columnconfigure(0, weight=0)
+        tri_frame.grid_columnconfigure(1, weight=0)
+        tri_frame.grid_columnconfigure(2, weight=1)
 
         tri_data = [
             ("🏢", "Enterprise Gateway", "The Enterprise Base of Record — Massive cloud archives, case history, client intake, and formal takedown tracking."),
@@ -8957,17 +9307,17 @@ class EbayTool(tk.Tk):
             ("⚖", "Threat Syndicate Vault", "Syndicate Retribution & Legal Vault — Forensic cross-border entity correlation and court-admissible evidence dossiers."),
         ]
 
-        for icon, title, desc in tri_data:
-            row_f = tk.Frame(tri_frame, bg=t["entry_bg"], pady=3)
-            row_f.pack(fill="x")
-            row_f.bind("<MouseWheel>", _on_mousewheel)
+        for r_i, (icon, title, desc) in enumerate(tri_data):
+            lbl_icon = tk.Label(tri_frame, text=icon, font=("Segoe UI", 10), bg=t["entry_bg"], fg=t["accent"], width=3, anchor="center")
+            lbl_icon.grid(row=r_i + 1, column=0, sticky="nw", pady=4)
+            lbl_icon.bind("<MouseWheel>", _on_mousewheel)
 
-            tk.Label(row_f, text=icon, font=("Segoe UI", 10), bg=t["entry_bg"], fg=t["accent"], width=3, anchor="center").pack(side="left")
-            t_lbl = tk.Label(row_f, text=f"{title}:", font=("Segoe UI", 9, "bold"), bg=t["entry_bg"], fg=t["text"])
-            t_lbl.pack(side="left", padx=(2, 6))
+            t_lbl = tk.Label(tri_frame, text=f"{title}:", font=("Segoe UI", 9, "bold"), bg=t["entry_bg"], fg=t["text"], anchor="nw", justify="left")
+            t_lbl.grid(row=r_i + 1, column=1, sticky="nw", padx=(2, 12), pady=4)
             t_lbl.bind("<MouseWheel>", _on_mousewheel)
-            d_lbl = tk.Label(row_f, text=desc, font=FONT_SM, bg=t["entry_bg"], fg=t["subtext"], justify="left", wraplength=540, anchor="w")
-            d_lbl.pack(side="left", fill="x", expand=True)
+
+            d_lbl = tk.Label(tri_frame, text=desc, font=FONT_SM, bg=t["entry_bg"], fg=t["subtext"], justify="left", wraplength=520, anchor="nw")
+            d_lbl.grid(row=r_i + 1, column=2, sticky="new", pady=4)
             d_lbl.bind("<MouseWheel>", _on_mousewheel)
 
         # 9 Pillars
@@ -9015,18 +9365,20 @@ class EbayTool(tk.Tk):
         # Creator / Credits section
         info_frame = tk.Frame(tab_legal, bg=t["entry_bg"], padx=16, pady=14)
         info_frame.pack(fill="x", pady=(0, 14))
+        info_frame.grid_columnconfigure(0, weight=0)
+        info_frame.grid_columnconfigure(1, weight=1)
 
-        def _row(parent, label, val):
-            r = tk.Frame(parent, bg=t["entry_bg"])
-            r.pack(fill="x", pady=3)
-            tk.Label(r, text=label, font=("Segoe UI", 9, "bold"), bg=t["entry_bg"], fg=t["text"], width=22, anchor="w").pack(side="left")
-            tk.Label(r, text=val, font=FONT_SM, bg=t["entry_bg"], fg=t["accent"] if "Jerry Seidenstucker" in val else t["text"], anchor="w").pack(side="left")
+        def _row(parent, r_idx, label, val):
+            lbl_l = tk.Label(parent, text=label, font=("Segoe UI", 9, "bold"), bg=t["entry_bg"], fg=t["text"], anchor="w")
+            lbl_l.grid(row=r_idx, column=0, sticky="nw", padx=(0, 14), pady=3)
+            lbl_v = tk.Label(parent, text=val, font=FONT_SM, bg=t["entry_bg"], fg=t["accent"] if "Jerry Seidenstucker" in val else t["text"], anchor="w", justify="left")
+            lbl_v.grid(row=r_idx, column=1, sticky="nw", pady=3)
 
-        _row(info_frame, "Creator & Lead Architect:", "Jerry Seidenstucker (Personal Project)")
-        _row(info_frame, "AI Pair Programmer:", "Antigravity (Google DeepMind)")
-        _row(info_frame, "Intellectual Property:", "© 2026 Jerry Seidenstucker. All Rights Reserved.")
-        _row(info_frame, "Architecture Version:", "Apollo v2.0.0 Enterprise Tactical Suite")
-        _row(info_frame, "License Mode:", "Proprietary / Authorized Internal Evaluation")
+        _row(info_frame, 0, "Creator & Lead Architect:", "Jerry Seidenstucker (Personal Project)")
+        _row(info_frame, 1, "AI Pair Programmer:", "Antigravity (Google DeepMind)")
+        _row(info_frame, 2, "Intellectual Property:", "© 2026 Jerry Seidenstucker. All Rights Reserved.")
+        _row(info_frame, 3, "Architecture Version:", "Apollo v2.0.0 Enterprise Tactical Suite")
+        _row(info_frame, 4, "License Mode:", "Proprietary / Authorized Internal Evaluation")
 
         # Legal & Ownership Notice box
         notice_lbl = tk.Label(tab_legal, text="Intellectual Property & Attribution Notice:",

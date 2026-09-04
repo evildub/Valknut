@@ -537,28 +537,32 @@ class FieldGuideModal(tk.Toplevel):
 
             det_box = tk.Frame(card, bg=self._t("entry_bg", "#262626"), padx=12, pady=8, relief="flat")
             det_box.pack(fill="x")
+            det_box.grid_columnconfigure(0, weight=0)
+            det_box.grid_columnconfigure(1, weight=1)
 
-            for sub_title, sub_desc in item["details"]:
-                row = tk.Frame(det_box, bg=self._t("entry_bg", "#262626"), pady=3)
-                row.pack(fill="x")
-                tk.Label(
-                    row,
+            for r_idx, (sub_title, sub_desc) in enumerate(item["details"]):
+                lbl_sub = tk.Label(
+                    det_box,
                     text=f"• {sub_title}:",
                     font=FONT_BOLD,
                     bg=self._t("entry_bg", "#262626"),
                     fg=self._t("accent", "#38bdf8"),
-                    width=22,
-                    anchor="w"
-                ).pack(side="left")
-                tk.Label(
-                    row,
+                    anchor="nw",
+                    justify="left"
+                )
+                lbl_sub.grid(row=r_idx, column=0, sticky="nw", padx=(0, 14), pady=3)
+
+                lbl_desc = tk.Label(
+                    det_box,
                     text=sub_desc,
                     font=FONT_NORM,
                     bg=self._t("entry_bg", "#262626"),
                     fg=self._t("text", "#f8fafc"),
                     justify="left",
-                    wraplength=660
-                ).pack(side="left", fill="x", expand=True)
+                    anchor="w",
+                    wraplength=640
+                )
+                lbl_desc.grid(row=r_idx, column=1, sticky="new", pady=3)
 
         if matched == 0:
             tk.Label(
