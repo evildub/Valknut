@@ -45,10 +45,14 @@ HEADER_FILL  = PatternFill("solid", fgColor="2B2D42")
 HEADER_FONT  = Font(bold=True, color="FFFFFF", name="Segoe UI", size=10)
 
 def normalize_marketplace_code(mkt: str) -> str:
-    """Ensure French Canadian eBay listings map strictly to 'ebay.ca - cafr' for enterprise intake compliance."""
+    """Ensure enterprise marketplace codes match client intake formatting (e.g. ebay.ca - cafr, redbubble.com, printerval.com)."""
     m = str(mkt or "").strip().lower()
     if any(k in m for k in ("cafr.ebay.ca", "cafr", "ca_fr", "canada (french)", "canada french", "ebay.ca (french)", "ebay.ca/cafr")):
         return "ebay.ca - cafr"
+    if "redbubble" in m:
+        return "redbubble.com"
+    if "printerval" in m:
+        return "printerval.com"
     return mkt or MARKETPLACE
 ROW_FILL_A   = PatternFill("solid", fgColor="F8F8F2")
 ROW_FILL_B   = PatternFill("solid", fgColor="EEEEEE")

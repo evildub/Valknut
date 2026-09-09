@@ -172,7 +172,7 @@ class RedbubbleScraper:
                                 "location": "United States",
                                 "image_url": img_url,
                                 "url": full_url,
-                                "marketplace": "Redbubble",
+                                "marketplace": "redbubble.com",
                                 "condition": "New",
                                 "keyword": query,
                             }
@@ -230,7 +230,7 @@ class RedbubbleScraper:
                             "location": "United States",
                             "image_url": img_url,
                             "url": full_url,
-                            "marketplace": "Redbubble",
+                            "marketplace": "redbubble.com",
                             "condition": "New",
                             "keyword": query,
                         }
@@ -363,7 +363,7 @@ class RedbubbleScraper:
                                 "location": "United States",
                                 "image_url": img_url,
                                 "url": u,
-                                "marketplace": "Redbubble",
+                                "marketplace": "redbubble.com",
                                 "condition": "New",
                                 "keyword": keyword
                             }
@@ -470,7 +470,7 @@ class RedbubbleScraper:
                                 "location": "United States",
                                 "image_url": img_url,
                                 "url": full_url,
-                                "marketplace": "Redbubble",
+                                "marketplace": "redbubble.com",
                                 "condition": "New",
                                 "keyword": brand_keyword,
                             }

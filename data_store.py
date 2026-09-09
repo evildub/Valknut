@@ -132,6 +132,9 @@ class DataStore:
     def get_brands(self):
         return self._data.get("brands", {})
 
+    def get_all_brands(self):
+        return list(self._data.get("brands", {}).keys())
+
     def add_parent_brand(self, name):
         if name not in self._data["brands"]:
             self._data["brands"][name] = {"subs": {}, "models": []}
@@ -244,6 +247,21 @@ class DataStore:
         if term in self._data["exclusions"]:
             self._data["exclusions"].remove(term)
             self._save()
+
+    # ── Dossier Staging Vault Persistence ──────────────────────────────────────
+    def get_staged_dossier(self) -> list:
+        """Retrieve staged dossier listings from persistent storage."""
+        return list(self._data.get("staged_dossier", []))
+
+    def save_staged_dossier(self, items: list):
+        """Persist staged dossier listings to disk."""
+        self._data["staged_dossier"] = list(items) if items else []
+        self._save()
+
+    def clear_staged_dossier(self):
+        """Clear persisted staged dossier."""
+        self._data["staged_dossier"] = []
+        self._save()
 
     # ── presets / portfolio bundles ───────────────────────────────────────────
     def get_presets(self):
@@ -579,7 +597,7 @@ class DataStore:
 
     UNIVERSAL_FLUFF_CATEGORIES = [
         "seat cover", "seat cushion", "floor mat", "trunk mat", "cargo liner",
-        "phone holder", "phone mount", "cup holder", "coaster",
+        "phone holder", "phone mount", "cup holder",
         "windshield sunshade", "sun shade", "sunshade", "car cover", "sunstrip",
         "wiper blade", "wiper refill", "wiper arm",
         "steering wheel cover", "steering wheel wrap",

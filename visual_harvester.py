@@ -20,13 +20,16 @@ class VisualHarvester:
     Queries marketplace candidates and mathematically validates each listing's
     photo in parallel via 35 concurrent worker threads using 64-bit DCT pHash.
     """
-    def __init__(self, scraper=None, vinted_scraper=None, meli_scraper=None, ali_scraper=None, wish_scraper=None, temu_scraper=None):
+    def __init__(self, scraper=None, vinted_scraper=None, meli_scraper=None, ali_scraper=None, wish_scraper=None, temu_scraper=None, tiktok_scraper=None, printerval_scraper=None, redbubble_scraper=None):
         self.scraper = scraper
         self.vinted_scraper = vinted_scraper
         self.meli_scraper = meli_scraper
         self.ali_scraper = ali_scraper
         self.wish_scraper = wish_scraper
         self.temu_scraper = temu_scraper
+        self.tiktok_scraper = tiktok_scraper
+        self.printerval_scraper = printerval_scraper
+        self.redbubble_scraper = redbubble_scraper
 
     def search_by_image(self, image_source, label: str = "", marketplace: str = "eBay",
                         region: Optional[str] = None,
@@ -111,6 +114,12 @@ class VisualHarvester:
                     items = self.wish_scraper.scrape_store("", brand_terms=[q], max_pages=2, log_callback=log_callback)
                 elif "Temu" in mkt_name and self.temu_scraper:
                     items = self.temu_scraper.scrape_store("", brand_terms=[q], max_pages=2, log_callback=log_callback)
+                elif "Redbubble" in mkt_name and self.redbubble_scraper:
+                    items = self.redbubble_scraper.search(q, max_items=50)
+                elif "Printerval" in mkt_name and self.printerval_scraper:
+                    items = self.printerval_scraper.search(q, max_items=50)
+                elif "TikTok" in mkt_name and self.tiktok_scraper:
+                    items = self.tiktok_scraper.search("", q, [])
                 elif self.scraper:
                     items = self.scraper.search("", q, [], condition="all")
                 else:

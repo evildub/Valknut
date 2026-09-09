@@ -497,9 +497,17 @@ class EbayScraper:
             info["store_name"] = clean_name
             info["is_store"] = True
         else:
-            last_seg = url_str.split("/")[-1].split("?")[0].strip()
-            info["store_name"] = last_seg
-            info["is_store"] = True
+            # Check if root domain with no store path
+            parsed = urlparse(url_str)
+            path_segs = [p for p in parsed.path.split("/") if p]
+            if not path_segs:
+                info["store_name"] = ""
+                info["seller"] = ""
+                info["is_store"] = False
+            else:
+                last_seg = path_segs[-1].split("?")[0].strip()
+                info["store_name"] = last_seg
+                info["is_store"] = True
 
         # Automatic Store-to-Seller Bridge: Resolve underlying legal seller ID if store_name is present
         if info.get("store_name") and not info.get("seller"):

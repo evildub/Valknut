@@ -561,6 +561,146 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertEqual(rb.expand_design_variants([]), [])
         self.assertEqual(rb.sweep_artist_portfolio(""), [])
 
+    def test_22_aliexpress_keyword_precision_filtering(self):
+        """Test Item 22: Verify AliExpress brand keyword precision filtering drops unrelated wholesale cross-fitment noise."""
+        from aliexpress_scraper import AliExpressScraper
+        ali = AliExpressScraper(headless=True)
+        
+        # Test HTML containing both a matching Toyota item and a generic non-matching item
+        sample_html = """
+        <div class="search-item-card">
+            <a href="https://www.aliexpress.com/item/1005001111111111.html" title="Toyota Tacoma TRD Pro Grille Emblem Badge">
+                <img src="https://ae-pic-a1.aliexpress-media.com/kf/toyota_emblem.jpg" />
+                <span>$15.99</span>
+            </a>
+        </div>
+        <div class="search-item-card">
+            <a href="https://www.aliexpress.com/item/1005002222222222.html" title="Universal Leather Car Steering Wheel Cover For VW BMW Benz">
+                <img src="https://ae-pic-a1.aliexpress-media.com/kf/vw_cover.jpg" />
+                <span>$9.99</span>
+            </a>
+        </div>
+        """
+        parsed = ali._parse_html(sample_html, seller_label="Test Store", include_term="Toyota", excludes=[])
+        self.assertEqual(len(parsed), 1, "Unrelated VW/BMW item must be filtered out when searching for 'Toyota'")
+        self.assertIn("Toyota", parsed[0]["title"])
+        self.assertEqual(parsed[0]["item_id"], "1005001111111111")
+
+    def test_23_reverse_visual_harvester_expansion(self):
+        """Test Item 23: Verify VisualHarvester accepts Redbubble, Printerval, and TikTok scrapers."""
+        from visual_harvester import VisualHarvester
+        vh = VisualHarvester(tiktok_scraper="mock_tt", printerval_scraper="mock_pv", redbubble_scraper="mock_rb")
+        self.assertEqual(vh.tiktok_scraper, "mock_tt")
+        self.assertEqual(vh.printerval_scraper, "mock_pv")
+        self.assertEqual(vh.redbubble_scraper, "mock_rb")
+
+    def test_24_multi_column_cascading_dropdown_filters(self):
+        """Test Item 24: Verify multi-column cascading filter logic (Marketplace + Brand + Column Scope + Keyword)."""
+        from main import EbayTool
+        
+        # Test item dataset across multiple marketplaces and brands
+        items = [
+            {"item_id": "1", "brand": "Toyota", "title": "Toyota TRD Racing Pullover Hoodie", "marketplace": "Printerval", "seller": "PrintervalArtist1", "price": "$34.99", "url": "https://printerval.com/toyota-hoodie-p1"},
+            {"item_id": "2", "brand": "Toyota", "title": "Toyota Tacoma Full Zipper Jacket", "marketplace": "Printerval", "seller": "PrintervalArtist2", "price": "$45.00", "url": "https://printerval.com/toyota-jacket-p2"},
+            {"item_id": "3", "brand": "Ford", "title": "Ford Mustang Pullover Hoodie", "marketplace": "Printerval", "seller": "PrintervalArtist1", "price": "$34.99", "url": "https://printerval.com/ford-hoodie-p3"},
+            {"item_id": "4", "brand": "Toyota", "title": "Toyota Vintage Sticker Pack", "marketplace": "Redbubble", "seller": "PopsQc", "price": "$4.50", "url": "https://www.redbubble.com/i/sticker/toyota-p4"},
+            {"item_id": "5", "brand": "Toyota", "title": "OEM Toyota Grille Badge Emblem", "marketplace": "eBay", "seller": "tokyo_parts", "price": "$29.99", "url": "https://www.ebay.com/itm/555555555555"},
+            {"item_id": "6", "brand": "Honda", "title": "Honda Civic Type R Carbon Spoiler", "marketplace": "AliExpress", "seller": "carbon_factory", "price": "$120.00", "url": "https://www.aliexpress.com/item/100500666666.html"},
+            {"item_id": "7", "brand": "Toyota", "title": "Toyota TRD Pro Truck Keychain", "marketplace": "TikTok Shop", "seller": "gadget_hub", "price": "$7.99", "url": "https://shop.tiktok.com/view/777777777"},
+        ]
+
+        # 1. Canonical Marketplace Resolution
+        dummy_mw = EbayTool.__new__(EbayTool)
+        self.assertEqual(dummy_mw._get_item_marketplace(items[0]), "Printerval")
+        self.assertEqual(dummy_mw._get_item_marketplace(items[3]), "Redbubble")
+        self.assertEqual(dummy_mw._get_item_marketplace(items[4]), "eBay")
+        self.assertEqual(dummy_mw._get_item_marketplace(items[5]), "AliExpress")
+        self.assertEqual(dummy_mw._get_item_marketplace(items[6]), "TikTok Shop")
+        self.assertEqual(dummy_mw._get_item_marketplace({"url": "https://www.manomano.co.uk/item/123"}), "ManoMano")
+        self.assertEqual(dummy_mw._get_item_marketplace({"url": "https://www.wish.com/product/123"}), "Wish")
+        self.assertEqual(dummy_mw._get_item_marketplace({"url": "https://www.temu.com/goods-123.html"}), "Temu")
+        self.assertEqual(dummy_mw._get_item_marketplace({"url": "https://www.vinted.fr/items/123"}), "Vinted")
+        self.assertEqual(dummy_mw._get_item_marketplace({"url": "https://articulo.mercadolibre.com.mx/MLM-123"}), "Mercado Libre")
+
+        # 2. Multi-Column Filter Evaluator Helper
+        def evaluate_filters(dataset, mkt="All Marketplaces", brand="All Brands", query="", col="Title"):
+            filtered = []
+            for it in dataset:
+                if mkt != "All Marketplaces":
+                    item_mkt = dummy_mw._get_item_marketplace(it)
+                    if item_mkt.lower() != mkt.lower() and mkt.lower() not in item_mkt.lower():
+                        continue
+                if brand != "All Brands":
+                    if str(it.get("brand", "")).strip().lower() != brand.lower():
+                        continue
+                if query and not dummy_mw._item_matches_filter(it, query, target_col=col):
+                    continue
+                filtered.append(it)
+            return filtered
+
+        # 3. Test Filter Dimensions
+        # All items unfiltered
+        self.assertEqual(len(evaluate_filters(items)), 7)
+
+        # Marketplace = Printerval only (Items 1, 2, 3)
+        pv_only = evaluate_filters(items, mkt="Printerval")
+        self.assertEqual(len(pv_only), 3)
+        self.assertTrue(all(it["marketplace"] == "Printerval" for it in pv_only))
+
+        # Marketplace = Printerval + Brand = Toyota (Items 1, 2)
+        pv_toyota = evaluate_filters(items, mkt="Printerval", brand="Toyota")
+        self.assertEqual(len(pv_toyota), 2)
+        self.assertEqual({it["item_id"] for it in pv_toyota}, {"1", "2"})
+
+        # Marketplace = Printerval + Brand = Toyota + Query = "hoodie -zipper" (Item 1 only)
+        pv_toyota_hoodie = evaluate_filters(items, mkt="Printerval", brand="Toyota", query="hoodie -zipper", col="Title")
+        self.assertEqual(len(pv_toyota_hoodie), 1)
+        self.assertEqual(pv_toyota_hoodie[0]["item_id"], "1")
+
+        # Column Scoped Filter: Seller = "PopsQc"
+        seller_filter = evaluate_filters(items, query="PopsQc", col="Seller")
+        self.assertEqual(len(seller_filter), 1)
+        self.assertEqual(seller_filter[0]["item_id"], "4")
+
+        # Column Scoped Filter: Marketplace = "TikTok Shop"
+        mkt_col_filter = evaluate_filters(items, query="TikTok", col="Marketplace")
+        self.assertEqual(len(mkt_col_filter), 1)
+        self.assertEqual(mkt_col_filter[0]["item_id"], "7")
+
+        # 4. DataStore get_all_brands contract
+        self.assertTrue(hasattr(self.data_store, "get_all_brands"))
+        self.assertTrue(isinstance(self.data_store.get_all_brands(), list))
+
+    def test_staged_dossier_persistence(self):
+        """Verify Dossier Staging Vault disk persistence and recovery."""
+        sample_staged = [
+            {"item_id": "PV-101", "marketplace": "Printerval", "title": "TRD Racing Hoodie", "url": "https://printerval.com/trd-hoodie-p101"},
+            {"item_id": "RB-202", "marketplace": "Redbubble", "title": "Toyota Vintage Sticker", "url": "https://redbubble.com/i/sticker/202"}
+        ]
+        self.data_store.save_staged_dossier(sample_staged)
+        loaded = self.data_store.get_staged_dossier()
+        self.assertEqual(len(loaded), 2)
+        self.assertEqual(loaded[0]["item_id"], "PV-101")
+        self.assertEqual(loaded[1]["item_id"], "RB-202")
+
+        self.data_store.clear_staged_dossier()
+        self.assertEqual(len(self.data_store.get_staged_dossier()), 0)
+
+    def test_coaster_enforcement_not_marked_fluff(self):
+        """Verify that branded silicone cup coasters are NOT suppressed by universal fluff filtering."""
+        title = "Silicone Car Cup Coaster for Toyota Camry RAV4"
+        is_fluff, reason = self.data_store.is_universal_fluff(title)
+        self.assertFalse(is_fluff, f"Silicone coaster was incorrectly flagged as fluff: {reason}")
+
+    def test_export_marketplace_dotcom_normalization(self):
+        """Verify that Redbubble and Printerval strictly normalize to redbubble.com and printerval.com for Excel export."""
+        from exporter import normalize_marketplace_code
+        self.assertEqual(normalize_marketplace_code("Redbubble"), "redbubble.com")
+        self.assertEqual(normalize_marketplace_code("redbubble.com"), "redbubble.com")
+        self.assertEqual(normalize_marketplace_code("Printerval"), "printerval.com")
+        self.assertEqual(normalize_marketplace_code("printerval.com"), "printerval.com")
+        self.assertEqual(normalize_marketplace_code("cafr.ebay.ca"), "ebay.ca - cafr")
+
 
 if __name__ == "__main__":
     unittest.main()

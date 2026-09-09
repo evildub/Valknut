@@ -38,7 +38,11 @@ class AliExpressScraper:
         raw = raw_input.strip() if raw_input else ""
         
         # Check if user wants global marketplace search
-        if not raw or any(g in raw.lower() for g in ("global", "marketplace", "all", "wholesale")):
+        raw_clean = raw.lower().rstrip("/")
+        if not raw or any(g in raw_clean for g in ("global", "marketplace", "all", "wholesale")) or raw_clean in (
+            "https://www.aliexpress.com", "http://www.aliexpress.com", "https://aliexpress.com", "http://aliexpress.com",
+            "https://www.aliexpress.us", "https://aliexpress.us", "www.aliexpress.com", "aliexpress.com"
+        ):
             return {
                 "store_id": "GLOBAL",
                 "store_name": "AliExpress Global Search",
@@ -131,6 +135,26 @@ class AliExpressScraper:
             time.sleep(random.uniform(1.2, 2.5))
 
         return items
+
+    def _fetch_via_requests(self, url: str) -> str:
+        """Fallback stealth fetch using curl_cffi or requests."""
+        try:
+            if HAS_CURL_CFFI:
+                session = curl_requests.Session(impersonate="chrome124")
+            else:
+                session = curl_requests.Session()
+            session.headers.update({
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            })
+            resp = session.get(url, timeout=15)
+            return resp.text if resp.status_code == 200 else ""
+        except Exception:
+            return ""
 
     def _build_search_url(self, store_info: dict, keyword: str, page: int = 1) -> str:
         """Construct the search URL within an AliExpress store or Global Wholesale search."""
@@ -282,7 +306,7 @@ class AliExpressScraper:
 
                     links.forEach(a => {
                         const href = a.href;
-                        const m = href.match(/\\/item\\/(\\d+)\\.html/);
+                        const m = href.match(/\\/item\\/(\\d+)/);
                         if (!m) return;
                         const itemId = m[1];
                         if (seen.has(itemId)) return;
@@ -383,6 +407,12 @@ class AliExpressScraper:
                 if any(ex in title_lower for ex in excludes):
                     continue
 
+                # Ensure keyword relevance (drop unrelated cross-fitment noise from AliExpress wholesale)
+                if include_term and include_term != "*":
+                    inc_tokens = [tk.lower().strip() for tk in re.split(r"[\s+,]+", include_term) if len(tk.strip()) >= 2]
+                    if inc_tokens and not any(re.search(r'\b' + re.escape(tk) + r'\b', title_lower) for tk in inc_tokens):
+                        continue
+
                 parsed.append({
                     "title": title,
                     "url": c.get("url", ""),
@@ -409,8 +439,8 @@ class AliExpressScraper:
         items = []
         seen_ids = set()
 
-        # Find all item links matching /item/{id}.html
-        item_links = soup.find_all("a", href=re.compile(r"/item/(\d+)\.html"))
+        # Find all item links matching /item/{id}
+        item_links = soup.find_all("a", href=re.compile(r"/item/(\d+)"))
 
         for link in item_links:
             href = link.get("href", "")
@@ -418,7 +448,7 @@ class AliExpressScraper:
                 href = "https:" + href if href.startswith("//") else f"https://www.aliexpress.com{href}"
 
             clean_url = href.split("?")[0]
-            m = re.search(r"/item/(\d+)\.html", clean_url)
+            m = re.search(r"/item/(\d+)", clean_url)
             if not m:
                 continue
 
@@ -463,6 +493,12 @@ class AliExpressScraper:
             title_lower = title.lower()
             if any(ex in title_lower for ex in excludes):
                 continue
+
+            # Ensure keyword relevance (drop unrelated cross-fitment noise from AliExpress wholesale)
+            if include_term and include_term != "*":
+                inc_tokens = [tk.lower().strip() for tk in re.split(r"[\s+,]+", include_term) if len(tk.strip()) >= 2]
+                if inc_tokens and not any(re.search(r'\b' + re.escape(tk) + r'\b', title_lower) for tk in inc_tokens):
+                    continue
 
             # 3. Image extraction (filter out promo badge icons)
             img_url = ""

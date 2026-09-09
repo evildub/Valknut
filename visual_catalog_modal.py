@@ -42,6 +42,9 @@ class VisualCatalogModal(tk.Toplevel):
         return self.theme.get(key, default)
 
     def _center_window(self, width, height):
+        if hasattr(self.master, "_center_window"):
+            self.master._center_window(self, width, height)
+            return
         self.update_idletasks()
         try:
             m_x = self.master.winfo_rootx()
@@ -50,13 +53,13 @@ class VisualCatalogModal(tk.Toplevel):
             m_h = self.master.winfo_height()
             if m_w > 100 and m_h > 100:
                 x = m_x + (m_w - width) // 2
-                y = m_y + (m_h - height) // 2
+                y = max(30, m_y + (m_h - height) // 2)
             else:
                 x = m_x + 20
-                y = m_y + 20
+                y = max(30, m_y + 20)
         except Exception:
             x = (self.winfo_screenwidth() // 2) - (width // 2)
-            y = (self.winfo_screenheight() // 2) - (height // 2)
+            y = max(30, (self.winfo_screenheight() // 2) - (height // 2))
         self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _build_ui(self):
@@ -316,7 +319,7 @@ class VisualCatalogModal(tk.Toplevel):
 
         # Selection Checkbox
         sel_var = tk.BooleanVar(value=is_selected)
-        chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=accent_color,
+        chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=self._t("entry_bg", "#1a1a1a"),
                              activebackground=panel_bg, command=lambda: self._toggle_card_selection(eid))
         chk.pack(side="left", padx=(0, 6))
 

@@ -174,7 +174,8 @@ class PrintervalScraper:
         """)
 
         try:
-            while len(results) < max_items and page_num <= 4:
+            max_pages = max(4, min(15, (max_items + 29) // 30))
+            while len(results) < max_items and page_num <= max_pages:
                 if page_num == 1:
                     target_url = f"https://printerval.com/search?q={encoded_q}"
                 else:
@@ -269,7 +270,7 @@ class PrintervalScraper:
                         "location": "United States",
                         "image_url": raw_it.get("image_url", ""),
                         "url": u,
-                        "marketplace": "Printerval",
+                        "marketplace": "printerval.com",
                         "condition": "New",
                         "keyword": query
                     })
@@ -572,7 +573,7 @@ class PrintervalScraper:
                     }""")
                     page.wait_for_timeout(2000)
 
-                    # Extract all variant links and metadata
+                    # Extract all variant links and metadata strictly from variant containers
                     extracted_variants = page.evaluate("""(parentId) => {
                         const items = [];
                         const seen = new Set();
@@ -582,8 +583,10 @@ class PrintervalScraper:
                             '.tab-more-also-available-product-wrapper a[href*="-p"]',
                             '.available-product-wrapper a[href*="-p"]',
                             '.js-also-available-on-box a[href*="-p"]',
-                            'a.js-also-available-product',
-                            'a[href*="-p"]'
+                            '#modal-also-available a[href*="-p"]',
+                            '.modal-also-available a[href*="-p"]',
+                            '.box-also-available a[href*="-p"]',
+                            'a.js-also-available-product'
                         ];
                         
                         const allElements = document.querySelectorAll(selectors.join(', '));
@@ -633,14 +636,25 @@ class PrintervalScraper:
                     }""", parent_id)
 
                     new_for_this_parent = 0
+                    parent_tokens = {t for t in re.findall(r'[a-zA-Z0-9]{3,}', parent_title.lower()) if t not in ("the", "and", "for", "with", "shirt", "hoodie", "gift")}
+                    target_b = (brand or keyword or "").lower().strip()
+
                     for v in extracted_variants:
                         v_id = str(v.get("item_id", "")).strip()
                         if not v_id or v_id in known_ids:
                             continue
-                        known_ids.add(v_id)
 
                         u = v.get("url", "")
                         slug = u.split("/")[-1].split("-p")[0]
+
+                        # Token relevance safeguard to drop unrelated recommendation carousel noise
+                        if target_b and target_b not in ("adhoc request", "full store sweep", ""):
+                            has_b = target_b in slug.lower() or target_b in v.get("title", "").lower()
+                            has_p = any(ptk in slug.lower() or ptk in v.get("title", "").lower() for ptk in parent_tokens)
+                            if not has_b and not has_p and parent_tokens:
+                                continue
+
+                        known_ids.add(v_id)
                         
                         # Derive clean product type
                         type_part = slug.split("-")[-1].title() if "-" in slug else "Merchandise"
@@ -654,17 +668,18 @@ class PrintervalScraper:
 
                         price = v.get("price") or parent.get("price") or "$19.95"
 
+                        variant_sku_id = f"{parent_id}_{slug}" if (slug and slug != parent_id) else v_id
                         variant_item = {
                             "brand": brand,
                             "product_type": type_part,
                             "title": v_title,
-                            "item_id": v_id,
+                            "item_id": variant_sku_id,
                             "price": price,
                             "seller": seller,
                             "location": "United States",
                             "image_url": v.get("image_url", ""),
                             "url": u,
-                            "marketplace": "Printerval",
+                            "marketplace": "printerval.com",
                             "condition": "New",
                             "keyword": keyword
                         }
