@@ -181,7 +181,7 @@ class EbayScraper:
                exclude_terms: list[str] = None,
                condition: str = "all",
                domain: str = "",
-               reverse_locale_probe: bool = True,
+               reverse_locale_probe: bool = False,
                stop_event: threading.Event = None,
                pause_event: threading.Event = None,
                log_callback = None) -> list[dict]:

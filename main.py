@@ -4304,7 +4304,7 @@ class EbayTool(tk.Tk):
                                 stop_event=self.stop_event,
                                 pause_event=self.pause_event,
                                 domain=domain,
-                                reverse_locale_probe=True,
+                                reverse_locale_probe=False,
                                 log_callback=self._log
                             )
 
@@ -4424,7 +4424,7 @@ class EbayTool(tk.Tk):
                                 stop_event=self.stop_event,
                                 pause_event=self.pause_event,
                                 domain=domain,
-                                reverse_locale_probe=True,
+                                reverse_locale_probe=False,
                                 log_callback=self._log
                             )
                             for item in items:
