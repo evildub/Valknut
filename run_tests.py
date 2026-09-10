@@ -860,9 +860,59 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertEqual(sellers_mlm[1]["seller"], "FarmaPet MX")
         self.assertEqual(sellers_mlm[1]["item_id"], "MLM987654321")
 
+    def test_30_queue_addition_resilience(self):
+        """Test Item 30: Verify Queue addition resilience across all keyword/store input combinations without blocking popups."""
+        from main import EbayTool
+        app = EbayTool()
+        app.withdraw()
+
+        try:
+            # 1. Stores placeholder + custom keyword in target box -> enqueues global sweep for keyword
+            app.store_text.delete("1.0", "end")
+            app.store_text.insert("1.0", app.store_placeholder)
+            app.include_text.delete("1.0", "end")
+            app.include_text.insert("1.0", "toyota")
+            app.brand_states.clear()
+            app.queue.clear()
+            app.queue_list.delete(0, "end")
+
+            app._add_to_queue()
+            self.assertEqual(len(app.queue), 1, "Must enqueue 1 job when keyword is in target box")
+            self.assertEqual(app.queue[0]["brand"], "Toyota")
+            self.assertIn("toyota", app.queue[0]["includes"])
+            self.assertIn("Global", app.queue[0]["store"])
+
+            # 2. Stores box has keyword 'toyota' directly with empty target box -> converts to global keyword sweep
+            app.store_text.delete("1.0", "end")
+            app.store_text.insert("1.0", "toyota")
+            app.include_text.delete("1.0", "end")
+            app.brand_states.clear()
+            app.queue.clear()
+            app.queue_list.delete(0, "end")
+
+            app._add_to_queue()
+            self.assertEqual(len(app.queue), 1, "Must enqueue 1 job when keyword is entered in stores box")
+            self.assertEqual(app.queue[0]["brand"], "Toyota")
+            self.assertIn("toyota", app.queue[0]["includes"])
+
+            # 3. Clean Brand Sweep with keyword in stores box
+            app.store_text.delete("1.0", "end")
+            app.store_text.insert("1.0", "honda")
+            app.include_text.delete("1.0", "end")
+            app.brand_states.clear()
+            app.queue.clear()
+            app.queue_list.delete(0, "end")
+
+            app._queue_clean_targeted_brands()
+            self.assertEqual(len(app.queue), 1, "Clean sweep must enqueue job for keyword in stores box")
+            self.assertEqual(app.queue[0]["brand"], "honda")
+        finally:
+            app.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

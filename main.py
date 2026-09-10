@@ -2438,39 +2438,30 @@ class EbayTool(tk.Tk):
                 self.store_text.config(fg=t["subtext"])
             self._log("🛒 Switched platform to: eBay.com (Global Search & Store Sweeps active)")
 
+    def _get_global_token(self):
+        """Get the canonical global sweep token for current marketplace."""
+        market = self.marketplace_var.get() if hasattr(self, "marketplace_var") else "eBay"
+        if "ManoMano" in market: return ["🧰 Global ManoMano Search"]
+        if "Vinted" in market: return ["👗 Global Vinted Search"]
+        if "AliExpress" in market: return ["🌐 Global AliExpress Search"]
+        if "Wish" in market: return ["🌐 Global Wish Search"]
+        if "Temu" in market: return ["🌐 Global Temu Search"]
+        if "TikTok" in market: return ["🎵 Global TikTok Shop Search"]
+        if "Mercado" in market: return ["🌐 Global Mercado Libre Search"]
+        if "Redbubble" in market: return ["🌐 Global Redbubble Search"]
+        if "Printerval" in market: return ["🌐 Global Printerval Search"]
+        return ["🛒 Global eBay Search"]
+
     def _get_stores_from_input(self):
         """Parse stores from input text box, safely ignoring placeholders and handling Global platform modes."""
         raw_text = self.store_text.get("1.0", "end").strip()
-        market = self.marketplace_var.get()
-        is_manomano = "ManoMano" in market
-        is_vinted = "Vinted" in market
-        is_ali = "AliExpress" in market
-        is_wish = "Wish" in market
-        is_temu = "Temu" in market
-        is_tiktok = "TikTok" in market
-        is_meli = "Mercado Libre" in market
-        is_redbubble = "Redbubble" in market
-        is_printerval = "Printerval" in market
-
-        def _get_global_token():
-            if is_manomano: return ["🧰 Global ManoMano Search"]
-            if is_vinted: return ["👗 Global Vinted Search"]
-            if is_ali: return ["🌐 Global AliExpress Search"]
-            if is_wish: return ["🌐 Global Wish Search"]
-            if is_temu: return ["🌐 Global Temu Search"]
-            if is_tiktok: return ["🎵 Global TikTok Shop Search"]
-            if is_meli: return ["🌐 Global Mercado Libre Search"]
-            if is_redbubble: return ["🌐 Global Redbubble Search"]
-            if is_printerval: return ["🌐 Global Printerval Search"]
-            return ["🛒 Global eBay Search"]
-
         if (not raw_text or 
             raw_text == self.store_placeholder.strip() or 
             "Global" in raw_text or 
             "store1" in raw_text or 
             "enter store" in raw_text.lower() or
             "leave blank to sweep" in raw_text.lower()):
-            return _get_global_token()
+            return self._get_global_token()
 
         lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
         valid_stores = []
@@ -2501,7 +2492,7 @@ class EbayTool(tk.Tk):
             valid_stores.append(l)
 
         if not valid_stores:
-            return _get_global_token()
+            return self._get_global_token()
 
         return valid_stores
 
@@ -2887,10 +2878,14 @@ class EbayTool(tk.Tk):
         self.include_text.insert("1.0", "\n".join(all_terms))
 
     def _add_parent_brand(self):
-        self._brand_dialog("Add Parent Brand", lambda name: (
-            self.data_store.add_parent_brand(name),
+        def _on_add(name):
+            self.data_store.add_parent_brand(name)
+            self.brand_states[name] = "target"
             self._refresh_brand_tree()
-        ))
+            self.brand_tree.selection_set(name)
+            self.brand_tree.focus(name)
+            self._on_tree_select(None)
+        self._brand_dialog("Add Parent Brand", _on_add)
 
     def _add_sub_brand(self):
         sel = self.brand_tree.focus()
@@ -2898,10 +2893,15 @@ class EbayTool(tk.Tk):
             messagebox.showwarning("Select", "Select a parent brand first.")
             return
         parent = sel.split("/")[0]
-        self._brand_dialog("Add Sub-brand", lambda name: (
-            self.data_store.add_sub_brand(parent, name),
+        def _on_add(name):
+            self.data_store.add_sub_brand(parent, name)
+            sub_key = f"{parent}/{name}"
+            self.brand_states[sub_key] = "target"
             self._refresh_brand_tree()
-        ))
+            self.brand_tree.selection_set(sub_key)
+            self.brand_tree.focus(sub_key)
+            self._on_tree_select(None)
+        self._brand_dialog("Add Sub-brand", _on_add)
 
     def _add_model(self):
         sel = self.brand_tree.focus()
@@ -3351,11 +3351,8 @@ class EbayTool(tk.Tk):
 
     def _queue_clean_targeted_brands(self):
         """Queue only the explicitly targeted brand/sub-brand names as clean, individual 1-term searches."""
-        # 1. Parse stores (safely handling Global AliExpress mode and placeholders)
-        stores = self._get_stores_from_input()
-        if not stores:
-            messagebox.showwarning("Missing Stores", "Enter one or more store URLs or seller names in the Stores box.")
-            return
+        # 1. Parse stores (safely handling Global mode and placeholders)
+        stores = self._get_stores_from_input() or self._get_global_token()
 
         # 2. Get explicitly targeted terms or custom ad-hoc terms
         target_keys = [k for k, v in self.brand_states.items() if v == "target"]
@@ -3367,8 +3364,18 @@ class EbayTool(tk.Tk):
         custom_includes = [l.strip() for l in self.include_text.get("1.0", "end").splitlines() if l.strip()]
 
         if not target_keys and not custom_includes:
-            messagebox.showwarning("No Target Terms", "Mark at least one brand as 🎯 Target or type custom keywords in the Target box.")
-            return
+            if stores and not any("global" in s.lower() for s in stores):
+                custom_includes = [s for s in stores if not s.startswith("http")]
+                if custom_includes:
+                    stores = self._get_global_token()
+
+            if not custom_includes:
+                children = self.brand_tree.get_children()
+                if children:
+                    target_keys = [children[0]]
+                else:
+                    messagebox.showwarning("No Target Terms", "Mark at least one brand as 🎯 Target or type custom keywords in the Target box.")
+                    return
 
         target_terms = []
         for k in target_keys:
@@ -3428,10 +3435,7 @@ class EbayTool(tk.Tk):
             messagebox.showinfo("Select Preset", "Select a valid Portfolio Preset first.")
             return
 
-        stores = self._get_stores_from_input()
-        if not stores:
-            messagebox.showwarning("Missing Stores", "Enter one or more store URLs or seller names in the Stores box.")
-            return
+        stores = self._get_stores_from_input() or self._get_global_token()
 
         preset_brands = presets[preset_name]
         if not preset_brands:
@@ -3497,10 +3501,7 @@ class EbayTool(tk.Tk):
     # ══════════════════════════════════════════════════════════════════════════
     def _add_to_queue(self):
         # 1. Parse all stores/sellers entered
-        stores = self._get_stores_from_input()
-        if not stores:
-            messagebox.showwarning("Missing Stores", "Enter one or more store URLs or seller names in the Stores box.")
-            return
+        stores = self._get_stores_from_input() or self._get_global_token()
 
         for s in stores:
             if any(r in s.lower() for r in ("rick", "astley", "rickroll", "never gonna give you up")):
@@ -3518,9 +3519,32 @@ class EbayTool(tk.Tk):
                 sel = self.brand_tree.selection()
                 if sel:
                     target_items = [sel[0]]
+                elif stores and not any("global" in s.lower() for s in stores):
+                    # User entered terms or seller in the Stores/Sellers box directly
+                    term_candidates = []
+                    store_candidates = []
+                    for s in stores:
+                        if "/" in s or "store" in s.lower() or "seller" in s.lower() or "shop" in s.lower() or s.startswith("http"):
+                            store_candidates.append(s)
+                        else:
+                            term_candidates.append(s)
+
+                    if term_candidates and not store_candidates:
+                        custom_includes = term_candidates
+                        top_targets = [t.title() for t in term_candidates]
+                        stores = self._get_global_token()
+                    elif store_candidates:
+                        is_full_store_sweep = True
+                        stores = store_candidates
+                    else:
+                        is_full_store_sweep = True
                 else:
-                    messagebox.showwarning("Missing Targets", "Mark at least one brand as 🎯 Target, type custom keywords in the Target box, or check '🏪 Full Store Sweep' to sweep whole stores without keywords.")
-                    return
+                    children = self.brand_tree.get_children()
+                    if children:
+                        target_items = [children[0]]
+                    else:
+                        messagebox.showwarning("Missing Targets", "Mark at least one brand as 🎯 Target, type custom keywords in the Target box, or check '🏪 Full Store Sweep' to sweep whole stores without keywords.")
+                        return
 
         # 3. Identify Excluded Brands from Brand Library
         brand_excludes = []
