@@ -9364,9 +9364,12 @@ class ConnectedNetworkModal(tk.Toplevel):
         target_img = self.target_item.get("image_url", "")
         is_meli = "mercadolibre" in item_url.lower() or "mercadolivre" in item_url.lower() or "mercado" in str(self.target_item.get("marketplace", "")).lower()
         is_printerval = "printerval" in item_url.lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+        is_rb = "redbubble" in item_url.lower() or "redbubble" in str(self.target_item.get("marketplace", "")).lower()
 
         if is_printerval:
             platform_name = "Printerval"
+        elif is_rb:
+            platform_name = "Redbubble"
         elif is_meli:
             platform_name = "Mercado Libre"
         else:
@@ -9380,6 +9383,12 @@ class ConnectedNetworkModal(tk.Toplevel):
                     if not scraper:
                         from printerval_scraper import PrintervalScraper
                         scraper = PrintervalScraper(headless=True)
+                    results = scraper.find_connected_network(item_id, item_url, target_img)
+                elif is_rb:
+                    scraper = getattr(self.parent, "redbubble_scraper", None)
+                    if not scraper:
+                        from redbubble_scraper import RedbubbleScraper
+                        scraper = RedbubbleScraper(headless=True)
                     results = scraper.find_connected_network(item_id, item_url, target_img)
                 elif is_meli:
                     scraper = getattr(self.parent, "mercadolibre_scraper", None)
@@ -9456,7 +9465,7 @@ class ConnectedNetworkModal(tk.Toplevel):
 
         def get_sort_key(item):
             seller = (item.get("seller") or "").strip()
-            is_pod = "printerval" in item.get("marketplace", "").lower() or "printerval" in item.get("url", "").lower()
+            is_pod = any(p in item.get("marketplace", "").lower() or p in item.get("url", "").lower() for p in ("printerval", "redbubble", "teepublic", "zazzle", "spreadshirt", "threadless", "teespring"))
             if col == "origin":
                 intel = ds.get_seller_intel(seller) if ds else {}
                 c_val = intel.get("country", "") if intel else (item.get("seller_origin") or ("United States" if is_pod else ""))
@@ -9611,7 +9620,7 @@ class ConnectedNetworkModal(tk.Toplevel):
                 seller_display = f"⚡ {seller}"
 
             # Evaluate Threat Intel from DataStore
-            is_pod = "printerval" in itm.get("marketplace", "").lower() or "printerval" in itm.get("url", "").lower()
+            is_pod = any(p in itm.get("marketplace", "").lower() or p in itm.get("url", "").lower() for p in ("printerval", "redbubble", "teepublic", "zazzle", "spreadshirt", "threadless", "teespring"))
             cached_intel = ds.get_seller_intel(seller) if ds else {}
             seller_country = cached_intel.get("country", "") if cached_intel else ""
             if not seller_country and is_pod:
@@ -9656,9 +9665,13 @@ class ConnectedNetworkModal(tk.Toplevel):
     def _fetch_thumb(self, iid, url, size):
         """Asynchronously download and scale thumbnail with retry loop."""
         def _w():
+            referer = "https://www.redbubble.com/" if "redbubble" in url else ("https://printerval.com/" if "printerval" in url else "")
+            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            if referer:
+                headers["Referer"] = referer
             for attempt in range(2):
                 try:
-                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://printerval.com/"})
+                    req = urllib.request.Request(url, headers=headers)
                     with urllib.request.urlopen(req, timeout=7) as r:
                         pimg = Image.open(io.BytesIO(r.read())).convert("RGBA")
                     pimg.thumbnail((size, size), Image.Resampling.LANCZOS)
@@ -9700,10 +9713,13 @@ class ConnectedNetworkModal(tk.Toplevel):
                 return
 
             is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+            is_rb = "redbubble" in self.target_item.get("url", "").lower() or "redbubble" in str(self.target_item.get("marketplace", "")).lower()
             is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
 
             if is_printerval:
                 webbrowser.open(f"https://printerval.com/product-p{item_id}")
+            elif is_rb:
+                webbrowser.open(f"https://www.redbubble.com/i/product/{item_id}")
             elif is_meli:
                 webbrowser.open(f"https://articulo.mercadolibre.com.mx/MLM-{item_id}" if not item_id.startswith("http") else item_id)
             elif item_id:
@@ -9788,9 +9804,12 @@ class ConnectedNetworkModal(tk.Toplevel):
             
             if not url and item_id:
                 is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+                is_rb = "redbubble" in self.target_item.get("url", "").lower() or "redbubble" in str(self.target_item.get("marketplace", "")).lower()
                 is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
                 if is_printerval:
                     url = f"https://printerval.com/product-p{item_id}"
+                elif is_rb:
+                    url = f"https://www.redbubble.com/i/product/{item_id}"
                 elif is_meli:
                     url = f"https://articulo.mercadolibre.com.mx/MLM-{item_id}" if not item_id.startswith("http") else item_id
                 else:
@@ -10067,9 +10086,10 @@ class ConnectedNetworkModal(tk.Toplevel):
         detected_brand = self.target_item.get("brand") or "General Brand"
         ptype = self.target_item.get("product_type", "")
         is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+        is_rb = "redbubble" in self.target_item.get("url", "").lower() or "redbubble" in str(self.target_item.get("marketplace", "")).lower()
         is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
 
-        default_marketplace = "Printerval" if is_printerval else ("Mercado Libre" if is_meli else "eBay")
+        default_marketplace = "Printerval" if is_printerval else ("Redbubble" if is_rb else ("Mercado Libre" if is_meli else "eBay"))
 
         for itm in target_records:
             t = itm.get("title", "")
@@ -10086,6 +10106,8 @@ class ConnectedNetworkModal(tk.Toplevel):
             if not itm_url:
                 if is_printerval and itm_id:
                     itm_url = f"https://printerval.com/product-p{itm_id}"
+                elif is_rb and itm_id:
+                    itm_url = f"https://www.redbubble.com/i/product/{itm_id}"
                 elif is_meli and itm_id:
                     itm_url = f"https://articulo.mercadolibre.com.mx/MLM-{itm_id}"
                 elif itm_id:
@@ -10093,6 +10115,7 @@ class ConnectedNetworkModal(tk.Toplevel):
 
             mkt = itm.get("marketplace") or default_marketplace
 
+            is_pod_itm = is_printerval or is_rb or any(p in str(mkt).lower() or p in str(itm_url).lower() for p in ("printerval", "redbubble", "teepublic", "zazzle", "spreadshirt", "threadless", "teespring"))
             row = {
                 "brand": brand_name,
                 "product_type": pt_name,
@@ -10100,13 +10123,13 @@ class ConnectedNetworkModal(tk.Toplevel):
                 "item_id": itm_id,
                 "price": itm.get("price", ""),
                 "seller": itm.get("seller", "") or "Unknown",
-                "location": itm.get("location", "") or ("United States" if is_printerval else ""),
+                "location": itm.get("location", "") or ("United States" if is_pod_itm else ""),
                 "image_url": itm.get("image_url", ""),
                 "url": itm_url,
                 "marketplace": mkt,
                 "similarity": itm.get("similarity", "Connected Network Match"),
-                "threat_badge": "👕 POD Print Syndicate" if is_printerval else itm.get("threat_badge", ""),
-                "threat_score": 65 if is_printerval else itm.get("threat_score", 0)
+                "threat_badge": "👕 POD Print Syndicate" if is_pod_itm else itm.get("threat_badge", ""),
+                "threat_score": 65 if is_pod_itm else itm.get("threat_score", 0)
             }
 
             # Dedup check
@@ -10232,12 +10255,13 @@ class ConnectedNetworkModal(tk.Toplevel):
 
         items_to_enrich = [
             it for it in target_items 
-            if not it.get("seller") or it.get("seller") in ("Printerval Creator", "Unknown", "Resolving...") or selected_iids
+            if not it.get("seller") or it.get("seller") in ("Printerval Creator", "Redbubble Creator", "Unknown", "Resolving...") or selected_iids
         ]
         if not items_to_enrich:
             items_to_enrich = list(target_items)
 
         is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+        is_rb = "redbubble" in self.target_item.get("url", "").lower() or "redbubble" in str(self.target_item.get("marketplace", "")).lower()
         is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
 
         self.status_lbl.configure(text=f"🏪 Enriching real merchant/artist names for {len(items_to_enrich)} listing(s)...", fg=self.t["accent"])
@@ -10255,6 +10279,18 @@ class ConnectedNetworkModal(tk.Toplevel):
                     def _prog(cur, tot, it):
                         s_name = it.get("seller", "")
                         self.after(0, lambda: self.status_lbl.configure(text=f"🏪 Enriching Sellers [{cur}/{tot}] -> '{s_name}'"))
+                        self.after(0, self._populate_tree)
+
+                    scraper.enrich_seller_info(items_to_enrich, progress_callback=_prog)
+                elif is_rb:
+                    scraper = getattr(self.parent, "redbubble_scraper", None)
+                    if not scraper:
+                        from redbubble_scraper import RedbubbleScraper
+                        scraper = RedbubbleScraper(headless=True)
+                    
+                    def _prog(cur, tot, it):
+                        s_name = it.get("seller", "")
+                        self.after(0, lambda: self.status_lbl.configure(text=f"🏪 Enriching Artists [{cur}/{tot}] -> '{s_name}'"))
                         self.after(0, self._populate_tree)
 
                     scraper.enrich_seller_info(items_to_enrich, progress_callback=_prog)
@@ -10276,7 +10312,7 @@ class ConnectedNetworkModal(tk.Toplevel):
                 self.pbar.stop()
                 self.pbar.pack_forget()
                 self._populate_tree()
-                unique_sellers = set(r["seller"] for r in self.discovered_items if r.get("seller") and r.get("seller") not in ("Printerval Creator", "Unknown"))
+                unique_sellers = set(r["seller"] for r in self.discovered_items if r.get("seller") and r.get("seller") not in ("Printerval Creator", "Redbubble Creator", "Unknown", "Resolving..."))
                 self.status_lbl.configure(text=f"✅ Enrichment Complete: {len(unique_sellers)} unique creators/merchants identified across discovered network.", fg=self.t["success"])
             
             self.after(0, _done)

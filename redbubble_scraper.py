@@ -10,6 +10,8 @@ Features:
 - High-res preview and structured metadata normalization.
 """
 
+import os
+import io
 import re
 import json
 import time
@@ -17,8 +19,10 @@ import random
 import logging
 import threading
 import urllib.parse
+import urllib.request
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
+from PIL import Image
 
 try:
     from curl_cffi import requests as curl_requests
@@ -33,11 +37,110 @@ logger = logging.getLogger("Apollo.RedbubbleScraper")
 class RedbubbleScraper:
     def __init__(self, headless: bool = True):
         self.headless = headless
+        self._pw = None
+        self._context = None
+        self.profile_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+            "Apollo_Hunter", "redbubble_profile"
+        )
+        os.makedirs(self.profile_dir, exist_ok=True)
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
+
+    def _find_edge_path(self) -> Optional[str]:
+        """Locate native Microsoft Edge executable on Windows."""
+        edge_paths = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+        ]
+        return next((p for p in edge_paths if os.path.exists(p)), None)
+
+    def _get_context(self):
+        """Initialize or return existing Playwright context with stealth evasions and persistent profile."""
+        from playwright.sync_api import sync_playwright
+        if self._pw is None:
+            self._pw = sync_playwright().start()
+
+        if self._context is None:
+            edge_path = self._find_edge_path()
+            args = [
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-infobars",
+                "--disable-dev-shm-usage",
+            ]
+
+            kwargs = {
+                "user_data_dir": self.profile_dir,
+                "headless": self.headless,
+                "args": args,
+                "viewport": {"width": 1366, "height": 850},
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+                "locale": "en-US",
+            }
+            if edge_path:
+                kwargs["executable_path"] = edge_path
+            else:
+                kwargs["channel"] = "msedge"
+
+            try:
+                self._context = self._pw.chromium.launch_persistent_context(**kwargs)
+            except Exception:
+                kwargs.pop("executable_path", None)
+                self._context = self._pw.chromium.launch_persistent_context(**kwargs)
+
+        return self._context
+
+    def close(self):
+        """Cleanly close persistent browser context."""
+        try:
+            if self._context:
+                self._context.close()
+                self._context = None
+            if self._pw:
+                self._pw.stop()
+                self._pw = None
+        except Exception:
+            pass
+
+    def extract_item_id(self, url: str, fallback_work_id: str = "") -> str:
+        """
+        Extract the composite Redbubble Item ID formatted as {work_id}.{sku_code}
+        (e.g., '54931656.7sgk' from '/54931656/7sgk' or '/54931656.7sgk').
+        """
+        if not url:
+            return str(fallback_work_id or "")
+        m = re.search(r'/(\d+)[./]([a-zA-Z0-9]{3,8})(?:[?#]|$)', url)
+        if m:
+            return f"{m.group(1)}.{m.group(2)}"
+        m2 = re.search(r'/(?:works/|i/[^/]+/[^/]+/)?(\d{6,12})(?:[-./?#]|$)', url)
+        if m2:
+            return m2.group(1)
+        m3 = re.search(r'/(\d{6,12})(?:[?#]|$)', url)
+        if m3:
+            return m3.group(1)
+        return str(fallback_work_id or "")
+
+    def compute_dhash(self, pil_img) -> int:
+        """Compute 64-bit difference hash (dHash) for fast perceptual image matching."""
+        small = pil_img.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
+        try:
+            pixels = list(small.get_flattened_data())
+        except AttributeError:
+            pixels = list(small.getdata())
+        diff = []
+        for row in range(8):
+            for col in range(8):
+                diff.append(pixels[row * 9 + col] > pixels[row * 9 + col + 1])
+        return sum([1 << i for i, b in enumerate(diff) if b])
+
+    def hamming_distance(self, h1: int, h2: int) -> int:
+        """Hamming distance between two 64-bit hashes (0 = exact match, <=8 = near-identical)."""
+        return bin(h1 ^ h2).count("1")
 
     def _get_session(self):
         if HAS_CURL_CFFI:
@@ -144,7 +247,7 @@ class RedbubbleScraper:
                             if not full_url.startswith("http"):
                                 full_url = f"https://www.redbubble.com{full_url}"
 
-                            item_id = str(work.get("id") or inv.get("workId") or "").strip()
+                            item_id = self.extract_item_id(full_url, fallback_work_id=str(work.get("id") or inv.get("workId") or "").strip())
                             title = (work.get("title") or inv.get("description") or "Redbubble Product").strip()
                             desc = (inv.get("description") or "Merchandise").strip()
                             artist = (work.get("artistUsername") or "Redbubble Artist").strip()
@@ -192,17 +295,18 @@ class RedbubbleScraper:
                         if not href or not a.text.strip():
                             continue
 
+                        full_url = f"https://www.redbubble.com{href}"
                         m = re.search(r"^/i/([^/]+)/(.+)-by-([^/]+)/(\d+)", href)
                         if m:
                             ptype = m.group(1).replace("-", " ").title()
                             title_slug = m.group(2).replace("-", " ")
                             artist = m.group(3)
-                            item_id = m.group(4)
+                            item_id = self.extract_item_id(full_url, fallback_work_id=m.group(4))
                         else:
                             ptype = "Merchandise"
                             title_slug = a.text.strip()
                             artist = "Redbubble Artist"
-                            item_id = re.sub(r'\D+', '', href)[-8:]
+                            item_id = self.extract_item_id(full_url, fallback_work_id=re.sub(r'\D+', '', href)[-8:])
 
                         if not item_id or item_id in seen_ids:
                             continue
@@ -217,7 +321,6 @@ class RedbubbleScraper:
                         if price_el:
                             price_text = price_el.strip()
 
-                        full_url = f"https://www.redbubble.com{href}"
                         title = a.get("aria-label") or title_slug.title()
 
                         item_dict = {
@@ -331,7 +434,7 @@ class RedbubbleScraper:
                             if not u.startswith("http"):
                                 u = f"https://www.redbubble.com{u}"
 
-                            v_id = str(it.get("id", "")).strip()
+                            v_id = self.extract_item_id(u, fallback_work_id=str(it.get("id", "")).strip())
                             if not v_id or v_id in known_ids or v_id == parent_id:
                                 continue
                             known_ids.add(v_id)
@@ -445,7 +548,7 @@ class RedbubbleScraper:
                             if not full_url.startswith("http"):
                                 full_url = f"https://www.redbubble.com{full_url}"
 
-                            item_id = str(work.get("id") or inv.get("workId") or "").strip()
+                            item_id = self.extract_item_id(full_url, fallback_work_id=str(work.get("id") or inv.get("workId") or "").strip())
                             title = (work.get("title") or inv.get("description") or "Redbubble Product").strip()
                             desc = (inv.get("description") or "Merchandise").strip()
                             artist = (work.get("artistUsername") or clean_artist).strip()
@@ -512,7 +615,7 @@ class RedbubbleScraper:
             if stop_event and stop_event.is_set():
                 break
             raw_url = it.get("url", "")
-            if not it.get("seller") or it.get("seller") in ("Redbubble Artist", "GLOBAL", "unknown"):
+            if not it.get("seller") or it.get("seller") in ("Redbubble Artist", "GLOBAL", "unknown", "Redbubble Creator"):
                 m = re.search(r'/by-([^/]+)/', raw_url)
                 if m:
                     it["seller"] = m.group(1).strip()
@@ -520,4 +623,186 @@ class RedbubbleScraper:
                 progress_callback(idx + 1, len(items), it)
 
         return items
+
+    def find_connected_network(self, item_id: str, item_url: str = "", target_img_url: str = "") -> List[Dict]:
+        """
+        On-Demand Visual Syndicate & Connected Artist Hunter for Redbubble.
+        Scans recommendation carousels, artist shops, and merchandise rows:
+        - "Stickers you might like" / "You might like"
+        - "More by this artist" / "Designed and sold by [seller]"
+        - "Also available on"
+        Performs perceptual image matching (dHash) against target_img_url.
+        """
+        if not item_url and item_id:
+            item_url = f"https://www.redbubble.com/i/product/{item_id}"
+        if not item_id and item_url:
+            item_id = self.extract_item_id(item_url)
+
+        if not item_url:
+            return []
+
+        logger.info(f"🎨 [Redbubble] Hunting connected network for {item_id} ({item_url})...")
+        ctx = self._get_context()
+        page = ctx.new_page()
+
+        try:
+            page.goto(item_url, wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(2500)
+
+            # Scroll down to load recommendation carousels
+            page.evaluate("""() => {
+                window.scrollTo(0, document.body.scrollHeight / 2);
+            }""")
+            page.wait_for_timeout(1500)
+            page.evaluate("""() => {
+                window.scrollTo(0, document.body.scrollHeight);
+            }""")
+            page.wait_for_timeout(2000)
+
+            raw_items = page.evaluate("""() => {
+                const items = [];
+                const seen = new Set();
+                
+                const allLinks = Array.from(document.querySelectorAll('a[href*="/i/"], a[href*="/works/"]'));
+                for (let a of allLinks) {
+                    const href = a.href || '';
+                    if (!href || seen.has(href)) continue;
+                    
+                    const m = href.match(/\\/(\\d+)[.\\/]([a-zA-Z0-9]{3,8})(?:[?#]|$)/) || href.match(/\\/(\\d+)(?:[?#]|$)/);
+                    if (!m) continue;
+                    
+                    seen.add(href);
+                    const itemId = m[2] ? `${m[1]}.${m[2]}` : m[1];
+                    
+                    const container = a.closest('div[class*="styles__box"], div[class*="styles__item"], div[class*="Carousel"], div') || a;
+                    
+                    let imgUrl = '';
+                    const imgs = Array.from(container.querySelectorAll('img'));
+                    for (let img of imgs) {
+                        const src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
+                        if (src && src.includes('redbubble.net/image') && !src.includes('.svg')) {
+                            imgUrl = src;
+                            break;
+                        }
+                    }
+                    if (!imgUrl) {
+                        for (let img of imgs) {
+                            const src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
+                            if (src && !src.includes('.svg') && !src.includes('heart') && src.startsWith('http')) {
+                                imgUrl = src;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    let title = '';
+                    let seller = '';
+                    
+                    for (let img of imgs) {
+                        const alt = (img.alt || '').trim();
+                        const altM = alt.match(/Item preview,\\s*(.+?)\\s*designed and sold by\\s*(.+?)\\.?$/i);
+                        if (altM) {
+                            title = altM[1].trim();
+                            seller = altM[2].trim();
+                            break;
+                        }
+                    }
+                    
+                    if (!title || !seller) {
+                        const urlM = href.match(/\\/i\\/[^\\/]+\\/(.+)-by-([^\\/]+)\\//);
+                        if (urlM) {
+                            if (!title) title = urlM[1].replace(/-/g, ' ').trim();
+                            if (!seller) seller = urlM[2].trim();
+                        }
+                    }
+                    if (!title) {
+                        title = (a.innerText || container.innerText || '').split('\\n')[0].trim();
+                    }
+                    
+                    let price = '';
+                    const priceM = (container.innerText || a.innerText || '').match(/\\$\\s*[\\d,]+(?:\\.\\d+)?/);
+                    if (priceM) {
+                        price = priceM[0];
+                    }
+                    
+                    items.push({
+                        item_id: itemId,
+                        url: href.split('?')[0],
+                        title: title,
+                        seller: seller,
+                        price: price,
+                        image_url: imgUrl
+                    });
+                }
+                return items;
+            }""")
+
+            # Target dHash calculation
+            target_hash = None
+            if target_img_url:
+                try:
+                    req = urllib.request.Request(target_img_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        t_pimg = Image.open(io.BytesIO(r.read())).convert("RGB")
+                        target_hash = self.compute_dhash(t_pimg)
+                except Exception as e:
+                    logger.debug(f"Target Redbubble image dHash calculation skipped: {e}")
+
+            results = []
+            seen_clean_urls = set()
+            for it in raw_items:
+                clean_u = it.get("url", "")
+                if clean_u in seen_clean_urls:
+                    continue
+                seen_clean_urls.add(clean_u)
+
+                img_u = it.get("image_url", "")
+                sim_badge = "👕 POD Print Syndicate / Related Merchandise"
+
+                if target_hash and img_u:
+                    try:
+                        req = urllib.request.Request(img_u, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                        with urllib.request.urlopen(req, timeout=4) as r:
+                            cand_pimg = Image.open(io.BytesIO(r.read())).convert("RGB")
+                            c_hash = self.compute_dhash(cand_pimg)
+                            dist = self.hamming_distance(target_hash, c_hash)
+                            sim_pct = max(0, int((1.0 - (dist / 64.0)) * 100))
+                            if dist == 0:
+                                sim_badge = f"🎯 Exact Match (dHash: 0, 100%)"
+                            elif dist <= 4:
+                                sim_badge = f"🎯 Near-Exact Photo (dHash: {dist}, {sim_pct}%)"
+                            elif dist <= 12:
+                                sim_badge = f"🖼 Visual Match (dHash: {dist}, {sim_pct}%)"
+                            else:
+                                sim_badge = f"👕 Related Merchandise ({sim_pct}%)"
+                    except Exception:
+                        pass
+
+                results.append({
+                    "brand": "",
+                    "product_type": "Merchandise",
+                    "title": it.get("title") or "Redbubble Listing",
+                    "item_id": it.get("item_id"),
+                    "price": it.get("price") or "$19.99",
+                    "seller": it.get("seller") or "Redbubble Creator",
+                    "location": "United States",
+                    "seller_origin": "United States",
+                    "threat_badge": "👕 POD Print Syndicate",
+                    "image_url": img_u,
+                    "url": clean_u,
+                    "similarity": sim_badge,
+                    "marketplace": "redbubble.com"
+                })
+
+            return results
+
+        except Exception as e:
+            logger.exception("Error finding Redbubble connected network")
+            return []
+        finally:
+            try: page.close()
+            except Exception: pass
+            if self.headless:
+                self.close()
+
 

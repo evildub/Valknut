@@ -1073,9 +1073,38 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertIsNotNone(m)
         self.assertEqual(m.group(1), "Lacy Powdered")
 
+    def test_36_redbubble_item_id_and_connected_network(self):
+        """Test Item 36: Verify Redbubble composite item ID format and Connected Network Hunter support."""
+        from redbubble_scraper import RedbubbleScraper
+        scraper = RedbubbleScraper(headless=True)
+
+        # 1. Verify item ID extraction with composite work_id.sku_code
+        url1 = "https://www.redbubble.com/i/sticker/Chevy-Camaro-6-6th-gen-lsx-lt-ss-zl1-by-Johnauston/54931656/7sgk"
+        self.assertEqual(scraper.extract_item_id(url1), "54931656.7sgk")
+
+        url2 = "https://www.redbubble.com/i/sticker/1969-Chevrolet-Camaro-Z28-Drawing-by-ItsMeRuva/29276444.7sgk"
+        self.assertEqual(scraper.extract_item_id(url2), "29276444.7sgk")
+
+        url3 = "https://www.redbubble.com/people/itsmeruva/works/29276444-1969-chevrolet-camaro-z28-drawing"
+        self.assertEqual(scraper.extract_item_id(url3), "29276444")
+
+        # 2. Verify Connected Network method signatures
+        self.assertTrue(hasattr(scraper, "find_connected_network"))
+        self.assertTrue(hasattr(scraper, "compute_dhash"))
+        self.assertTrue(hasattr(scraper, "hamming_distance"))
+        self.assertTrue(hasattr(scraper, "enrich_seller_info"))
+
+        # 3. Test dHash computation & distance
+        img1 = Image.new("RGBA", (100, 100), (0, 128, 255, 255))
+        img2 = Image.new("RGBA", (100, 100), (0, 128, 255, 255))
+        h1 = scraper.compute_dhash(img1)
+        h2 = scraper.compute_dhash(img2)
+        self.assertEqual(scraper.hamming_distance(h1, h2), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 
