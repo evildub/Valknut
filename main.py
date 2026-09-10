@@ -3408,20 +3408,8 @@ class EbayTool(tk.Tk):
                        for q in self.queue):
                     continue
 
-                # Exclude competitor library brands outside this targeted term/parent
+                # Exclude strictly user-defined generic exclusions
                 job_excludes = list(generic_excludes)
-                parent_of_term = ""
-                for p_b, p_d in all_library_brands.items():
-                    if term.lower() == p_b.lower() or term.lower() in [m.lower() for m in p_d.get("models", [])] or term.lower() in [s.lower() for s in p_d.get("subs", {}).keys()]:
-                        parent_of_term = p_b
-                        break
-                for other_b in all_library_brands.keys():
-                    if parent_of_term:
-                        if other_b.lower() != parent_of_term.lower() and other_b not in job_excludes:
-                            job_excludes.append(other_b)
-                    else:
-                        if other_b.lower() != term.lower() and other_b not in job_excludes:
-                            job_excludes.append(other_b)
 
                 entry = {
                     "store": store,
@@ -3491,11 +3479,8 @@ class EbayTool(tk.Tk):
                         if sm not in includes:
                             includes.append(sm)
 
-                # Exclude competitor brands outside this parent
+                # Exclude strictly user-defined generic exclusions
                 job_excludes = list(generic_excludes)
-                for other_b in all_library_brands.keys():
-                    if other_b != parent_brand and other_b not in job_excludes:
-                        job_excludes.append(other_b)
 
                 entry = {
                     "store": store,
@@ -4177,33 +4162,41 @@ class EbayTool(tk.Tk):
 
                     new_items = []
                     filtered_out_count = 0
+                    filtered_out_count = 0
+                    filtered_reasons = {}
                     for item in items:
                         title = item.get("title", "")
-                        # 1. Strict Exclusion Filter
+                        # 1. Strict Exclusion Filter (Analyst-defined explicit exclusions)
                         passed_excl, matched_ex = self._check_strict_exclusions(title, job.get("excludes", []))
                         if not passed_excl:
                             filtered_out_count += 1
+                            r_key = f"Excluded '{matched_ex}'"
+                            filtered_reasons[r_key] = filtered_reasons.get(r_key, 0) + 1
                             continue
 
-                        # 2. Targeted Search Verification (Option B: Drop cross-fitment noise when running a targeted brand/term sweep)
-                        is_full_sweep = (job["brand"] in ("Full Store Sweep", "Store Inventory", "All Products", "Full Search", "", "Custom Search") or include_term == "*")
-                        if not is_full_sweep:
-                            target_b_clean = job["brand"].lower().strip()
-                            term_clean = include_term.lower().strip()
+                        # 2. Targeted Search Verification & Search Hygiene
+                        is_full_sweep = (job.get("brand") in ("Full Store Sweep", "Store Inventory", "All Products", "Full Search", "", "Custom Search") or include_term == "*")
+                        if not is_full_sweep and include_term:
                             t_low = title.lower()
+                            search_tokens = [tk.lower().strip() for tk in re.split(r"[\s+,]+", include_term) if len(tk.strip()) >= 2]
+                            target_b = job.get("brand", "").lower().strip()
+                            if target_b and target_b not in ("full store sweep", "full search", "custom search"):
+                                search_tokens.extend([tk.lower().strip() for tk in re.split(r"[\s+,]+", target_b) if len(tk.strip()) >= 2])
 
-                            target_terms = {target_b_clean, term_clean}
-                            brand_data = self.data_store.get_brands().get(job["brand"], {})
-                            for sub_k in brand_data.get("subs", {}).keys():
-                                target_terms.add(sub_k.lower().strip())
-                                for m in brand_data.get("subs", {}).get(sub_k, []):
-                                    target_terms.add(m.lower().strip())
+                            brand_data = self.data_store.get_brands().get(job.get("brand", ""), {})
                             for m in brand_data.get("models", []):
-                                target_terms.add(m.lower().strip())
+                                search_tokens.append(m.lower().strip())
+                            for sub_k, sub_models in brand_data.get("subs", {}).items():
+                                search_tokens.append(sub_k.lower().strip())
+                                for sm in sub_models:
+                                    search_tokens.append(sm.lower().strip())
 
-                            has_target = any(len(tk) >= 2 and re.search(r'\b' + re.escape(tk) + r'\b', t_low) for tk in target_terms if tk)
+                            clean_tokens = [tk for tk in set(search_tokens) if len(tk) >= 2]
+                            has_target = any(re.search(r'\b' + re.escape(tk) + r'\b', t_low) for tk in clean_tokens) if clean_tokens else True
                             if not has_target:
                                 filtered_out_count += 1
+                                r_key = "Search Hygiene (No Keyword Match)"
+                                filtered_reasons[r_key] = filtered_reasons.get(r_key, 0) + 1
                                 continue
 
                         # 3. Auto-detect brand & product type from title
@@ -4242,7 +4235,8 @@ class EbayTool(tk.Tk):
                     job_record["total_harvested"] += len(new_items)
 
                     if filtered_out_count > 0:
-                        self._log(f"  🛡 Shielded: Dropped {filtered_out_count} listing(s) containing excluded competitor keywords.")
+                        reason_summary = ", ".join([f"{k} ({cnt})" for k, cnt in filtered_reasons.items()])
+                        self._log(f"  🛡 Filtered {filtered_out_count} listing(s) [{reason_summary}].")
 
                     if new_items:
                         self._update_results_table(new_items)
