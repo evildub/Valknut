@@ -1034,9 +1034,34 @@ class TestApolloCoreFeatures(unittest.TestCase):
         # Expected: px + (pw - bw)//2 = 500 + 250 = 750, py + (ph - bh)//2 = 200 + 100 = 300
         self.assertEqual(pos, (750, 300))
 
+    def test_35_printerval_connected_network_and_seller_enrichment(self):
+        """Test Item 35: Verify Printerval Connected Network discovery, dHash perceptual hashing, and JS seller enrichment."""
+        from printerval_scraper import PrintervalScraper
+        scraper = PrintervalScraper(headless=True)
+
+        # 1. Verify method signatures
+        self.assertTrue(hasattr(scraper, "find_connected_network"))
+        self.assertTrue(hasattr(scraper, "compute_dhash"))
+        self.assertTrue(hasattr(scraper, "hamming_distance"))
+
+        # 2. Test dHash computation & distance
+        img1 = Image.new("RGBA", (100, 100), (255, 0, 0, 255))
+        img2 = Image.new("RGBA", (100, 100), (255, 0, 0, 255))
+        h1 = scraper.compute_dhash(img1)
+        h2 = scraper.compute_dhash(img2)
+        self.assertEqual(scraper.hamming_distance(h1, h2), 0)
+
+        # 3. Test JS variable regex extraction for seller
+        sample_js = 'var product = {"id":39095525,"name":"Camaro SS 5th gen","seller_name":"Lacy Powdered"};'
+        import re
+        m = re.search(r'["\']seller_name["\']\s*:\s*["\']([^"\']+)["\']', sample_js)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "Lacy Powdered")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

@@ -12,13 +12,16 @@ Features:
 
 import os
 import re
+import io
 import json
 import time
 import random
 import logging
 import threading
 import urllib.parse
+import urllib.request
 from typing import List, Dict, Optional
+from PIL import Image
 
 logger = logging.getLogger("Apollo.PrintervalScraper")
 
@@ -398,27 +401,61 @@ class PrintervalScraper:
                         let price = '';
                         let title = '';
 
-                        // 1. Author / Creator element
-                        const authorEls = document.querySelectorAll(
-                            'span.author, .author, .design-pod-seller, .other-product-heading-author, .other-product-heading-author-info, [class*="shop-name"], a[href*="/shop/"]'
-                        );
-                        for (let el of authorEls) {
-                            let raw = el ? (el.innerText || '') : '';
-                            let txt = raw.trim()
-                                .replace(/^Designed\\s+(?:and\\s+sold\\s+)?by\\s*/i, '')
-                                .replace(/More\\s+/i, '')
-                                .replace(/'s\\s+products.*/i, '')
-                                .trim();
-                            if (txt && txt.length > 1 && !txt.toLowerCase().includes('printerval') && !txt.toLowerCase().includes('designed')) {
-                                seller = txt.split('\\n')[0].trim();
-                                break;
+                        // 0. Direct JS variables (window.product, sellerNameProductDescription, etc.)
+                        try {
+                            if (window.product && window.product.seller_name) {
+                                seller = String(window.product.seller_name).trim();
+                            }
+                        } catch(e) {}
+
+                        if (!seller) {
+                            try {
+                                if (typeof sellerNameProductDescription !== 'undefined' && sellerNameProductDescription) {
+                                    seller = String(sellerNameProductDescription).trim();
+                                }
+                            } catch(e) {}
+                        }
+
+                        // 1. Script tag parsing for var product or var sellerNameProductDescription
+                        if (!seller) {
+                            const scripts = document.querySelectorAll('script');
+                            for (let s of scripts) {
+                                const txt = s.innerText || '';
+                                const m = txt.match(/["']seller_name["']\\s*:\\s*["']([^"']+)["']/i) || 
+                                          txt.match(/var\\s+sellerNameProductDescription\\s*=\\s*["']([^"']+)["']/i);
+                                if (m && m[1]) {
+                                    const cand = m[1].trim();
+                                    if (cand && !cand.toLowerCase().includes('printerval') && cand.length > 1) {
+                                        seller = cand;
+                                        break;
+                                    }
+                                }
                             }
                         }
 
-                        // 2. Fallback via regex across full body text
+                        // 2. Author / Creator element
+                        if (!seller) {
+                            const authorEls = document.querySelectorAll(
+                                'span.author, .author, .design-pod-seller, .other-product-heading-author, .other-product-heading-author-info, [class*="shop-name"], a[href*="/shop/"], a[href*="/designer/"]'
+                            );
+                            for (let el of authorEls) {
+                                let raw = el ? (el.innerText || '') : '';
+                                let txt = raw.trim()
+                                    .replace(/^Designed\\s+(?:and\\s+sold\\s+)?by\\s*/i, '')
+                                    .replace(/More\\s+/i, '')
+                                    .replace(/'s\\s+products.*/i, '')
+                                    .trim();
+                                if (txt && txt.length > 1 && !txt.toLowerCase().includes('printerval') && !txt.toLowerCase().includes('designed')) {
+                                    seller = txt.split('\\n')[0].trim();
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 3. Fallback via regex across full body text
                         if (!seller && document.body) {
                             const fullText = document.body.innerText || '';
-                            const m = fullText.match(/Designed\\s+(?:and\\s+sold\\s+)?by\\s*\\n?\\s*([^\\n\\r]+)/i);
+                            const m = fullText.match(/(?:Designed|Sold|Created)\\s+(?:and\\s+sold\\s+)?by\\s*\\n?\\s*([^\\n\\r]+)/i);
                             if (m && m[1]) {
                                 let candidate = m[1].trim();
                                 if (candidate && !candidate.toLowerCase().includes('printerval')) {
@@ -427,7 +464,7 @@ class PrintervalScraper:
                             }
                         }
 
-                        // 3. Fallback for "More <Artist>'s products"
+                        // 4. Fallback for "More <Artist>'s products"
                         if (!seller && document.body) {
                             const fullText = document.body.innerText || '';
                             const m2 = fullText.match(/More\\s+([^\\n\\r']+)'s\\s+products/i);
@@ -760,4 +797,248 @@ class PrintervalScraper:
 
         _log(f"✅ [Printerval] Variant dredge complete: Added {len(expanded_results)} new POD listing URLs.")
         return expanded_results
+
+    # ── Perceptual Hash (dHash) & Connected Network Discovery ────────────────
+    def compute_dhash(self, pil_img) -> int:
+        """Compute 64-bit difference hash (dHash) for fast perceptual image matching."""
+        small = pil_img.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
+        try:
+            pixels = list(small.get_flattened_data())
+        except AttributeError:
+            pixels = list(small.getdata())
+        diff = []
+        for row in range(8):
+            for col in range(8):
+                diff.append(pixels[row * 9 + col] > pixels[row * 9 + col + 1])
+        return sum([1 << i for i, b in enumerate(diff) if b])
+
+    def hamming_distance(self, h1: int, h2: int) -> int:
+        """Hamming distance between two 64-bit hashes (0 = exact match, <=8 = near-identical)."""
+        return bin(h1 ^ h2).count("1")
+
+    def find_connected_network(self, item_id: str, item_url: str = "", target_img_url: str = "") -> List[Dict]:
+        """
+        On-Demand Visual Syndicate & Connected Seller Hunter for Printerval.
+        Scans product page recommendation carousels:
+        - "You may also like" / "You might love these"
+        - "Frequently bought together"
+        - "Customers also viewed" / Viewed products list
+        - "Related merchandise"
+        - "Seller's other products"
+        Performs perceptual image matching (dHash) against target_img_url.
+        """
+        if not item_url and item_id:
+            item_url = f"https://printerval.com/product-p{item_id}"
+        if not item_id and item_url:
+            m = re.search(r'-p(\d+)', item_url)
+            if m:
+                item_id = m.group(1)
+
+        results = []
+        if not item_url:
+            return results
+
+        target_hash = None
+        if target_img_url and str(target_img_url).startswith("http"):
+            try:
+                req = urllib.request.Request(str(target_img_url), headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    t_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                    target_hash = self.compute_dhash(t_img)
+            except Exception:
+                pass
+
+        try:
+            context = self._get_context()
+            page = context.pages[0] if context.pages else context.new_page()
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                window.chrome = { runtime: {} };
+            """)
+
+            page.goto(item_url, wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(2000)
+
+            # Scroll in stages to trigger lazy-loaded carousels
+            for _ in range(4):
+                try:
+                    page.evaluate("window.scrollBy(0, 1000);")
+                except Exception:
+                    pass
+                page.wait_for_timeout(400)
+
+            # Extract target image if not already hashed
+            if not target_hash:
+                try:
+                    t_src = page.evaluate("""() => {
+                        const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]');
+                        if (og && og.content) return og.content;
+                        const src = document.querySelector('picture source[srcset]');
+                        if (src && src.srcset) return src.srcset.split(',')[0].trim().split(' ')[0];
+                        const img = document.querySelector('img[src*="cdn.printerval.com"]');
+                        return img ? (img.currentSrc || img.src || '') : '';
+                    }""")
+                    if t_src and str(t_src).startswith("http"):
+                        req = urllib.request.Request(str(t_src), headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                        with urllib.request.urlopen(req, timeout=5) as r:
+                            t_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                            target_hash = self.compute_dhash(t_img)
+                except Exception:
+                    pass
+
+            carousels_data = page.evaluate("""() => {
+                const discovered = [];
+                const seen = new Set();
+
+                const sectionSelectors = [
+                    '.you-may-also-like-list',
+                    '.md-product-viewed-list',
+                    '.bought-together-other-product',
+                    '.related-items-wrapper',
+                    'div[class*="recommend"]',
+                    'div[class*="carousel"]',
+                    'div[class*="swiper"]',
+                    'div[class*="similar"]',
+                    'section'
+                ];
+
+                for (let sel of sectionSelectors) {
+                    const sections = document.querySelectorAll(sel);
+                    for (let sec of sections) {
+                        const hEl = sec.querySelector('h1, h2, h3, h4, h5, [class*="heading"], [class*="title"], .title');
+                        let secTitle = hEl ? hEl.innerText.trim() : '';
+                        let secType = '👥 You Might Also Like';
+
+                        const secClass = sec.className || '';
+                        if (secTitle.toLowerCase().includes('bought together') || secClass.includes('bought-together')) {
+                            secType = '🛒 Frequently Bought Together';
+                        } else if (secTitle.toLowerCase().includes('viewed') || secClass.includes('product-viewed')) {
+                            secType = '👥 Customers Also Viewed';
+                        } else if (secTitle.toLowerCase().includes('related') || secClass.includes('related-items')) {
+                            secType = '🔗 Related Merchandise';
+                        } else if (secTitle.toLowerCase().includes('more') && secTitle.toLowerCase().includes('products')) {
+                            secType = '🏪 Seller\\'s Other Products';
+                        }
+
+                        const cards = sec.querySelectorAll('.product-item, .item, [class*="product-card"], a[href*="-p"], .swiper-slide');
+                        for (let card of cards) {
+                            const link = card.tagName === 'A' ? card : card.querySelector('a[href*="-p"]');
+                            if (!link) continue;
+                            const href = link.href || '';
+                            if (!href.includes('-p')) continue;
+
+                            const cleanHref = href.split('?')[0].split('#')[0];
+                            if (seen.has(cleanHref)) continue;
+                            seen.add(cleanHref);
+
+                            const tEl = card.querySelector('[class*="title"], h3, h2, span.title') || link;
+                            const pEl = card.querySelector('[class*="price"], .product-price, span[class*="price"]');
+                            const sEl = card.querySelector('[class*="author"], [class*="artist"], [class*="store"], [class*="seller"], [class*="shop"]');
+
+                            let title = tEl ? (tEl.innerText || '').trim() : '';
+                            let price = pEl ? (pEl.innerText || '').trim() : '';
+                            let seller = sEl ? (sEl.innerText || '').trim() : '';
+
+                            let img = '';
+                            const sourceEl = card.querySelector('picture source[srcset]');
+                            if (sourceEl && sourceEl.srcset) {
+                                const parts = sourceEl.srcset.split(',');
+                                img = parts[0].trim().split(' ')[0];
+                            }
+
+                            if (!img || img.startsWith('data:') || img.includes('1x1.png')) {
+                                const imgEls = card.querySelectorAll('img');
+                                for (let im of imgEls) {
+                                    const cand = im.currentSrc || im.src || im.getAttribute('data-src') || im.getAttribute('data-original') || im.getAttribute('data-img') || '';
+                                    if (cand && !cand.startsWith('data:') && !cand.includes('1x1.png') && !cand.includes('.svg') && !cand.includes('heart')) {
+                                        img = cand;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            discovered.push({
+                                title: title,
+                                url: cleanHref,
+                                price_raw: price,
+                                seller: seller,
+                                image_url: img,
+                                network_type: secType
+                            });
+                        }
+                    }
+                }
+
+                return discovered;
+            }""")
+
+            cache = self._load_cache()
+            seen_ids = set([str(item_id)] if item_id else [])
+
+            for itm in carousels_data:
+                u = itm.get("url", "")
+                m = re.search(r'-p(\d+)', u)
+                if not m:
+                    continue
+                c_id = m.group(1)
+                if c_id in seen_ids:
+                    continue
+                seen_ids.add(c_id)
+
+                raw_price = itm.get("price_raw", "")
+                m_price = re.search(r'\$\s*[\d,]+(?:\.\d+)?', raw_price)
+                price_disp = m_price.group(0) if m_price else "$19.95"
+
+                seller_name = itm.get("seller") or ""
+                if not seller_name and c_id in cache:
+                    seller_name = cache[c_id].get("seller", "")
+                if not seller_name:
+                    seller_name = "Printerval Creator"
+
+                title = itm.get("title", "")
+                if not title or title.startswith("$") or len(title) < 3:
+                    slug_part = u.split("/")[-1].split("-p")[0].replace("-", " ").title()
+                    title = slug_part if slug_part else f"Printerval Product #{c_id}"
+
+                img_url = itm.get("image_url", "")
+                sim_label = itm.get("network_type", "👥 You Might Also Like")
+
+                if target_hash and img_url and str(img_url).startswith("http"):
+                    try:
+                        req = urllib.request.Request(img_url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                        with urllib.request.urlopen(req, timeout=3) as r:
+                            cand_img = Image.open(io.BytesIO(r.read())).convert("RGBA")
+                            cand_hash = self.compute_dhash(cand_img)
+                            dist = self.hamming_distance(target_hash, cand_hash)
+                            if dist <= 6:
+                                sim_label = f"🎯 Exact Photo Match (dHash: {dist})"
+                            elif dist <= 14:
+                                sim_label = f"🖼 Visual Match (dHash: {dist})"
+                    except Exception:
+                        pass
+
+                results.append({
+                    "brand": "",
+                    "product_type": "Merchandise",
+                    "title": title,
+                    "item_id": c_id,
+                    "price": price_disp,
+                    "seller": seller_name,
+                    "location": "United States",
+                    "seller_origin": "United States",
+                    "image_url": img_url,
+                    "url": u,
+                    "marketplace": "printerval.com",
+                    "condition": itm.get("network_type", "You Might Also Like"),
+                    "similarity": sim_label,
+                    "match_type": itm.get("network_type", "You Might Also Like")
+                })
+
+        except Exception as e:
+            logger.debug(f"Error finding connected network for Printerval item {item_url}: {e}")
+        finally:
+            if self.headless:
+                self.close()
+
+        return results
 

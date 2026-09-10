@@ -9362,13 +9362,25 @@ class ConnectedNetworkModal(tk.Toplevel):
         item_url = self.target_item.get("url", "")
         target_img = self.target_item.get("image_url", "")
         is_meli = "mercadolibre" in item_url.lower() or "mercadolivre" in item_url.lower() or "mercado" in str(self.target_item.get("marketplace", "")).lower()
+        is_printerval = "printerval" in item_url.lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
 
-        platform_name = "Mercado Libre" if is_meli else "eBay"
+        if is_printerval:
+            platform_name = "Printerval"
+        elif is_meli:
+            platform_name = "Mercado Libre"
+        else:
+            platform_name = "eBay"
         self.status_lbl.configure(text=f"🔍 Scanning {platform_name} merchandising carousels, competitor recommendations, and storefront syndicates...")
 
         def _worker():
             try:
-                if is_meli:
+                if is_printerval:
+                    scraper = getattr(self.parent, "printerval_scraper", None)
+                    if not scraper:
+                        from printerval_scraper import PrintervalScraper
+                        scraper = PrintervalScraper(headless=True)
+                    results = scraper.find_connected_network(item_id, item_url, target_img)
+                elif is_meli:
                     scraper = getattr(self.parent, "mercadolibre_scraper", None)
                     if not scraper:
                         from mercadolibre_scraper import MercadoLibreScraper
