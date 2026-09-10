@@ -4323,12 +4323,16 @@ class EbayTool(tk.Tk):
                             continue
 
                         # 2. Targeted Search Verification & Search Hygiene
-                        is_full_sweep = (job.get("brand") in ("Full Store Sweep", "Store Inventory", "All Products", "Full Search", "", "Custom Search") or include_term == "*")
+                        b_low = job.get("brand", "").lower().strip()
+                        is_full_sweep = (
+                            b_low in ("full store sweep", "store inventory", "all products", "full search", "", "custom search", "mercado libre", "mercado", "global", "global search", "marketplace") or 
+                            include_term in ("*", "", "all")
+                        )
                         if not is_full_sweep and include_term:
                             t_low = title.lower()
                             search_tokens = [tk.lower().strip() for tk in re.split(r"[\s+,]+", include_term) if len(tk.strip()) >= 2]
-                            target_b = job.get("brand", "").lower().strip()
-                            if target_b and target_b not in ("full store sweep", "full search", "custom search"):
+                            target_b = b_low
+                            if target_b and target_b not in ("full store sweep", "full search", "custom search", "store inventory", "all products", "mercado libre", "mercado", "global", "global search", "marketplace"):
                                 search_tokens.extend([tk.lower().strip() for tk in re.split(r"[\s+,]+", target_b) if len(tk.strip()) >= 2])
 
                             brand_data = self.data_store.get_brands().get(job.get("brand", ""), {})
@@ -4340,7 +4344,7 @@ class EbayTool(tk.Tk):
                                     search_tokens.append(sm.lower().strip())
 
                             clean_tokens = [tk for tk in set(search_tokens) if len(tk) >= 2]
-                            has_target = any(re.search(r'\b' + re.escape(tk) + r'\b', t_low) for tk in clean_tokens) if clean_tokens else True
+                            has_target = any(tk in t_low or re.search(r'\b' + re.escape(tk) + r'\b', t_low) for tk in clean_tokens) if clean_tokens else True
                             if not has_target:
                                 filtered_out_count += 1
                                 r_key = "Search Hygiene (No Keyword Match)"
@@ -4905,94 +4909,97 @@ class EbayTool(tk.Tk):
     def _update_results_table(self, items):
         """Append newly scraped items honoring the active live search filter."""
         def _add():
-            query = self.filter_var.get().strip() if hasattr(self, "filter_var") else ""
-            target_col = self.filter_col_var.get() if hasattr(self, "filter_col_var") else "Title"
-            size_key = self.thumb_size_var.get() if hasattr(self, "thumb_size_var") else "Medium (100px)"
-            cfg = THUMB_CONFIG.get(size_key, THUMB_CONFIG["Medium (100px)"])
-            is_thumbs = (cfg["img_size"] > 0)
-            ph = self._get_placeholder_thumb(cfg["img_size"]) if is_thumbs else ""
+            try:
+                query = self.filter_var.get().strip() if hasattr(self, "filter_var") else ""
+                target_col = self.filter_col_var.get() if hasattr(self, "filter_col_var") else "Title"
+                size_key = self.thumb_size_var.get() if hasattr(self, "thumb_size_var") else "Medium (100px)"
+                cfg = THUMB_CONFIG.get(size_key, THUMB_CONFIG["Medium (100px)"])
+                is_thumbs = (cfg["img_size"] > 0)
+                ph = self._get_placeholder_thumb(cfg["img_size"]) if is_thumbs else ""
 
-            for item in items:
-                if "product_type" not in item:
-                    item["product_type"] = ""
+                for item in items:
+                    if "product_type" not in item:
+                        item["product_type"] = ""
 
-                # Evaluate Threat Intel from DataStore cache
-                seller_clean = str(item.get("seller", "")).replace("🛡", "").replace("(Authorized)", "").strip()
-                cached_intel = self.data_store.get_seller_intel(seller_clean)
-                raw_origin = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "") or item.get("location", "")
-                loc = item.get("location", "")
+                    # Evaluate Threat Intel from DataStore cache
+                    seller_clean = str(item.get("seller", "")).replace("🛡", "").replace("(Authorized)", "").strip()
+                    cached_intel = self.data_store.get_seller_intel(seller_clean)
+                    raw_origin = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "") or item.get("location", "")
+                    loc = item.get("location", "")
 
-                assessment = self.data_store.compute_threat_assessment(raw_origin, loc)
-                orig_country = assessment.get("country", "")
-                if not orig_country or orig_country == "Unknown":
-                    orig_country = item.get("seller_origin") or item.get("location") or "Unknown"
+                    assessment = self.data_store.compute_threat_assessment(raw_origin, loc)
+                    orig_country = assessment.get("country", "")
+                    if not orig_country or orig_country == "Unknown":
+                        orig_country = item.get("seller_origin") or item.get("location") or "Unknown"
 
-                orig_flag = self.data_store.COUNTRY_FLAGS.get(orig_country.lower(), "🌍") if orig_country != "Unknown" else "❓"
-                orig_display = f"{orig_flag} {orig_country}" if orig_country != "Unknown" else "❓ Unresolved"
-                threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
-                if orig_country != "Unknown":
-                    item["seller_origin"] = orig_country
+                    orig_flag = self.data_store.COUNTRY_FLAGS.get(orig_country.lower(), "🌍") if orig_country != "Unknown" else "❓"
+                    orig_display = f"{orig_flag} {orig_country}" if orig_country != "Unknown" else "❓ Unresolved"
+                    threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
+                    if orig_country != "Unknown":
+                        item["seller_origin"] = orig_country
 
-                # If item already has a specialized visual or threat badge, preserve it
-                if item.get("visual_benign"):
-                    threat_display = item.get("threat_badge", "🟢 Benign Packaging")
-                elif item.get("visual_counterfeit"):
-                    threat_display = item.get("threat_badge", "🚨 Visual Counterfeit")
-                elif item.get("threat_badge"):
-                    threat_display = item["threat_badge"]
-                else:
-                    item["threat_badge"] = threat_display
-
-                # Evaluate Smart Triage (Universal Compatibility & Fluff Suppression)
-                is_fluff, fluff_reason = False, ""
-                if hasattr(self.data_store, "is_universal_fluff"):
-                    is_fluff, fluff_reason = self.data_store.is_universal_fluff(item.get("title", ""), item.get("product_type", ""))
-                
-                # If analyst checked "Show Suppressed Fluff" -> Isolated Audit Mode (show ONLY fluff items)
-                if hasattr(self, "show_fluff_var") and self.show_fluff_var.get():
-                    if not is_fluff:
-                        continue
+                    # If item already has a specialized visual or threat badge, preserve it
+                    if item.get("visual_benign"):
+                        threat_display = item.get("threat_badge", "🟢 Benign Packaging")
+                    elif item.get("visual_counterfeit"):
+                        threat_display = item.get("threat_badge", "🚨 Visual Counterfeit")
+                    elif item.get("threat_badge"):
+                        threat_display = item["threat_badge"]
                     else:
-                        threat_display = f"💨 Suppressed ({fluff_reason})"
-                # Otherwise, if Smart Triage is active -> Suppress/hide fluff items
-                elif hasattr(self, "smart_triage_var") and self.smart_triage_var.get() and is_fluff:
-                    continue
+                        item["threat_badge"] = threat_display
 
-                # Check Benign Filter (Hide Benign vs Show All vs Benign Only)
-                b_mode = self.benign_filter_var.get() if hasattr(self, "benign_filter_var") else "🛡 Hide Benign"
-                is_item_benign = item.get("visual_benign") or str(threat_display).startswith("🟢 Benign")
-                if b_mode == "🟢 Benign Only" and not is_item_benign:
-                    continue
-                elif b_mode == "🛡 Hide Benign" and is_item_benign:
-                    continue
-
-                # Check High-Risk filter checkbox
-                if hasattr(self, "filter_high_risk_var") and self.filter_high_risk_var.get():
-                    if not self._is_high_risk_item(item, assessment, threat_display):
+                    # Evaluate Smart Triage (Universal Compatibility & Fluff Suppression)
+                    is_fluff, fluff_reason = False, ""
+                    if hasattr(self.data_store, "is_universal_fluff"):
+                        is_fluff, fluff_reason = self.data_store.is_universal_fluff(item.get("title", ""), item.get("product_type", ""))
+                    
+                    # If analyst checked "Show Suppressed Fluff" -> Isolated Audit Mode (show ONLY fluff items)
+                    if hasattr(self, "show_fluff_var") and self.show_fluff_var.get():
+                        if not is_fluff:
+                            continue
+                        else:
+                            threat_display = f"💨 Suppressed ({fluff_reason})"
+                    # Otherwise, if Smart Triage is active -> Suppress/hide fluff items
+                    elif hasattr(self, "smart_triage_var") and self.smart_triage_var.get() and is_fluff:
                         continue
 
-                if query and not self._item_matches_filter(item, query, target_col):
-                    continue
+                    # Check Benign Filter (Hide Benign vs Show All vs Benign Only)
+                    b_mode = self.benign_filter_var.get() if hasattr(self, "benign_filter_var") else "🛡 Hide Benign"
+                    is_item_benign = item.get("visual_benign") or str(threat_display).startswith("🟢 Benign")
+                    if b_mode == "🟢 Benign Only" and not is_item_benign:
+                        continue
+                    elif b_mode == "🛡 Hide Benign" and is_item_benign:
+                        continue
 
-                img_url = item.get("image_url", "")
-                iid = self.result_tree.insert("", "end", text="", image=ph, values=(
-                    item.get("brand", ""),
-                    item.get("product_type", ""),
-                    item.get("title", ""),
-                    item.get("item_id", ""),
-                    item.get("price", ""),
-                    item.get("seller", ""),
-                    orig_display,
-                    threat_display,
-                    item.get("location", ""),
-                    img_url,
-                    item.get("url", ""),
-                ))
+                    # Check High-Risk filter checkbox
+                    if hasattr(self, "filter_high_risk_var") and self.filter_high_risk_var.get():
+                        if not self._is_high_risk_item(item, assessment, threat_display):
+                            continue
 
-                if is_thumbs and img_url:
-                    self._fetch_inline_thumbnail(iid, img_url)
+                    if query and not self._item_matches_filter(item, query, target_col):
+                        continue
 
-            self._update_result_count()
+                    img_url = item.get("image_url", "")
+                    iid = self.result_tree.insert("", "end", text="", image=ph, values=(
+                        item.get("brand", ""),
+                        item.get("product_type", ""),
+                        item.get("title", ""),
+                        item.get("item_id", ""),
+                        item.get("price", ""),
+                        item.get("seller", ""),
+                        orig_display,
+                        threat_display,
+                        item.get("location", ""),
+                        img_url,
+                        item.get("url", ""),
+                    ))
+
+                    if is_thumbs and img_url:
+                        self._fetch_inline_thumbnail(iid, img_url)
+
+                self._update_result_count()
+            except Exception as e:
+                self._log(f"⚠ Error displaying results in table: {e}", error=True)
         self.after(0, _add)
 
     def _on_hide_benign_toggled(self):
