@@ -381,7 +381,7 @@ class MercadoLibreScraper:
 
         return True
 
-    def search(self, query: str, max_items: int = 50, condition: str = "all", expand_catalog: bool = True, log_callback=None) -> List[Dict]:
+    def search(self, query: str, max_items: int = 50, condition: str = "all", expand_catalog: bool = True, stop_event: threading.Event = None, pause_event: threading.Event = None, log_callback=None) -> List[Dict]:
         """
         Execute search on Mercado Libre using persistent stealth automation.
         Automatically expands Catalog Buy Box listings (/p/) to harvest all competing merchants.
@@ -391,6 +391,8 @@ class MercadoLibreScraper:
             max_items: Maximum listings to return
             condition: 'all', 'new', or 'used'
             expand_catalog: If True, deep checks catalog product pages for all competing sellers
+            stop_event: Optional threading.Event for stopping
+            pause_event: Optional threading.Event for pausing
             log_callback: Optional callable for live UI logging
             
         Returns:
@@ -429,6 +431,12 @@ class MercadoLibreScraper:
 
         try:
             while len(results) < max_items and page_num <= 4:
+                if stop_event and stop_event.is_set():
+                    _log("⏹ [Mercado Libre] Stop signal received.")
+                    break
+                if pause_event:
+                    pause_event.wait()
+
                 if page_num == 1:
                     target_url = base_search_url
                 else:
@@ -441,8 +449,18 @@ class MercadoLibreScraper:
                 except Exception as ex:
                     _log(f"⚠ Page load timeout on Mercado Libre: {ex}")
 
+                if stop_event and stop_event.is_set():
+                    break
+                if pause_event:
+                    pause_event.wait()
+
                 # Ensure page has cleared security challenge, login redirects, and reached search results
                 self._ensure_search_page_loaded(page, target_url, _log)
+
+                if stop_event and stop_event.is_set():
+                    break
+                if pause_event:
+                    pause_event.wait()
 
                 # Extract listing cards via DOM evaluation
                 page_items = page.evaluate("""
@@ -500,6 +518,11 @@ class MercadoLibreScraper:
 
                 new_count = 0
                 for raw_it in page_items:
+                    if stop_event and stop_event.is_set():
+                        break
+                    if pause_event:
+                        pause_event.wait()
+
                     item_url = raw_it.get("url", "").split("?")[0]
                     if not item_url or item_url in seen_urls:
                         continue
@@ -514,7 +537,9 @@ class MercadoLibreScraper:
                                 title=raw_it.get("title", ""),
                                 default_brand=query,
                                 context=context,
-                                close_browser=False
+                                close_browser=False,
+                                stop_event=stop_event,
+                                pause_event=pause_event
                             )
                             if expanded:
                                 for s_it in expanded:
@@ -728,12 +753,17 @@ class MercadoLibreScraper:
 
         return results
 
-    def extract_catalog_sellers(self, catalog_url: str, title: str = "", default_brand: str = "", context=None, close_browser: bool = True) -> List[Dict]:
+    def extract_catalog_sellers(self, catalog_url: str, title: str = "", default_brand: str = "", context=None, close_browser: bool = True, stop_event: threading.Event = None, pause_event: threading.Event = None) -> List[Dict]:
         """
         Deep Catalog Multi-Seller Expansion.
         Extracts Buy Box winner and all competing catalog merchants from /p/ product pages.
         Supports Spanish (MLM, MLA, MCO, etc.) and Portuguese (MLB Brazil).
         """
+        if stop_event and stop_event.is_set():
+            return []
+        if pause_event:
+            pause_event.wait()
+
         catalog_items = []
         site_info = REGIONAL_DOMAINS.get(self.site_code, REGIONAL_DOMAINS["MLM"])
         currency = site_info["currency"]
@@ -746,6 +776,11 @@ class MercadoLibreScraper:
             page.goto(catalog_url, wait_until="domcontentloaded", timeout=25000)
             page.wait_for_timeout(2000)
 
+            if stop_event and stop_event.is_set():
+                return []
+            if pause_event:
+                pause_event.wait()
+
             # Check if there is a 'Ver todas as opções' / 'Ver más opciones' sub-page link
             opciones_link = page.query_selector("a[href*='opciones-de-compra'], a[href*='opcoes-de-compra']")
             if opciones_link:
@@ -756,6 +791,11 @@ class MercadoLibreScraper:
                         page.wait_for_timeout(1500)
                 except Exception:
                     pass
+
+            if stop_event and stop_event.is_set():
+                return []
+            if pause_event:
+                pause_event.wait()
 
             html = page.content()
             catalog_items = self.parse_catalog_html(html, catalog_url=catalog_url, default_brand=default_brand or title, site_code=self.site_code)
@@ -907,7 +947,7 @@ class MercadoLibreScraper:
         finally:
             self.close()
 
-    def search_multi_region(self, query: str, site_codes: List[str] = None, max_items_per_region: int = 25, condition: str = "all", log_callback=None) -> List[Dict]:
+    def search_multi_region(self, query: str, site_codes: List[str] = None, max_items_per_region: int = 25, condition: str = "all", stop_event: threading.Event = None, pause_event: threading.Event = None, log_callback=None) -> List[Dict]:
         """
         Execute multi-regional sweep across selected Latin American Mercado Libre domains.
         """
@@ -916,6 +956,11 @@ class MercadoLibreScraper:
 
         all_results = []
         for code in site_codes:
+            if stop_event and stop_event.is_set():
+                break
+            if pause_event:
+                pause_event.wait()
+
             if code not in REGIONAL_DOMAINS:
                 continue
             orig_site = self.site_code
@@ -924,7 +969,7 @@ class MercadoLibreScraper:
             if log_callback:
                 log_callback(f"🌎 [{reg_info['flag']} {reg_info['country']}] Initiating scan for '{query}'...")
             try:
-                res = self.search(query, max_items=max_items_per_region, condition=condition, log_callback=log_callback)
+                res = self.search(query, max_items=max_items_per_region, condition=condition, stop_event=stop_event, pause_event=pause_event, log_callback=log_callback)
                 for r in res:
                     r["country"] = reg_info["country"]
                     r["marketplace"] = f"Mercado Libre ({reg_info['flag']} {reg_info['country']})"

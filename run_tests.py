@@ -1252,6 +1252,35 @@ class TestApolloCoreFeatures(unittest.TestCase):
             elif platform_name == "Printerval":
                 self.assertTrue(is_printerval)
 
+    def test_39_mercadolibre_pause_and_stop_event_contracts(self):
+        """Test Item 39: Verify MercadoLibreScraper search, multi_region, and catalog expansion respect pause/stop events."""
+        import inspect
+        import threading
+        from mercadolibre_scraper import MercadoLibreScraper
+        meli = MercadoLibreScraper(headless=True)
+
+        # 1. Verify signatures accept stop_event and pause_event
+        search_sig = inspect.signature(meli.search)
+        self.assertIn("stop_event", search_sig.parameters)
+        self.assertIn("pause_event", search_sig.parameters)
+
+        multi_sig = inspect.signature(meli.search_multi_region)
+        self.assertIn("stop_event", multi_sig.parameters)
+        self.assertIn("pause_event", multi_sig.parameters)
+
+        cat_sig = inspect.signature(meli.extract_catalog_sellers)
+        self.assertIn("stop_event", cat_sig.parameters)
+        self.assertIn("pause_event", cat_sig.parameters)
+
+        # 2. Verify immediate termination when stop_event is pre-set
+        stop_ev = threading.Event()
+        stop_ev.set()
+        res_cat = meli.extract_catalog_sellers("https://www.mercadolibre.com.mx/p/MLM12345", stop_event=stop_ev)
+        self.assertEqual(res_cat, [])
+
+        res_multi = meli.search_multi_region("test", site_codes=["MLM", "MLB"], stop_event=stop_ev)
+        self.assertEqual(res_multi, [])
+
 
 if __name__ == "__main__":
     unittest.main()

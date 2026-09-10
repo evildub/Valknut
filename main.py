@@ -4138,6 +4138,8 @@ class EbayTool(tk.Tk):
                                 site_codes=["MLM", "MLB", "MLA", "MCO", "MLC", "MPE"],
                                 max_items_per_region=m_pages * 25,
                                 condition=job.get("condition", "all"),
+                                stop_event=self.stop_event,
+                                pause_event=self.pause_event,
                                 log_callback=self._log
                             )
                             job_record["url"] = f"https://www.mercadolibre.com/multi-search?q={actual_term.replace(' ', '+')}"
@@ -4156,6 +4158,8 @@ class EbayTool(tk.Tk):
                                 actual_term,
                                 max_items=target_max_items,
                                 condition=job.get("condition", "all"),
+                                stop_event=self.stop_event,
+                                pause_event=self.pause_event,
                                 log_callback=self._log
                             )
                             from mercadolibre_scraper import REGIONAL_DOMAINS
