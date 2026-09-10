@@ -6573,7 +6573,7 @@ class EbayTool(tk.Tk):
             def _on_prog(current, total, item):
                 nonlocal enriched_count
                 s_name = str(item.get("seller", "")).strip()
-                if s_name and not any(g in s_name.lower() for g in ("ebay seller", "global search", "aliexpress global", "unknown", "tiktok shop merchant")):
+                if s_name and not any(g in s_name.lower() for g in ("ebay seller", "global search", "aliexpress global", "unknown", "tiktok shop merchant", "mercado libre seller", "ir para", "ir a la", "pagina do vendedor", "página do vendedor")):
                     enriched_count += 1
                     
                     # Auto-update sibling listings in current results that share the same store/seller
@@ -6593,6 +6593,23 @@ class EbayTool(tk.Tk):
                             is_match = True
                         elif store_url and str(other.get("store_url", "")).strip() == store_url:
                             is_match = True
+                        elif not is_match and item.get("url") and other.get("url"):
+                            u1, u2 = str(item.get("url", "")).lower(), str(other.get("url", "")).lower()
+                            if "/pagina/" in u1 and "/pagina/" in u2:
+                                p1 = u1.split("/pagina/")[1].split("?")[0].split("/")[0]
+                                p2 = u2.split("/pagina/")[1].split("?")[0].split("/")[0]
+                                if p1 and p1 == p2:
+                                    is_match = True
+                            elif "/loja/" in u1 and "/loja/" in u2:
+                                l1 = u1.split("/loja/")[1].split("?")[0].split("/")[0]
+                                l2 = u2.split("/loja/")[1].split("?")[0].split("/")[0]
+                                if l1 and l1 == l2:
+                                    is_match = True
+                            elif "_custid_" in u1 and "_custid_" in u2:
+                                c1 = u1.split("_custid_")[1].split("?")[0].split("&")[0]
+                                c2 = u2.split("_custid_")[1].split("?")[0].split("&")[0]
+                                if c1 and c1 == c2:
+                                    is_match = True
                         elif s_name and other.get("seller") == s_name:
                             is_match = True
 
@@ -10383,7 +10400,13 @@ class ConnectedNetworkModal(tk.Toplevel):
                     if not scraper:
                         from mercadolibre_scraper import MercadoLibreScraper
                         scraper = MercadoLibreScraper(headless=False)
-                    scraper.enrich_seller_info(items_to_enrich)
+                    
+                    def _prog(cur, tot, it):
+                        s_name = it.get("seller", "")
+                        self.after(0, lambda: self.status_lbl.configure(text=f"🏪 Enriching Merchants [{cur}/{tot}] -> '{s_name}'"))
+                        self.after(0, self._populate_tree)
+
+                    scraper.enrich_seller_info(items_to_enrich, progress_callback=_prog)
                 else:
                     scraper = getattr(self.parent, "scraper", None)
                     if scraper and hasattr(scraper, "enrich_ebay_seller_info"):

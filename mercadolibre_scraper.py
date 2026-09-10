@@ -260,6 +260,50 @@ class MercadoLibreScraper:
         display_str = f"${usd_val:.2f} USD (${local_val:,.0f} {currency_code})"
         return display_str, usd_val
 
+    def _clean_seller_name(self, raw_text: str, url: str = "") -> str:
+        """
+        Sanitize seller name, filtering out navigation boilerplate like
+        'Ir para a página do vendedor' or '+5.000 Seguidores', and extracting real seller handles
+        from /pagina/{seller}, /loja/{seller}, or _CustId_{id} URLs.
+        """
+        cleaned = (raw_text or "").strip()
+        cleaned = re.sub(r'^(?:Vendido por|Vendido e entregue por|Por|Vendedor)\s+', '', cleaned, flags=re.IGNORECASE).strip()
+        
+        is_noise = (
+            not cleaned or
+            len(cleaned) > 70 or
+            any(b in cleaned.lower() for b in (
+                "ir para a p", "ir para", "ir a la p", "ir a la", "página do vendedor", "pagina do vendedor",
+                "página del vendedor", "pagina del vendedor", "seguidores", "produtos", "productos",
+                "mercado livre", "mercado libre", "mercado pontos", "devolução", "devolucao",
+                "garantía", "garantia", "ver mais", "ver más", "comprar agora", "adicionar ao carrinho",
+                "comprar", "agregar", "lojas oficiais"
+            ))
+        )
+        
+        if not is_noise:
+            return cleaned
+
+        if url:
+            # /pagina/lojacdc -> LOJACDC
+            m_pag = re.search(r'/pagina/([^/?#]+)', url, re.IGNORECASE)
+            if m_pag:
+                cand = m_pag.group(1).replace("-", " ").replace("_", " ").strip()
+                return cand.upper() if len(cand) <= 8 else cand.title()
+            
+            # /loja/long-dog -> Long Dog
+            m_loja = re.search(r'/loja/([^/?#]+)', url, re.IGNORECASE)
+            if m_loja:
+                cand = m_loja.group(1).replace("-", " ").replace("_", " ").strip()
+                return cand.title()
+            
+            # _CustId_1657944695 or seller_id=1657944695
+            m_cust = re.search(r'(?:_CustId_|seller_id=)(\d+)', url, re.IGNORECASE)
+            if m_cust:
+                return f"MeLi_Seller_{m_cust.group(1)}"
+
+        return "Mercado Libre Seller"
+
     def _ensure_search_page_loaded(self, page, target_url: str, log_func) -> bool:
         """
         Handle cookie banners, Captcha walls, and mandatory Account Sign-In gates,
@@ -556,7 +600,7 @@ class MercadoLibreScraper:
                     # Standalone listing (or catalog fallback)
                     item_id = self._extract_item_id(item_url)
                     price_display, price_usd = self._convert_price_to_usd(raw_it.get("price_raw", ""), currency)
-                    seller_name = raw_it.get("seller") or "Mercado Libre Seller"
+                    seller_name = self._clean_seller_name(raw_it.get("seller", ""), item_url)
                     item_loc = raw_it.get("location") or country
 
                     results.append({
@@ -654,7 +698,9 @@ class MercadoLibreScraper:
         main_price_el = soup.select_one(".ui-pdp-price__second-line .andes-money-amount__fraction, .andes-money-amount__fraction")
         main_price = main_price_el.get_text(strip=True) if main_price_el else ""
 
-        if main_seller and main_seller.lower() not in seen_sellers:
+        if main_seller:
+            main_seller = self._clean_seller_name(main_seller, catalog_url)
+        if main_seller and main_seller.lower() not in seen_sellers and main_seller != "Mercado Libre Seller":
             seen_sellers.add(main_seller.lower())
             p_disp, p_usd = self._convert_price_to_usd(main_price, currency)
             results.append({
@@ -698,12 +744,8 @@ class MercadoLibreScraper:
                         s_name = t_str
                         break
 
-            s_name = re.sub(r'^(?:vendido por|vendido e entregue por|por)\s+', '', s_name, flags=re.IGNORECASE).strip()
             href_val = s_link.get("href", "") if s_link else catalog_url
-            if s_name.startswith("+") or any(x in s_name.lower() for x in ("producto", "produto", "ver más", "ver mais")):
-                cust_m = re.search(r'_CustId_(\d+)', href_val)
-                if cust_m:
-                    s_name = f"Seller_CustId_{cust_m.group(1)}"
+            s_name = self._clean_seller_name(s_name, href_val)
 
             p_el = parent_cont.select_one(".andes-money-amount__fraction") if parent_cont else None
             c_price = p_el.get_text(strip=True) if p_el else main_price
@@ -713,7 +755,7 @@ class MercadoLibreScraper:
             if m_item:
                 c_item_id = m_item.group(1).replace("-", "").upper()
 
-            if s_name and s_name.lower() not in seen_sellers and not any(x in s_name.lower() for x in ("ver mais", "ver más", "comprar", "agregar", "mercado libre", "mercado livre")):
+            if s_name and s_name.lower() not in seen_sellers and s_name != "Mercado Libre Seller":
                 seen_sellers.add(s_name.lower())
                 p_disp, p_usd = self._convert_price_to_usd(c_price, currency)
                 results.append({
@@ -735,6 +777,7 @@ class MercadoLibreScraper:
         # Fallback if no individual sellers were parsed
         if not results:
             p_disp, p_usd = self._convert_price_to_usd(main_price, currency)
+            fallback_seller = self._clean_seller_name(main_seller, catalog_url)
             results.append({
                 "brand": default_brand,
                 "product_type": "Consumer Product",
@@ -742,7 +785,7 @@ class MercadoLibreScraper:
                 "item_id": base_item_id,
                 "price": p_disp,
                 "price_usd": p_usd,
-                "seller": main_seller or "Mercado Libre Seller",
+                "seller": fallback_seller or "Mercado Libre Seller",
                 "location": country,
                 "image_url": img_url,
                 "url": catalog_url,
@@ -817,6 +860,8 @@ class MercadoLibreScraper:
             main_price = main_price_el.get_text(strip=True) if main_price_el else ""
 
             if main_seller:
+                main_seller = self._clean_seller_name(main_seller, catalog_url)
+            if main_seller and main_seller != "Mercado Libre Seller":
                 seen_sellers.add(main_seller.lower())
                 p_disp, p_usd = self._convert_price_to_usd(main_price, currency)
                 catalog_items.append({
@@ -906,15 +951,16 @@ class MercadoLibreScraper:
 
                         parsed_sellers = page_data.get("parsed", [])
                         for s_info in parsed_sellers:
-                            s_name = s_info["seller"]
-                            if not s_name or s_name.lower() in seen_sellers:
+                            raw_s = s_info["seller"]
+                            href_val = s_info["href"]
+                            s_name = self._clean_seller_name(raw_s, href_val)
+                            if not s_name or s_name.lower() in seen_sellers or s_name == "Mercado Libre Seller":
                                 continue
                             seen_sellers.add(s_name.lower())
                             
                             s_price = s_info["price"] or main_price
                             p_disp, p_usd = self._convert_price_to_usd(s_price, currency)
                             
-                            href_val = s_info["href"]
                             c_item_id = base_item_id
                             m_item = re.search(r'(?:item_id=|wid=)(ML[A-Z0-9_-]+)', href_val, re.IGNORECASE)
                             if m_item:
@@ -957,11 +1003,11 @@ class MercadoLibreScraper:
                 for cont in cards:
                     s_link = cont.select_one("a") if cont.name != "a" else cont
                     if s_link:
-                        s_name = s_link.get_text(strip=True)
-                        s_name = re.sub(r'^(?:vendido por|vendido e entregue por|por)\s+', '', s_name, flags=re.IGNORECASE).strip()
-                        if s_name and s_name.lower() not in seen_sellers and not any(x in s_name.lower() for x in ("ver mais", "ver más", "comprar", "ir para", "seguidores")):
+                        raw_s = s_link.get_text(strip=True)
+                        href_val = s_link.get("href", "")
+                        s_name = self._clean_seller_name(raw_s, href_val)
+                        if s_name and s_name.lower() not in seen_sellers and s_name != "Mercado Libre Seller":
                             seen_sellers.add(s_name.lower())
-                            href_val = s_link.get("href", "")
                             p_el = cont.select_one(".andes-money-amount__fraction")
                             c_price = p_el.get_text(strip=True) if p_el else main_price
                             p_disp, p_usd = self._convert_price_to_usd(c_price, currency)
@@ -1080,6 +1126,27 @@ class MercadoLibreScraper:
                                 }
                             }
 
+                            // 3. Check Storefront Page Header (e.g. /pagina/lojacdc or /loja/long-dog)
+                            if (!sName) {
+                                const h1El = document.querySelector('h1.eshop-header__title, h1.store-header__title, h1');
+                                if (h1El) {
+                                    const h1Txt = h1El.innerText.trim();
+                                    if (h1Txt && h1Txt.length < 60 && !h1Txt.toLowerCase().includes('mercado') && !h1Txt.toLowerCase().includes('resultado') && !h1Txt.toLowerCase().includes('você') && !h1Txt.toLowerCase().includes('voce')) {
+                                        sName = h1Txt;
+                                    }
+                                }
+                            }
+
+                            if (!sName) {
+                                const docTitle = document.title || '';
+                                if (docTitle.includes('|')) {
+                                    const parts = docTitle.split('|').map(x => x.trim().replace(/^\\(\\d+\\)\\s*/, ''));
+                                    if (parts.length >= 2 && (parts[1].toLowerCase().includes('página') || parts[1].toLowerCase().includes('pagina') || parts[1].toLowerCase().includes('tienda') || parts[1].toLowerCase().includes('loja'))) {
+                                        sName = parts[0];
+                                    }
+                                }
+                            }
+
                             const locEl = document.querySelector('.ui-seller-info__location, .ui-pdp-seller__location, .poly-component__location');
                             if (locEl) sLoc = locEl.innerText.trim();
 
@@ -1117,8 +1184,9 @@ class MercadoLibreScraper:
                     """)
                     page.close()
 
-                    if info.get("seller"):
-                        it["seller"] = info["seller"]
+                    clean_s = self._clean_seller_name(info.get("seller", "") or it.get("seller", ""), url)
+                    if clean_s and clean_s != "Mercado Libre Seller":
+                        it["seller"] = clean_s
                     if info.get("location"):
                         it["seller_origin"] = info["location"]
                         it["location"] = info["location"]
@@ -1127,6 +1195,10 @@ class MercadoLibreScraper:
 
                 except Exception as e:
                     logger.debug(f"Error enriching Mercado Libre item {url}: {e}")
+                    # Fallback URL cleaning
+                    clean_s = self._clean_seller_name(it.get("seller", ""), url)
+                    if clean_s and clean_s != "Mercado Libre Seller":
+                        it["seller"] = clean_s
 
                 if progress_callback:
                     progress_callback(idx, total, it)

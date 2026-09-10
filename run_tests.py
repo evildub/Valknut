@@ -1281,6 +1281,31 @@ class TestApolloCoreFeatures(unittest.TestCase):
         res_multi = meli.search_multi_region("test", site_codes=["MLM", "MLB"], stop_event=stop_ev)
         self.assertEqual(res_multi, [])
 
+    def test_40_mercadolibre_seller_sanitization_and_enrichment(self):
+        """Test Item 40: Verify Mercado Libre seller name sanitization filters boilerplate and extracts storefront handles."""
+        from mercadolibre_scraper import MercadoLibreScraper
+        meli = MercadoLibreScraper(headless=True)
+
+        # 1. Boilerplate navigation phrases must be filtered and extracted from URL
+        s1 = meli._clean_seller_name("Ir para a página do vendedor", "https://www.mercadolivre.com.br/pagina/lojacdc?item_id=MLB123")
+        self.assertEqual(s1, "LOJACDC")
+
+        s2 = meli._clean_seller_name("+5.000 Seguidores +100 Produtos", "https://www.mercadolivre.com.br/pagina/webcaopetshop?client=123")
+        self.assertEqual(s2, "Webcaopetshop")
+
+        s3 = meli._clean_seller_name("Ir a la página del vendedor", "https://articulo.mercadolibre.com.mx/loja/long-dog?item_id=MLB456")
+        self.assertEqual(s3, "Long Dog")
+
+        s4 = meli._clean_seller_name("Ir para a página do vendedor", "https://articulo.mercadolibre.com.mx/_CustId_987654321")
+        self.assertEqual(s4, "MeLi_Seller_987654321")
+
+        # 2. Genuine seller names must be preserved and cleaned of prefix
+        s5 = meli._clean_seller_name("Vendido por Agro Avenida", "https://www.mercadolivre.com.br/item/MLB789")
+        self.assertEqual(s5, "Agro Avenida")
+
+        s6 = meli._clean_seller_name("AGROPETVIRTUAL", "https://www.mercadolivre.com.br/pagina/agropetvirtual")
+        self.assertEqual(s6, "AGROPETVIRTUAL")
+
 
 if __name__ == "__main__":
     unittest.main()
