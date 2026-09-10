@@ -880,17 +880,19 @@ class MercadoLibreScraper:
                     "keyword": default_brand
                 })
 
-            # 2. Check if Options sub-page exists before attempting pagination
+            # 2. Check if Options sub-page exists and open via natural click
             has_options_button = False
             try:
-                opt_btn = page.query_selector(".ui-pdp-other-sellers__button, button.seo-ui-anchor__button, a[href*='opcoes-de-compra'], a[href*='opciones-de-compra'], a[href*='/s?']")
+                opt_btn = page.query_selector(".ui-pdp-other-sellers__button, button.seo-ui-anchor__button, button:has-text('opç'), button:has-text('opc'), a[href*='opcoes-de-compra'], a[href*='opciones-de-compra'], a[href*='/s?']")
                 if opt_btn:
+                    opt_btn.click()
+                    page.wait_for_timeout(2000)
                     has_options_button = True
-            except Exception:
-                pass
+            except Exception as opt_err:
+                logger.debug(f"Options button click error: {opt_err}")
 
-            # 3. Iterate through /p/{id}/s? options pages ONLY if product has an options button
-            if base_item_id and has_options_button:
+            # 3. Iterate through options pages via in-page pagination ONLY if options view was opened
+            if has_options_button:
                 opt_page_num = 1
                 while opt_page_num <= 5:
                     if stop_event and stop_event.is_set():
@@ -898,16 +900,7 @@ class MercadoLibreScraper:
                     if pause_event:
                         pause_event.wait()
 
-                    opt_url = f"https://{parsed_netloc}/p/{base_item_id}/s?quantity=1&page={opt_page_num}"
                     try:
-                        page.goto(opt_url, wait_until="domcontentloaded", timeout=15000)
-                        page.wait_for_timeout(1500)
-
-                        if stop_event and stop_event.is_set():
-                            break
-                        if pause_event:
-                            pause_event.wait()
-
                         page_data = page.evaluate("""
                             () => {
                                 const isError = (
@@ -1010,6 +1003,17 @@ class MercadoLibreScraper:
                             })
 
                         if not page_data.get("hasNext") or len(parsed_sellers) == 0:
+                            break
+
+                        next_btn = page.query_selector(".andes-pagination__button--next:not(.andes-pagination__button--disabled) a, .andes-pagination__button--next:not(.andes-pagination__button--disabled)")
+                        if next_btn:
+                            next_btn.click()
+                            page.wait_for_timeout(2000)
+                            if stop_event and stop_event.is_set():
+                                break
+                            if pause_event:
+                                pause_event.wait()
+                        else:
                             break
 
                         opt_page_num += 1
