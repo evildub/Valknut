@@ -805,6 +805,34 @@ class EbayTool(tk.Tk):
         self.market_combo.pack(side="left", padx=(0, 4))
         self.market_combo.bind("<<ComboboxSelected>>", self._on_market_changed)
 
+        # eBay Regional Locale & Reverse Sweep Controls (packed by default for eBay)
+        self.ebay_country_var = tk.StringVar(value="🇺🇸 United States (ebay.com)")
+        self.ebay_country_combo = ttk.Combobox(
+            top_right,
+            textvariable=self.ebay_country_var,
+            values=[
+                "🇺🇸 United States (ebay.com)",
+                "🇬🇧 United Kingdom (ebay.co.uk)",
+                "🇩🇪 Germany (ebay.de)",
+                "🇨🇦 Canada (ebay.ca)",
+                "🇦🇺 Australia (ebay.com.au)",
+                "🇫🇷 France (ebay.fr)",
+                "🇮🇹 Italy (ebay.it)",
+                "🇪🇸 Spain (ebay.es)",
+                "🇳🇱 Netherlands (ebay.nl)",
+                "🇵🇱 Poland (ebay.pl)",
+                "🇨🇭 Switzerland (ebay.ch)",
+                "🇦🇹 Austria (ebay.at)",
+                "🇮🇪 Ireland (ebay.ie)",
+                "🌍 All Locales (Reverse Sweep)"
+            ],
+            state="readonly",
+            width=23,
+            font=FONT_SM
+        )
+        self.ebay_country_combo.pack(side="left", padx=(0, 4))
+        self.ebay_country_combo.bind("<<ComboboxSelected>>", lambda e: self._log(f"🌐 eBay target locale set to: {self.ebay_country_var.get()}"))
+
         # ManoMano Multi-Locale Controls (packed dynamically when ManoMano is active)
         self.manomano_country_var = tk.StringVar(value="🌐 All European Locales")
         self.manomano_country_combo = ttk.Combobox(
@@ -2308,6 +2336,12 @@ class EbayTool(tk.Tk):
         t = self.theme
         current_text = self.store_text.get("1.0", "end").strip()
 
+        if hasattr(self, "ebay_country_combo"):
+            if "eBay" in market:
+                self.ebay_country_combo.pack(side="left", padx=(0, 4), after=self.market_combo)
+            else:
+                self.ebay_country_combo.pack_forget()
+
         if hasattr(self, "manomano_country_combo"):
             if "ManoMano" in market:
                 self.manomano_country_combo.pack(side="left", padx=(0, 4), after=self.market_combo)
@@ -3427,6 +3461,7 @@ class EbayTool(tk.Tk):
         ds = getattr(self, "data_store", None)
         all_library_brands = ds.get_brands() if ds else {}
         platform_name = self._get_current_platform_name()
+        ebay_loc = self.ebay_country_var.get() if hasattr(self, "ebay_country_var") else "United States"
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
         mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
@@ -3445,7 +3480,8 @@ class EbayTool(tk.Tk):
                        q.get("brand", "").strip().lower() == term.strip().lower() and 
                        q.get("marketplace", "eBay").lower() == platform_name.lower() and
                        q.get("vinted_country", "") == v_country and
-                       q.get("meli_country", "") == meli_c
+                       q.get("meli_country", "") == meli_c and
+                       q.get("ebay_locale", "") == ebay_loc
                        for q in self.queue):
                     continue
 
@@ -3456,6 +3492,7 @@ class EbayTool(tk.Tk):
                     "store": store,
                     "brand": term,
                     "marketplace": platform_name,
+                    "ebay_locale": ebay_loc,
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
                     "manomano_locale": mm_country,
@@ -3470,7 +3507,7 @@ class EbayTool(tk.Tk):
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else (f" • {ebay_loc.split()[0]}" if platform_name == "eBay" and "United States" not in ebay_loc else "")))
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {term} [Clean 1-Term Sweep]"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3498,6 +3535,7 @@ class EbayTool(tk.Tk):
         condition = self.condition_var.get()
         all_library_brands = self.data_store.get_brands()
         platform_name = self._get_current_platform_name()
+        ebay_loc = self.ebay_country_var.get() if hasattr(self, "ebay_country_var") else "United States"
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
         mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
@@ -3517,7 +3555,8 @@ class EbayTool(tk.Tk):
                        q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
                        q.get("marketplace", "eBay").lower() == platform_name.lower() and
                        q.get("vinted_country", "") == v_country and
-                       q.get("meli_country", "") == meli_c
+                       q.get("meli_country", "") == meli_c and
+                       q.get("ebay_locale", "") == ebay_loc
                        for q in self.queue):
                     continue
                 pdata = all_library_brands[parent_brand]
@@ -3539,6 +3578,7 @@ class EbayTool(tk.Tk):
                     "store": store,
                     "brand": parent_brand,
                     "marketplace": platform_name,
+                    "ebay_locale": ebay_loc,
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
                     "manomano_locale": mm_country,
@@ -3553,7 +3593,7 @@ class EbayTool(tk.Tk):
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else (f" • {ebay_loc.split()[0]}" if platform_name == "eBay" and "United States" not in ebay_loc else "")))
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3637,6 +3677,7 @@ class EbayTool(tk.Tk):
             top_targets = [custom_includes[0].title() if len(custom_includes) == 1 else "Custom Search"]
 
         platform_name = self._get_current_platform_name()
+        ebay_loc = self.ebay_country_var.get() if hasattr(self, "ebay_country_var") else "United States"
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
         mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
@@ -3658,6 +3699,7 @@ class EbayTool(tk.Tk):
                     "store": store,
                     "brand": b_name,
                     "marketplace": platform_name,
+                    "ebay_locale": ebay_loc,
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
                     "manomano_locale": mm_country,
@@ -3672,7 +3714,7 @@ class EbayTool(tk.Tk):
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else (f" • {ebay_loc.split()[0]}" if platform_name == "eBay" and "United States" not in ebay_loc else "")))
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ 🏪 FULL INVENTORY ({len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3684,7 +3726,8 @@ class EbayTool(tk.Tk):
                            q.get("marketplace", "eBay").lower() == platform_name.lower() and
                            q.get("vinted_country", "") == v_country and
                            q.get("manomano_locale", "") == mm_country and
-                           q.get("meli_country", "") == meli_c
+                           q.get("meli_country", "") == meli_c and
+                           q.get("ebay_locale", "") == ebay_loc
                            for q in self.queue):
                         continue
 
@@ -3707,6 +3750,7 @@ class EbayTool(tk.Tk):
                         "store": store,
                         "brand": parent_brand,
                         "marketplace": platform_name,
+                        "ebay_locale": ebay_loc,
                         "vinted_country": v_country,
                         "vinted_depth": v_depth,
                         "manomano_locale": mm_country,
@@ -3721,7 +3765,7 @@ class EbayTool(tk.Tk):
                         "condition": condition
                     }
                     self.queue.append(entry)
-                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
+                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else (f" • {ebay_loc.split()[0]}" if platform_name == "eBay" and "United States" not in ebay_loc else "")))
                     label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
                     self.queue_list.insert("end", label)
                     queued_count += 1
@@ -4225,23 +4269,44 @@ class EbayTool(tk.Tk):
                         )
                         job_record["url"] = f"https://shop.tiktok.com/us/search?q={actual_term.replace(' ', '+')}"
                     else:
+                        ebay_loc = job.get("ebay_locale") or (self.ebay_country_var.get() if hasattr(self, "ebay_country_var") else "United States")
+                        domain = self.scraper._clean_ebay_domain(ebay_loc)
+                        is_multi_or_reverse = any(w in ebay_loc.lower() for w in ("all", "reverse", "sweep"))
+
                         target_url = self.scraper._build_url(
                             self.scraper.resolve_store_info(store_raw),
                             actual_term,
                             job["excludes"],
                             1,
-                            job.get("condition", "all")
+                            job.get("condition", "all"),
+                            domain=domain
                         )
                         self._log(f"  🔗 URL: {target_url}")
                         job_record["url"] = target_url
-                        items = self.scraper.search(
-                            store_raw,
-                            actual_term,
-                            job["excludes"],
-                            condition=job.get("condition", "all"),
-                            stop_event=self.stop_event,
-                            pause_event=self.pause_event
-                        )
+
+                        if is_multi_or_reverse:
+                            self._log(f"🌍 [eBay Multi-Locale Sweep] Sweeping top international domains for {term_display} in {seller_label}...")
+                            items = self.scraper.search_multi_locale(
+                                store_raw,
+                                actual_term,
+                                job["excludes"],
+                                condition=job.get("condition", "all"),
+                                stop_event=self.stop_event,
+                                pause_event=self.pause_event,
+                                log_callback=self._log
+                            )
+                        else:
+                            items = self.scraper.search(
+                                store_raw,
+                                actual_term,
+                                job["excludes"],
+                                condition=job.get("condition", "all"),
+                                stop_event=self.stop_event,
+                                pause_event=self.pause_event,
+                                domain=domain,
+                                reverse_locale_probe=True,
+                                log_callback=self._log
+                            )
 
                     new_items = []
                     filtered_out_count = 0
@@ -4357,7 +4422,10 @@ class EbayTool(tk.Tk):
                                 job["excludes"],
                                 condition=job.get("condition", "all"),
                                 stop_event=self.stop_event,
-                                pause_event=self.pause_event
+                                pause_event=self.pause_event,
+                                domain=domain,
+                                reverse_locale_probe=True,
+                                log_callback=self._log
                             )
                             for item in items:
                                 title = item.get("title", "")

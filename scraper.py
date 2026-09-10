@@ -6,8 +6,10 @@ import tempfile
 import threading
 import io
 import urllib.request
+import urllib.parse
+from urllib.parse import urlencode, urlparse, parse_qs, quote
+from typing import Optional, List, Dict, Union, Tuple
 import concurrent.futures
-from urllib.parse import urlencode, urlparse, parse_qs
 from bs4 import BeautifulSoup
 from PIL import Image
 
@@ -25,6 +27,22 @@ except ImportError:
     HAS_CURL_CFFI = False
 
 
+EBAY_LOCALES = [
+    {"code": "US", "name": "United States", "domain": "ebay.com", "region": "North America", "flag": "🇺🇸"},
+    {"code": "UK", "name": "United Kingdom", "domain": "ebay.co.uk", "region": "Europe", "flag": "🇬🇧"},
+    {"code": "DE", "name": "Germany", "domain": "ebay.de", "region": "Europe", "flag": "🇩🇪"},
+    {"code": "CA", "name": "Canada", "domain": "ebay.ca", "region": "North America", "flag": "🇨🇦"},
+    {"code": "AU", "name": "Australia", "domain": "ebay.com.au", "region": "APAC", "flag": "🇦🇺"},
+    {"code": "FR", "name": "France", "domain": "ebay.fr", "region": "Europe", "flag": "🇫🇷"},
+    {"code": "IT", "name": "Italy", "domain": "ebay.it", "region": "Europe", "flag": "🇮🇹"},
+    {"code": "ES", "name": "Spain", "domain": "ebay.es", "region": "Europe", "flag": "🇪🇸"},
+    {"code": "NL", "name": "Netherlands", "domain": "ebay.nl", "region": "Europe", "flag": "🇳🇱"},
+    {"code": "PL", "name": "Poland", "domain": "ebay.pl", "region": "Europe", "flag": "🇵🇱"},
+    {"code": "CH", "name": "Switzerland", "domain": "ebay.ch", "region": "Europe", "flag": "🇨🇭"},
+    {"code": "AT", "name": "Austria", "domain": "ebay.at", "region": "Europe", "flag": "🇦🇹"},
+    {"code": "IE", "name": "Ireland", "domain": "ebay.ie", "region": "Europe", "flag": "🇮🇪"},
+]
+
 MAX_PAGES = 15
 PAGE_SIZE = 60        # eBay standard items per page
 
@@ -32,7 +50,7 @@ PAGE_SIZE = 60        # eBay standard items per page
 class EbayScraper:
     def __init__(self, headless=False):
         """
-        Scraper for eBay store and seller listings with anti-bot bypass.
+        Scraper for eBay store and seller listings with anti-bot bypass and multi-locale support.
         """
         self.headless = headless
         self.last_scrape_warning = ""
@@ -60,19 +78,142 @@ class EbayScraper:
         ]
         return next((p for p in browser_paths if os.path.exists(p)), None)
 
+    def _clean_ebay_domain(self, domain_str: str) -> str:
+        """Resolve standard eBay domain string (e.g., 'ebay.co.uk') from country name, code, or URL."""
+        if not domain_str:
+            return "ebay.com"
+        d = str(domain_str).strip().lower()
+        if d in ("all", "auto", "reverse", "sweep") or "all locales" in d or "reverse sweep" in d:
+            return "ebay.com"
+        m = re.search(r'(?:https?://)?(?:www\.)?(ebay\.[a-z0-9.]+)', d)
+        if m:
+            return m.group(1).rstrip("/")
+        for loc in EBAY_LOCALES:
+            if loc["code"].lower() == d or loc["name"].lower() in d or loc["domain"] in d:
+                return loc["domain"]
+        clean = d.replace("https://", "").replace("http://", "").replace("www.", "").rstrip("/")
+        return clean if clean.startswith("ebay.") else "ebay.com"
+
+    def probe_seller_active_locale(self, target_handle: str) -> Optional[str]:
+        """
+        Fast probe across major international eBay domains to find where an international seller
+        is actively listing or has a registered store.
+        Returns the domain string (e.g. 'ebay.co.uk', 'ebay.de') or None.
+        """
+        if not target_handle or target_handle.lower() in ("global", "marketplace", "all products", "catalog", "full search"):
+            return None
+        
+        probe_domains = ["ebay.co.uk", "ebay.de", "ebay.ca", "ebay.com.au", "ebay.fr", "ebay.it", "ebay.es", "ebay.nl", "ebay.pl", "ebay.ch", "ebay.at", "ebay.ie"]
+        clean_handle = target_handle.strip()
+        
+        for dom in probe_domains:
+            try:
+                test_url = f"https://www.{dom}/sch/i.html?_ssn={urllib.parse.quote(clean_handle)}&_ipg=25"
+                html = self._fetch_via_requests(test_url)
+                if html:
+                    cards = self._parse_html(html, fallback_seller=clean_handle, domain=dom)
+                    if cards:
+                        return dom
+                    if f"/str/{clean_handle.lower()}" in html.lower() or f"/usr/{clean_handle.lower()}" in html.lower():
+                        return dom
+            except Exception:
+                pass
+        return None
+
+    def search_multi_locale(self, store_url: str, include_term: str,
+                            exclude_terms: list[str] = None,
+                            condition: str = "all",
+                            locales: list[str] = None,
+                            stop_event: threading.Event = None,
+                            pause_event: threading.Event = None,
+                            log_callback = None) -> list[dict]:
+        """
+        Cross-border multi-locale sweep across all specified or major eBay regional domains.
+        """
+        target_domains = locales or ["ebay.com", "ebay.co.uk", "ebay.de", "ebay.ca", "ebay.com.au", "ebay.fr", "ebay.it", "ebay.es", "ebay.nl", "ebay.pl"]
+        all_items = []
+        seen_ids = set()
+
+        def _log(msg):
+            if log_callback:
+                try: log_callback(msg)
+                except Exception: pass
+
+        _log(f"🌍 [eBay Multi-Locale Sweep] Searching across {len(target_domains)} regional domains for '{include_term}'...")
+
+        for dom in target_domains:
+            if stop_event and stop_event.is_set():
+                break
+            if pause_event:
+                pause_event.wait()
+
+            clean_dom = self._clean_ebay_domain(dom)
+            _log(f"🌍 [{clean_dom}] Scanning store/seller on {clean_dom}...")
+            
+            try:
+                dom_items = self.search(
+                    store_url,
+                    include_term,
+                    exclude_terms=exclude_terms,
+                    condition=condition,
+                    domain=clean_dom,
+                    reverse_locale_probe=False,
+                    stop_event=stop_event,
+                    pause_event=pause_event,
+                    log_callback=log_callback
+                )
+                new_in_dom = 0
+                for it in dom_items:
+                    iid = it.get("item_id")
+                    dedup_key = iid if iid else it.get("url")
+                    if dedup_key and dedup_key not in seen_ids:
+                        seen_ids.add(dedup_key)
+                        all_items.append(it)
+                        new_in_dom += 1
+                if new_in_dom > 0:
+                    _log(f"  ✓ Found {new_in_dom} listings on {clean_dom}.")
+            except Exception as e:
+                _log(f"  ⚠ Error scanning {clean_dom}: {e}")
+
+        return all_items
+
     def search(self, store_url: str, include_term: str,
                exclude_terms: list[str] = None,
                condition: str = "all",
+               domain: str = "",
+               reverse_locale_probe: bool = True,
                stop_event: threading.Event = None,
-               pause_event: threading.Event = None) -> list[dict]:
+               pause_event: threading.Event = None,
+               log_callback = None) -> list[dict]:
         """
-        Search an eBay store/seller for include_term, applying exclude_terms.
+        Search an eBay store/seller for include_term on a specific locale domain or with reverse locale auto-detection.
         Supports stop_event and pause_event for real-time user control.
         """
+        def _log(msg):
+            if log_callback:
+                try: log_callback(msg)
+                except Exception: pass
+
+        # Check if full multi-locale sweep requested
+        if domain and any(k in str(domain).lower() for k in ("all", "reverse", "sweep")):
+            return self.search_multi_locale(
+                store_url, include_term,
+                exclude_terms=exclude_terms,
+                condition=condition,
+                stop_event=stop_event,
+                pause_event=pause_event,
+                log_callback=log_callback
+            )
+
         self.is_bot_challenge = False
         self.blocked_store_name = ""
         self.blocked_store_url = ""
         store_info = self.resolve_store_info(store_url)
+        
+        # Override domain if explicitly passed, otherwise use domain detected from store URL
+        active_dom = self._clean_ebay_domain(domain or store_info.get("domain", "ebay.com"))
+        store_info["domain"] = active_dom
+
         exclude_terms = exclude_terms or []
         cleaned_excludes = self._sanitize_exclusions(include_term, exclude_terms)
 
@@ -83,6 +224,7 @@ class EbayScraper:
             try:
                 items = self._search_via_playwright(
                     store_info, include_term, cleaned_excludes, condition, seen_ids,
+                    domain=active_dom,
                     stop_event=stop_event, pause_event=pause_event
                 )
                 if items or (stop_event and stop_event.is_set()):
@@ -113,11 +255,11 @@ class EbayScraper:
                     cand_info["seller"] = cand
                     cand_info["store_name"] = cand
 
-            url = self._build_url(cand_info, include_term, cleaned_excludes, 1, condition)
+            url = self._build_url(cand_info, include_term, cleaned_excludes, 1, condition, domain=active_dom)
             html = self._fetch_via_requests(url)
             if not html:
                 continue
-            page_items = self._parse_html(html, fallback_seller=cand or seller_label)
+            page_items = self._parse_html(html, fallback_seller=cand or seller_label, domain=active_dom)
             if page_items:
                 active_info = cand_info
                 seller_label = cand or seller_label
@@ -137,11 +279,11 @@ class EbayScraper:
                 if pause_event:
                     pause_event.wait()
 
-                url = self._build_url(active_info, include_term, cleaned_excludes, page, condition)
+                url = self._build_url(active_info, include_term, cleaned_excludes, page, condition, domain=active_dom)
                 html = self._fetch_via_requests(url)
                 if not html:
                     break
-                page_items = self._parse_html(html, fallback_seller=seller_label)
+                page_items = self._parse_html(html, fallback_seller=seller_label, domain=active_dom)
                 if not page_items:
                     break
 
@@ -158,6 +300,24 @@ class EbayScraper:
                     break
                 page += 1
                 time.sleep(random.uniform(1.0, 2.0))
+
+        # Reverse Locale Auto-Detection fallback: If 0 results found on requested locale, probe international locales
+        if not items and reverse_locale_probe and target_slug and target_slug.lower() not in ("global", "marketplace", "all products", "catalog", "full search"):
+            _log(f"🔍 [Reverse Locale Probe] Checking international eBay locales for seller '{target_slug}'...")
+            found_locale_dom = self.probe_seller_active_locale(target_slug)
+            if found_locale_dom and found_locale_dom != active_dom:
+                _log(f"🌍 [Reverse Locale Match] Seller '{target_slug}' found active on eBay {found_locale_dom}! Harvesting listings...")
+                return self.search(
+                    store_url,
+                    include_term,
+                    exclude_terms=exclude_terms,
+                    condition=condition,
+                    domain=found_locale_dom,
+                    reverse_locale_probe=False,
+                    stop_event=stop_event,
+                    pause_event=pause_event,
+                    log_callback=log_callback
+                )
 
         return items
 
@@ -212,11 +372,14 @@ class EbayScraper:
     def _search_via_playwright(self, store_info: dict,
                                include_term: str, excludes: list[str],
                                condition: str, seen_ids: set,
+                               domain: str = "ebay.com",
                                stop_event: threading.Event = None,
                                pause_event: threading.Event = None) -> list[dict]:
         """Search across pages using a single browser session with stop/pause support."""
         items = []
         seller_label = store_info.get("store_name") or store_info.get("seller") or ""
+        active_dom = self._clean_ebay_domain(domain or store_info.get("domain", "ebay.com"))
+        host = f"www.{active_dom}" if not active_dom.startswith("www.") and "cafr." not in active_dom else active_dom
 
         user_data_dir = self._get_user_data_dir()
         try:
@@ -259,9 +422,9 @@ class EbayScraper:
 
                 page = context.pages[0] if context.pages else context.new_page()
 
-                # Warm up session with authentic eBay cookies
+                # Warm up session with authentic eBay cookies on active domain
                 try:
-                    page.goto("https://www.ebay.com", wait_until="domcontentloaded", timeout=12000)
+                    page.goto(f"https://{host}", wait_until="domcontentloaded", timeout=12000)
                     time.sleep(0.6)
                 except Exception:
                     pass
@@ -270,7 +433,7 @@ class EbayScraper:
                 if store_info.get("is_item") and store_info.get("item_id"):
                     item_id = store_info["item_id"]
                     try:
-                        page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="domcontentloaded", timeout=15000)
+                        page.goto(f"https://{host}/itm/{item_id}", wait_until="domcontentloaded", timeout=15000)
                         time.sleep(0.8)
                         item_html = page.content()
                         resolved = ""
@@ -296,7 +459,7 @@ class EbayScraper:
                 # If store URL was passed without a resolved seller username, resolve it directly in browser
                 if store_info.get("is_store") and store_info.get("store_name") and not store_info.get("seller"):
                     try:
-                        page.goto(f"https://www.ebay.com/str/{store_info['store_name']}", wait_until="domcontentloaded", timeout=15000)
+                        page.goto(f"https://{host}/str/{store_info['store_name']}", wait_until="domcontentloaded", timeout=15000)
                         time.sleep(0.8)
                         store_html = page.content()
                         m_ssn = re.search(r'"_ssn":\s*"([a-zA-Z0-9_.-]+)"', store_html)
@@ -335,7 +498,7 @@ class EbayScraper:
                             cand_info["seller"] = cand
                             cand_info["store_name"] = cand
 
-                    url = self._build_url(cand_info, include_term, excludes, 1, condition)
+                    url = self._build_url(cand_info, include_term, excludes, 1, condition, domain=active_dom)
                     try:
                         page.goto(url, wait_until="domcontentloaded", timeout=20000)
                         try:
@@ -356,7 +519,7 @@ class EbayScraper:
                         if not html:
                             continue
 
-                    page_items = self._parse_html(html, fallback_seller=cand or seller_label)
+                    page_items = self._parse_html(html, fallback_seller=cand or seller_label, domain=active_dom)
                     if page_items:
                         active_info = cand_info
                         seller_label = cand or seller_label
@@ -378,7 +541,7 @@ class EbayScraper:
                         if pause_event:
                             pause_event.wait()
 
-                        url = self._build_url(active_info, include_term, excludes, page_num, condition)
+                        url = self._build_url(active_info, include_term, excludes, page_num, condition, domain=active_dom)
                         try:
                             page.goto(url, wait_until="domcontentloaded", timeout=20000)
                             try:
@@ -399,7 +562,7 @@ class EbayScraper:
                             if not html:
                                 break
 
-                        page_items = self._parse_html(html, fallback_seller=seller_label)
+                        page_items = self._parse_html(html, fallback_seller=seller_label, domain=active_dom)
                         if not page_items:
                             break
 
@@ -426,7 +589,7 @@ class EbayScraper:
                         self.blocked_store_url = url
                         self.last_scrape_warning = f"⚠ [IP THROTTLE / BOT CHALLENGE] eBay returned a security rate-limit / CAPTCHA challenge on '{seller_label}' — zero results returned due to IP block, not empty inventory."
                     elif any(t in html_low for t in ("error page | ebay", "does not exist", "store not found", "seller not found", "we looked everywhere")):
-                        self.last_scrape_warning = f"ℹ Store/Seller '{seller_label}' returned 0 results or store was not found on eBay."
+                        self.last_scrape_warning = f"ℹ Store/Seller '{seller_label}' returned 0 results or store was not found on eBay ({active_dom})."
                     else:
                         self.last_scrape_warning = ""
                 else:
@@ -437,27 +600,29 @@ class EbayScraper:
                 except Exception:
                     pass
         finally:
-            try:
-                shutil.rmtree(temp_worker_dir, ignore_errors=True)
-            except Exception:
-                pass
+            pass
         return items
 
     # ── Store / Seller Info Resolver ──────────────────────────────────────────
     def resolve_store_info(self, url: str) -> dict:
         """
-        Extract store_name, seller username, and store flag.
-        Returns dict: {'store_name': str, 'seller': str, 'is_store': bool}
+        Extract store_name, seller username, domain, and store flag.
+        Returns dict: {'store_name': str, 'seller': str, 'is_store': bool, 'domain': str}
         """
         info = {
             "store_name": "",
             "seller": "",
-            "is_store": False
+            "is_store": False,
+            "domain": "ebay.com"
         }
         if not url:
             return info
             
         url_str = url.strip().rstrip("/")
+        m_dom = re.search(r'(?:https?://)?(?:www\.)?(ebay\.[a-z0-9.]+)', url_str, re.IGNORECASE)
+        if m_dom:
+            info["domain"] = m_dom.group(1).lower()
+
         if any(g in url_str.lower() for g in ("global", "marketplace", "all products", "catalog", "full search")) or url_str.lower() in (
             "https://www.ebay.com", "http://www.ebay.com", "https://ebay.com", "http://ebay.com",
             "www.ebay.com", "ebay.com", "https://www.ebay.com/sch", "https://www.ebay.com/sch/i.html"
@@ -477,7 +642,7 @@ class EbayScraper:
                 return info
 
         # Check for item URL pattern /itm/
-        m_itm = re.search(r"/itm/(\d+)", url_str)
+        m_itm = re.search(r"/itm/(?:[^/]+/)?(\d+)", url_str)
         if m_itm:
             item_id = m_itm.group(1)
             info["item_id"] = item_id
@@ -542,7 +707,8 @@ class EbayScraper:
                 info["seller"] = self._store_seller_cache[s_name]
             else:
                 try:
-                    store_html = self._fetch_via_requests(f"https://www.ebay.com/str/{info['store_name']}")
+                    host = f"www.{info['domain']}" if not info['domain'].startswith("www.") and "cafr." not in info['domain'] else info['domain']
+                    store_html = self._fetch_via_requests(f"https://{host}/str/{info['store_name']}")
                     if store_html:
                         m_ssn = re.search(r'"_ssn":\s*"([a-zA-Z0-9_.-]+)"', store_html)
                         m_seller = re.search(r'"(?:sellerId|ownerUsername|username)":\s*"([a-zA-Z0-9_.-]+)"', store_html)
@@ -601,9 +767,9 @@ class EbayScraper:
 
     # ── URL Builder ───────────────────────────────────────────────────────────
     def _build_url(self, store_info: dict, include: str, excludes: list[str],
-                   page: int, condition: str = "all") -> str:
+                   page: int, condition: str = "all", domain: str = "") -> str:
         """
-        Build eBay search URL matching native store or seller search.
+        Build eBay search URL matching native store or seller search on specified or default locale domain.
         Handles multi-word exclusions properly by wrapping them in quotes (e.g. -"General Motors").
         """
         nkw_parts = []
@@ -621,12 +787,18 @@ class EbayScraper:
         if isinstance(store_info, str):
             store_name = store_info
             seller = store_info
+            target_dom = domain or "ebay.com"
         elif isinstance(store_info, dict):
             store_name = store_info.get("store_name", "")
             seller = store_info.get("seller", "")
+            target_dom = domain or store_info.get("domain", "ebay.com")
         else:
             store_name = ""
             seller = ""
+            target_dom = domain or "ebay.com"
+
+        clean_dom = self._clean_ebay_domain(target_dom)
+        host = f"www.{clean_dom}" if not clean_dom.startswith("www.") and "cafr." not in clean_dom else clean_dom
 
         params = {
             "_from": "R40",
@@ -652,7 +824,7 @@ class EbayScraper:
         elif condition == "used":
             params["LH_ItemCondition"] = "3000"
 
-        return "https://www.ebay.com/sch/i.html?" + urlencode(params)
+        return f"https://{host}/sch/i.html?" + urlencode(params)
 
     def _fetch_via_requests(self, url: str) -> str:
         """Fallback fetch using session."""
@@ -674,7 +846,7 @@ class EbayScraper:
         except Exception:
             return ""
 
-    def _parse_html(self, html: str, fallback_seller: str = "", include_term: str = "") -> list[dict]:
+    def _parse_html(self, html: str, fallback_seller: str = "", include_term: str = "", domain: str = "ebay.com") -> list[dict]:
         """
         Parse listing items from modern .s-card, classic .s-item, and store layouts.
         Extracts robust high-resolution thumbnail URLs.
@@ -727,6 +899,10 @@ class EbayScraper:
                 continue
 
             raw_url = link_el["href"]
+            if not raw_url.startswith("http"):
+                clean_dom = self._clean_ebay_domain(domain)
+                host = f"www.{clean_dom}" if not clean_dom.startswith("www.") and "cafr." not in clean_dom else clean_dom
+                raw_url = f"https://{host}{raw_url}"
             item_url = raw_url.split("?")[0]
             item_id = self._extract_item_id(raw_url)
 
@@ -892,13 +1068,15 @@ class EbayScraper:
                 item_location = item_location.split(":")[-1].strip()
 
             items.append({
-                "title":     title,
-                "url":       item_url,
-                "item_id":   item_id,
-                "price":     price,
-                "image_url": img_url,
-                "seller":    seller if seller else fallback_seller,
-                "location":  item_location,
+                "title":       title,
+                "url":         item_url,
+                "item_id":     item_id,
+                "price":       price,
+                "image_url":   img_url,
+                "seller":      seller if seller else fallback_seller,
+                "location":    item_location,
+                "marketplace": f"eBay ({domain})" if domain and domain != "ebay.com" else "eBay",
+                "domain":      domain or "ebay.com"
             })
 
         return items

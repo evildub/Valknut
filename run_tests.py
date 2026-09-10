@@ -1101,6 +1101,91 @@ class TestApolloCoreFeatures(unittest.TestCase):
         h2 = scraper.compute_dhash(img2)
         self.assertEqual(scraper.hamming_distance(h1, h2), 0)
 
+    def test_37_ebay_multi_locale_and_reverse_sweep(self):
+        """Test Item 37: Verify eBay multi-locale domain resolution, URL construction, and reverse locale sweep."""
+        from scraper import EbayScraper, EBAY_LOCALES
+        scraper = EbayScraper(headless=True)
+
+        # 1. Test EBAY_LOCALES structure
+        self.assertGreaterEqual(len(EBAY_LOCALES), 13)
+        uk_loc = next((l for l in EBAY_LOCALES if l["domain"] == "ebay.co.uk"), None)
+        self.assertIsNotNone(uk_loc)
+        self.assertEqual(uk_loc["name"], "United Kingdom")
+
+        # 2. Test _clean_ebay_domain
+        self.assertEqual(scraper._clean_ebay_domain("United Kingdom (ebay.co.uk)"), "ebay.co.uk")
+        self.assertEqual(scraper._clean_ebay_domain("Germany"), "ebay.de")
+        self.assertEqual(scraper._clean_ebay_domain("ebay.com.au"), "ebay.com.au")
+        self.assertEqual(scraper._clean_ebay_domain("https://www.ebay.fr/str/frenchshop"), "ebay.fr")
+        self.assertEqual(scraper._clean_ebay_domain("🌍 All Locales (Reverse Sweep)"), "ebay.com")
+        self.assertEqual(scraper._clean_ebay_domain(""), "ebay.com")
+
+        # 3. Test resolve_store_info with regional domains
+        uk_info = scraper.resolve_store_info("https://www.ebay.co.uk/str/coolukstore")
+        self.assertEqual(uk_info["domain"], "ebay.co.uk")
+        self.assertEqual(uk_info["store_name"], "coolukstore")
+        self.assertTrue(uk_info["is_store"])
+
+        de_info = scraper.resolve_store_info("https://www.ebay.de/usr/germanseller")
+        self.assertEqual(de_info["domain"], "ebay.de")
+        self.assertEqual(de_info["seller"], "germanseller")
+        self.assertFalse(de_info["is_store"])
+
+        fr_itm = scraper.resolve_store_info("https://www.ebay.fr/itm/123456789012")
+        self.assertEqual(fr_itm["domain"], "ebay.fr")
+        self.assertEqual(fr_itm.get("item_id"), "123456789012")
+
+        # 4. Test _build_url with regional domains
+        url_uk = scraper._build_url(
+            {"store_name": "coolukstore", "seller": "coolukstore", "domain": "ebay.co.uk"},
+            include="Camaro",
+            excludes=["toy"],
+            page=1,
+            condition="all",
+            domain="ebay.co.uk"
+        )
+        self.assertTrue(url_uk.startswith("https://www.ebay.co.uk/sch/i.html?"))
+        self.assertIn("_ssn=coolukstore", url_uk)
+        self.assertIn("Camaro", url_uk)
+        self.assertIn("-toy", url_uk)
+
+        # 5. Test _parse_html with domain tag
+        sample_html = """
+        <html><body>
+        <li class="s-item s-item__pl-on-bottom">
+            <div class="s-item__info clearfix">
+                <a class="s-item__link" href="https://www.ebay.co.uk/itm/123456789012"><h3 class="s-item__title">OEM Emblem Badge</h3></a>
+                <span class="s-item__price">£19.99</span>
+                <span class="s-item__seller-info-text">seller_uk (100)</span>
+            </div>
+        </li>
+        </body></html>
+        """
+        parsed_uk = scraper._parse_html(sample_html, fallback_seller="seller_uk", domain="ebay.co.uk")
+        self.assertEqual(len(parsed_uk), 1)
+        self.assertEqual(parsed_uk[0]["marketplace"], "eBay (ebay.co.uk)")
+        self.assertEqual(parsed_uk[0]["domain"], "ebay.co.uk")
+        self.assertEqual(parsed_uk[0]["item_id"], "123456789012")
+
+        parsed_us = scraper._parse_html(sample_html, fallback_seller="seller_us", domain="ebay.com")
+        self.assertEqual(len(parsed_us), 1)
+        self.assertEqual(parsed_us[0]["marketplace"], "eBay")
+        self.assertEqual(parsed_us[0]["domain"], "ebay.com")
+
+        # 6. Test probe_seller_active_locale mock
+        def mock_fetch(url):
+            if "ebay.de" in url:
+                return '<html><body><li class="s-item"><a class="s-item__link" href="https://www.ebay.de/itm/999999999999"><h3 class="s-item__title">German Part 999</h3></a></li></body></html>'
+            return ""
+
+        original_fetch = scraper._fetch_via_requests
+        scraper._fetch_via_requests = mock_fetch
+        try:
+            detected = scraper.probe_seller_active_locale("german_specialist")
+            self.assertEqual(detected, "ebay.de")
+        finally:
+            scraper._fetch_via_requests = original_fetch
+
 
 if __name__ == "__main__":
     unittest.main()
