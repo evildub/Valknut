@@ -425,14 +425,15 @@ class MercadoLibreScraper:
 
         return True
 
-    def search(self, query: str, max_items: int = 50, condition: str = "all", expand_catalog: bool = True, stop_event: threading.Event = None, pause_event: threading.Event = None, log_callback=None) -> List[Dict]:
+    def search(self, query: str, max_items: int = 50, max_pages: int = None, condition: str = "all", expand_catalog: bool = True, stop_event: threading.Event = None, pause_event: threading.Event = None, log_callback=None) -> List[Dict]:
         """
         Execute search on Mercado Libre using persistent stealth automation.
         Automatically expands Catalog Buy Box listings (/p/) to harvest all competing merchants.
         
         Args:
             query: Keyword string (e.g., 'Bravecto' or 'Toyota emblem')
-            max_items: Maximum listings to return
+            max_items: Maximum listings to return (used as fallback when max_pages is None)
+            max_pages: Number of search result pages to scan (e.g., 1, 2, 5)
             condition: 'all', 'new', or 'used'
             expand_catalog: If True, deep checks catalog product pages for all competing sellers
             stop_event: Optional threading.Event for stopping
@@ -458,7 +459,8 @@ class MercadoLibreScraper:
         raw_query = urllib.parse.quote(query.strip())
         base_search_url = f"https://{domain}/{slug}#D[A:{raw_query}]"
 
-        _log(f"🇲🇽 [Mercado Libre {country}] Initiating stealth search for '{query}'...")
+        limit_pages = max_pages if max_pages is not None else max(1, (max_items + 49) // 50)
+        _log(f"🇲🇽 [Mercado Libre {country}] Initiating stealth search for '{query}' (Target: {limit_pages} page(s))...")
 
         context = self._get_context()
         page = context.pages[0] if context.pages else context.new_page()
@@ -474,7 +476,7 @@ class MercadoLibreScraper:
         seen_urls = set()
 
         try:
-            while len(results) < max_items and page_num <= 4:
+            while page_num <= limit_pages:
                 if stop_event and stop_event.is_set():
                     _log("⏹ [Mercado Libre] Stop signal received.")
                     break
@@ -486,7 +488,7 @@ class MercadoLibreScraper:
                 else:
                     target_url = f"https://{domain}/{slug}_Desde_{current_offset}#D[A:{raw_query}]"
 
-                _log(f"🌐 [Mercado Libre] Loading page {page_num}...")
+                _log(f"🌐 [Mercado Libre] Loading page {page_num}/{limit_pages}...")
                 try:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
                     page.wait_for_timeout(2500)
@@ -591,8 +593,6 @@ class MercadoLibreScraper:
                                     results.append(s_it)
                                     new_count += 1
                                 _log(f"📦 [Mercado Libre Catalog] Extracted {len(expanded)} distinct seller(s) for '{raw_it.get('title', '')[:30]}'.")
-                                if len(results) >= max_items:
-                                    break
                                 continue
                         except Exception as cat_ex:
                             logger.debug(f"Catalog expansion failed, falling back to card: {cat_ex}")
@@ -620,12 +620,9 @@ class MercadoLibreScraper:
                     })
                     new_count += 1
 
-                    if len(results) >= max_items:
-                        break
+                _log(f"📦 [Mercado Libre] Harvested {new_count} unique listings from page {page_num} ({len(results)} total across {page_num} page(s)).")
 
-                _log(f"📦 [Mercado Libre] Harvested {new_count} unique listings from page {page_num} ({len(results)}/{max_items} total).")
-
-                if len(results) >= max_items or new_count == 0:
+                if new_count == 0:
                     break
 
                 page_num += 1
@@ -894,7 +891,7 @@ class MercadoLibreScraper:
             # 3. Iterate through options pages via in-page pagination ONLY if options view was opened
             if has_options_button:
                 opt_page_num = 1
-                while opt_page_num <= 5:
+                while opt_page_num <= 25:
                     if stop_event and stop_event.is_set():
                         break
                     if pause_event:
@@ -1232,7 +1229,7 @@ class MercadoLibreScraper:
         finally:
             self.close()
 
-    def search_multi_region(self, query: str, site_codes: List[str] = None, max_items_per_region: int = 25, condition: str = "all", stop_event: threading.Event = None, pause_event: threading.Event = None, log_callback=None) -> List[Dict]:
+    def search_multi_region(self, query: str, site_codes: List[str] = None, max_items_per_region: int = 25, max_pages: int = None, condition: str = "all", stop_event: threading.Event = None, pause_event: threading.Event = None, log_callback=None) -> List[Dict]:
         """
         Execute multi-regional sweep across selected Latin American Mercado Libre domains.
         """
@@ -1254,7 +1251,7 @@ class MercadoLibreScraper:
             if log_callback:
                 log_callback(f"🌎 [{reg_info['flag']} {reg_info['country']}] Initiating scan for '{query}'...")
             try:
-                res = self.search(query, max_items=max_items_per_region, condition=condition, stop_event=stop_event, pause_event=pause_event, log_callback=log_callback)
+                res = self.search(query, max_items=max_items_per_region, max_pages=max_pages, condition=condition, stop_event=stop_event, pause_event=pause_event, log_callback=log_callback)
                 for r in res:
                     r["country"] = reg_info["country"]
                     r["marketplace"] = f"Mercado Libre ({reg_info['flag']} {reg_info['country']})"

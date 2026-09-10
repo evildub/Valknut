@@ -4132,11 +4132,12 @@ class EbayTool(tk.Tk):
                         target_max_items = m_pages * 50
 
                         if "All Latin America" in selected_c:
-                            self._log(f"🌎 [Latin America Multi-Sweep] Initiating cross-border sweep across Mexico, Brazil, Argentina, Colombia, Chile, and Peru for {term_display} ({m_pages * 25} items/region)...")
+                            self._log(f"🌎 [Latin America Multi-Sweep] Initiating cross-border sweep across Mexico, Brazil, Argentina, Colombia, Chile, and Peru for {term_display} ({m_pages} page(s)/region)...")
                             items = self.mercadolibre_scraper.search_multi_region(
                                 actual_term,
                                 site_codes=["MLM", "MLB", "MLA", "MCO", "MLC", "MPE"],
-                                max_items_per_region=m_pages * 25,
+                                max_items_per_region=m_pages * 50,
+                                max_pages=m_pages,
                                 condition=job.get("condition", "all"),
                                 stop_event=self.stop_event,
                                 pause_event=self.pause_event,
@@ -4157,6 +4158,7 @@ class EbayTool(tk.Tk):
                             items = self.mercadolibre_scraper.search(
                                 actual_term,
                                 max_items=target_max_items,
+                                max_pages=m_pages,
                                 condition=job.get("condition", "all"),
                                 stop_event=self.stop_event,
                                 pause_event=self.pause_event,
