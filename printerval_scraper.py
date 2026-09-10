@@ -700,8 +700,11 @@ class PrintervalScraper:
                             const picture = a.querySelector('picture') || (parentEl ? parentEl.querySelector('picture') : null);
                             if (picture) {
                                 const source = picture.querySelector('source');
-                                if (source && source.srcset && source.srcset.startsWith('http')) {
-                                    img = source.srcset.split(',')[0].split(' ')[0].trim();
+                                if (source && source.srcset) {
+                                    const urls = source.srcset.match(/https?:\\/\\/[^\\s"']+/g);
+                                    if (urls && urls.length > 0) {
+                                        img = urls[urls.length - 1].replace(/\\s+\\d+[wx]$/, '').trim();
+                                    }
                                 }
                             }
                             if (!img) {
@@ -874,7 +877,10 @@ class PrintervalScraper:
                         const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]');
                         if (og && og.content) return og.content;
                         const src = document.querySelector('picture source[srcset]');
-                        if (src && src.srcset) return src.srcset.split(',')[0].trim().split(' ')[0];
+                        if (src && src.srcset) {
+                            const urls = src.srcset.match(/https?:\\/\\/[^\\s"']+/g);
+                            if (urls && urls.length > 0) return urls[urls.length - 1].replace(/\\s+\\d+[wx]$/, '').trim();
+                        }
                         const img = document.querySelector('img[src*="cdn.printerval.com"]');
                         return img ? (img.currentSrc || img.src || '') : '';
                     }""")
@@ -942,8 +948,10 @@ class PrintervalScraper:
                             let img = '';
                             const sourceEl = card.querySelector('picture source[srcset]');
                             if (sourceEl && sourceEl.srcset) {
-                                const parts = sourceEl.srcset.split(',');
-                                img = parts[0].trim().split(' ')[0];
+                                const urls = sourceEl.srcset.match(/https?:\\/\\/[^\\s"']+/g);
+                                if (urls && urls.length > 0) {
+                                    img = urls[urls.length - 1].replace(/\\s+\\d+[wx]$/, '').trim();
+                                }
                             }
 
                             if (!img || img.startsWith('data:') || img.includes('1x1.png')) {

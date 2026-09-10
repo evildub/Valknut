@@ -9455,16 +9455,17 @@ class ConnectedNetworkModal(tk.Toplevel):
 
         def get_sort_key(item):
             seller = (item.get("seller") or "").strip()
+            is_pod = "printerval" in item.get("marketplace", "").lower() or "printerval" in item.get("url", "").lower()
             if col == "origin":
                 intel = ds.get_seller_intel(seller) if ds else {}
-                c_val = intel.get("country", "") if intel else ""
+                c_val = intel.get("country", "") if intel else (item.get("seller_origin") or ("United States" if is_pod else ""))
                 assessment = ds.compute_threat_assessment(c_val, "") if ds else {}
-                return assessment.get("country", "Unknown").lower()
+                return assessment.get("country", "United States" if is_pod else "Unknown").lower()
             elif col == "threat":
                 intel = ds.get_seller_intel(seller) if ds else {}
-                c_val = intel.get("country", "") if intel else ""
+                c_val = intel.get("country", "") if intel else (item.get("seller_origin") or ("United States" if is_pod else ""))
                 assessment = ds.compute_threat_assessment(c_val, "") if ds else {}
-                return assessment.get("score", 0)
+                return assessment.get("score", 65 if is_pod else 0)
             elif col == "price":
                 m = re.search(r"[\d,]+(?:\.\d+)?", str(item.get("price", "")))
                 if m:
@@ -9609,11 +9610,22 @@ class ConnectedNetworkModal(tk.Toplevel):
                 seller_display = f"⚡ {seller}"
 
             # Evaluate Threat Intel from DataStore
+            is_pod = "printerval" in itm.get("marketplace", "").lower() or "printerval" in itm.get("url", "").lower()
             cached_intel = ds.get_seller_intel(seller) if ds else {}
             seller_country = cached_intel.get("country", "") if cached_intel else ""
-            assessment = ds.compute_threat_assessment(seller_country, "") if ds else {}
-            orig_txt = f"{assessment.get('flag', '❓')} {assessment.get('country', 'Unknown')}" if assessment.get('country') != 'Unknown' else "❓ Unresolved"
-            threat_txt = assessment.get("badge", "Unresolved")
+            if not seller_country and is_pod:
+                seller_country = itm.get("seller_origin") or itm.get("location") or "United States"
+            loc_val = itm.get("location") or ("United States" if is_pod else "")
+
+            assessment = ds.compute_threat_assessment(seller_country, loc_val) if ds else {}
+            if is_pod:
+                orig_country = assessment.get("country", "United States")
+                if orig_country == "Unknown": orig_country = "United States"
+                orig_txt = f"{assessment.get('flag', '🇺🇸')} {orig_country}"
+                threat_txt = "👕 POD Print Syndicate"
+            else:
+                orig_txt = f"{assessment.get('flag', '❓')} {assessment.get('country', 'Unknown')}" if assessment.get('country') != 'Unknown' else "❓ Unresolved"
+                threat_txt = assessment.get("badge", "Unresolved")
 
             img_url = itm.get("image_url", "")
             img_to_use = self.thumb_cache.get(img_url) if show_images else None
@@ -9645,7 +9657,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         def _w():
             for attempt in range(2):
                 try:
-                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": "https://printerval.com/"})
                     with urllib.request.urlopen(req, timeout=7) as r:
                         pimg = Image.open(io.BytesIO(r.read())).convert("RGBA")
                     pimg.thumbnail((size, size), Image.Resampling.LANCZOS)
