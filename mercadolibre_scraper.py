@@ -272,12 +272,14 @@ class MercadoLibreScraper:
         is_noise = (
             not cleaned or
             len(cleaned) > 70 or
+            bool(re.search(r'^\s*R?\$?\s*\d+[,.]\d+', cleaned, re.IGNORECASE)) or
             any(b in cleaned.lower() for b in (
                 "ir para a p", "ir para", "ir a la p", "ir a la", "página do vendedor", "pagina do vendedor",
                 "página del vendedor", "pagina del vendedor", "seguidores", "produtos", "productos",
                 "mercado livre", "mercado libre", "mercado pontos", "devolução", "devolucao",
                 "garantía", "garantia", "ver mais", "ver más", "comprar agora", "adicionar ao carrinho",
-                "comprar", "agregar", "lojas oficiais"
+                "comprar", "agregar", "lojas oficiais", "cupom", "cupón", "desconto", "frete", "sem juros",
+                "com juros", "off", "r$", "usd"
             ))
         )
         
@@ -751,6 +753,17 @@ class MercadoLibreScraper:
             m_item = re.search(r'(?:item_id=|wid=)(ML[A-Z0-9_-]+)', href_val, re.IGNORECASE)
             if m_item:
                 c_item_id = m_item.group(1).replace("-", "").upper()
+            elif "_CustId_" in href_val:
+                cust_m = re.search(r'_CustId_(\d+)', href_val)
+                if cust_m:
+                    c_item_id = f"{base_item_id}_{cust_m.group(1)}"
+            elif "seller_id=" in href_val:
+                s_m = re.search(r'seller_id=(\d+)', href_val)
+                if s_m:
+                    c_item_id = f"{base_item_id}_{s_m.group(1)}"
+            else:
+                safe_s = re.sub(r'[^a-zA-Z0-9]', '', s_name)
+                c_item_id = f"{base_item_id}_{safe_s}" if safe_s else base_item_id
 
             if s_name and s_name.lower() not in seen_sellers and s_name != "Mercado Libre Seller":
                 seen_sellers.add(s_name.lower())
@@ -982,6 +995,13 @@ class MercadoLibreScraper:
                                 cust_m = re.search(r'_CustId_(\d+)', href_val)
                                 if cust_m:
                                     c_item_id = f"{base_item_id}_{cust_m.group(1)}"
+                            elif "seller_id=" in href_val:
+                                s_m = re.search(r'seller_id=(\d+)', href_val)
+                                if s_m:
+                                    c_item_id = f"{base_item_id}_{s_m.group(1)}"
+                            else:
+                                safe_s = re.sub(r'[^a-zA-Z0-9]', '', s_name)
+                                c_item_id = f"{base_item_id}_{safe_s}" if safe_s else base_item_id
 
                             catalog_items.append({
                                 "brand": default_brand,
@@ -1039,6 +1059,17 @@ class MercadoLibreScraper:
                             m_item = re.search(r'(?:item_id=|wid=)(ML[A-Z0-9_-]+)', href_val, re.IGNORECASE)
                             if m_item:
                                 c_item_id = m_item.group(1).replace("-", "").upper()
+                            elif "_CustId_" in href_val:
+                                cust_m = re.search(r'_CustId_(\d+)', href_val)
+                                if cust_m:
+                                    c_item_id = f"{base_item_id}_{cust_m.group(1)}"
+                            elif "seller_id=" in href_val:
+                                s_m = re.search(r'seller_id=(\d+)', href_val)
+                                if s_m:
+                                    c_item_id = f"{base_item_id}_{s_m.group(1)}"
+                            else:
+                                safe_s = re.sub(r'[^a-zA-Z0-9]', '', s_name)
+                                c_item_id = f"{base_item_id}_{safe_s}" if safe_s else base_item_id
                             catalog_items.append({
                                 "brand": default_brand,
                                 "product_type": "Consumer Product",
@@ -1116,32 +1147,37 @@ class MercadoLibreScraper:
                             pass
                         page.wait_for_timeout(500)
 
-                    info = page.evaluate("""
+                    info = page.evaluate(r"""
                         () => {
                             let sName = '';
                             let sLoc = '';
                             let sRep = '';
 
                             // 1. Check direct seller trigger link
-                            const selNodes = document.querySelectorAll('.ui-pdp-seller__link-trigger, .ui-seller-info a, a.ui-pdp-seller__header__title, span.ui-pdp-color--BLUE, .ui-pdp-seller__link, .ui-seller-data-header__title-wrapper');
+                            const selNodes = document.querySelectorAll('.ui-pdp-seller__link-trigger, .ui-seller-info a, a.ui-pdp-seller__header__title, .ui-pdp-seller__link, .ui-seller-data-header__title-wrapper');
                             for (let n of selNodes) {
                                 const txt = n.innerText.trim();
-                                if (txt && !txt.includes('Mercado Puntos') && !txt.includes('Devolución') && !txt.includes('Garantía') && !txt.includes('Medios de pago') && !txt.includes('Ver más')) {
-                                    sName = txt.replace(/^Vendido por\\s+/i, '').replace(/^Por\\s+/i, '').trim();
+                                const isIgnored = (
+                                    !txt ||
+                                    /r\$|\$|cupom|cupón|desconto|frete|mercado pontos|devolução|devolucao|garantía|garantia|medios de pago|ver mais|ver más/i.test(txt) ||
+                                    /^\s*r?\$?\s*\d+[,.]\d+/i.test(txt)
+                                );
+                                if (!isIgnored) {
+                                    sName = txt.replace(/^Vendido por\s+/i, '').replace(/^Por\s+/i, '').trim();
                                     break;
                                 }
                             }
 
-                            // 2. Check multiline "Vendido por" (e.g. "Vendido por\\nNocnoc Us Shop\\n...")
+                            // 2. Check multiline "Vendido por" (e.g. "Vendido por\nNocnoc Us Shop\n...")
                             if (!sName) {
                                 const allNodes = document.querySelectorAll('p, span, div, a');
                                 for (let n of allNodes) {
                                     const text = n.innerText ? n.innerText.trim() : '';
-                                    if (text.startsWith('Vendido por')) {
-                                        const lines = text.split('\\n').map(x => x.trim()).filter(x => x.length > 0);
+                                    if (text.startsWith('Vendido por') || text.startsWith('Vendido e entregue por')) {
+                                        const lines = text.split('\n').map(x => x.trim()).filter(x => x.length > 0);
                                         if (lines.length >= 2) {
-                                            let candidate = lines[1].replace(/^por\\s+/i, '').trim();
-                                            if (candidate && !['mercado libre', 'ir a la página', 'seguir', 'mercado puntos'].some(b => candidate.toLowerCase().includes(b))) {
+                                            let candidate = lines[1].replace(/^por\s+/i, '').trim();
+                                            if (candidate && !['mercado libre', 'mercado livre', 'ir a la página', 'ir para a página', 'seguir', 'mercado pontos', 'cupom', 'cupón', 'r$'].some(b => candidate.toLowerCase().includes(b)) && !/^\s*r?\$?\s*\d+[,.]\d+/i.test(candidate)) {
                                                 sName = candidate;
                                                 break;
                                             }

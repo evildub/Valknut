@@ -528,12 +528,23 @@ class DataStore:
         "india": "🇮🇳", "in": "🇮🇳",
     }
 
-    def compute_threat_assessment(self, origin: str, location: str = "") -> dict:
+    def compute_threat_assessment(self, origin: str, location: str = "", seller_name: str = "") -> dict:
         """
-        Compute high-risk cross-border threat badge and 3PL hub assessment from seller origin and item location.
+        Compute high-risk cross-border threat badge, burner handle identification, and 3PL hub assessment.
         """
         orig_clean = str(origin or "").strip().lower()
         loc_clean = str(location or "").strip().lower()
+        s_name = str(seller_name or "").strip()
+
+        # Burner / disposable machine-generated handle detection (e.g. F20250910190122, HR20260520144654)
+        is_burner_handle = False
+        if s_name and s_name != "Mercado Libre Seller" and not s_name.startswith("MeLi_Seller_"):
+            is_burner_handle = bool(
+                re.search(r'^[a-zA-Z]{1,4}\d{10,}$', s_name) or
+                re.search(r'^(?:user|usuario|vendedor|cliente)[_\d-]+$', s_name.lower()) or
+                re.search(r'^[a-zA-Z]{1,6}\d{6,}$', s_name) or
+                (len(s_name) >= 12 and sum(c.isdigit() for c in s_name) / len(s_name) >= 0.6)
+            )
 
         # Foreign high-risk manufacturing / counterfeit syndication hubs
         is_foreign_risk = any(k in orig_clean for k in (
@@ -566,7 +577,10 @@ class DataStore:
         badge = "❓ Unresolved"
         is_high = False
 
-        if is_3pl:
+        if is_burner_handle:
+            badge = "🚩 Suspicious Burner Handle"
+            is_high = True
+        elif is_3pl:
             badge = "🚨 Foreign Drop-Ship Hub"
             is_high = True
         elif is_foreign_risk:
@@ -592,7 +606,8 @@ class DataStore:
             "country": country_resolved if country_resolved != "Unknown" else (origin or "Unresolved"),
             "badge": badge,
             "is_high_risk": is_high,
-            "is_3pl_hub": is_3pl
+            "is_3pl_hub": is_3pl,
+            "is_burner_handle": is_burner_handle
         }
 
     # ── Universal Compatibility Fluff & Multi-Brand Spam Detection ─────────────

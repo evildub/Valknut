@@ -4457,7 +4457,8 @@ class EbayTool(tk.Tk):
                                 item["keyword"] = "🏪 Full Sweep" if include_term == "*" else include_term
                                 if "marketplace" not in item or not item["marketplace"]: item["marketplace"] = mkt_tag
                                 item_id = item.get("item_id")
-                                dedup_key = item_id if item_id else item.get("url")
+                                seller_str = str(item.get("seller", "")).strip().lower()
+                                dedup_key = f"{item_id}::{seller_str}" if item_id and seller_str and seller_str != "mercado libre seller" else (item_id or item.get("url"))
                                 if dedup_key and dedup_key not in self.seen_item_ids:
                                     self.seen_item_ids.add(dedup_key)
                                     self.results.append(item)
@@ -5115,7 +5116,7 @@ class EbayTool(tk.Tk):
             raw_origin = item.get("seller_origin") or (cached_intel.get("country") if cached_intel else "") or item.get("location", "")
             loc = item.get("location", "")
 
-            assessment = self.data_store.compute_threat_assessment(raw_origin, loc)
+            assessment = self.data_store.compute_threat_assessment(raw_origin, loc, seller_name=seller_clean)
             orig_country = assessment.get("country", "")
             if not orig_country or orig_country == "Unknown":
                 orig_country = item.get("seller_origin") or item.get("location") or "Unknown"
@@ -5258,7 +5259,8 @@ class EbayTool(tk.Tk):
 
         for item in self.results:
             item_id = item.get("item_id")
-            dedup_key = item_id if item_id else item.get("url")
+            seller_str = str(item.get("seller", "")).strip().lower()
+            dedup_key = f"{item_id}::{seller_str}" if item_id and seller_str and seller_str != "mercado libre seller" else (item_id or item.get("url"))
             if dedup_key and dedup_key not in seen:
                 seen.add(dedup_key)
                 unique_results.append(item)
@@ -6480,7 +6482,7 @@ class EbayTool(tk.Tk):
                     intel = cached_intel.get(s) or self.data_store.get_seller_intel(s)
                     seller_country = intel.get("country", "") if intel else ""
                     loc = it.get("location", "")
-                    assessment = self.data_store.compute_threat_assessment(seller_country, loc)
+                    assessment = self.data_store.compute_threat_assessment(seller_country, loc, seller_name=s)
 
                     it["seller_origin"] = assessment.get("country", "Unknown")
                     it["seller_flag"] = assessment.get("flag", "❓")
