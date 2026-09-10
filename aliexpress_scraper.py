@@ -191,6 +191,48 @@ class AliExpressScraper:
         # Global fallback if not recognized
         return f"https://www.aliexpress.com/w/wholesale-{enc_kw}.html?page={page}"
 
+    def _launch_browser_context(self, p, launch_args: list, ua: str):
+        """Safely launch persistent Edge context with automatic stale lock cleanup and fallback temp profiles."""
+        for lk in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile", "LOCK"):
+            fp = os.path.join(self.profile_dir, lk)
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+
+        try:
+            return p.chromium.launch_persistent_context(
+                user_data_dir=self.profile_dir,
+                channel="msedge",
+                headless=self.headless,
+                args=launch_args,
+                user_agent=ua,
+                viewport={"width": 1440, "height": 900},
+                locale="en-US"
+            )
+        except Exception:
+            temp_profile = tempfile.mkdtemp(prefix="ali_edge_session_")
+            try:
+                return p.chromium.launch_persistent_context(
+                    user_data_dir=temp_profile,
+                    channel="msedge",
+                    headless=self.headless,
+                    args=launch_args,
+                    user_agent=ua,
+                    viewport={"width": 1440, "height": 900},
+                    locale="en-US"
+                )
+            except Exception:
+                return p.chromium.launch_persistent_context(
+                    user_data_dir=temp_profile,
+                    headless=self.headless,
+                    args=launch_args,
+                    user_agent=ua,
+                    viewport={"width": 1440, "height": 900},
+                    locale="en-US"
+                )
+
     def _search_via_playwright(self, store_info: dict,
                                include_term: str, excludes: list[str],
                                condition: str, seen_ids: set,
@@ -213,27 +255,7 @@ class AliExpressScraper:
             ]
             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
 
-            # Launch persistent Edge or Chromium context
-            try:
-                browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    channel="msedge",
-                    headless=self.headless,
-                    args=launch_args,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    locale="en-US"
-                )
-            except Exception:
-                browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    headless=self.headless,
-                    args=launch_args,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    locale="en-US"
-                )
-
+            browser_context = self._launch_browser_context(p, launch_args, ua)
             page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
 
             # Inject CDP stealth overrides
@@ -665,26 +687,7 @@ class AliExpressScraper:
         if HAS_PLAYWRIGHT:
             try:
                 with sync_playwright() as p:
-                    try:
-                        browser_context = p.chromium.launch_persistent_context(
-                            user_data_dir=self.profile_dir,
-                            channel="msedge",
-                            headless=self.headless,
-                            args=launch_args,
-                            user_agent=ua,
-                            viewport={"width": 1440, "height": 900},
-                            locale="en-US"
-                        )
-                    except Exception:
-                        browser_context = p.chromium.launch_persistent_context(
-                            user_data_dir=self.profile_dir,
-                            headless=self.headless,
-                            args=launch_args,
-                            user_agent=ua,
-                            viewport={"width": 1440, "height": 900},
-                            locale="en-US"
-                        )
-
+                    browser_context = self._launch_browser_context(p, launch_args, ua)
                     page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
 
                     try:

@@ -94,6 +94,49 @@ class TemuScraper:
         enc_kw = quote_plus(keyword)
         return f"https://www.temu.com/search_result.html?search_key={enc_kw}&search_method=user&refer_page_el_sn=200010"
 
+    def _launch_browser_context(self, p, launch_args: list, ua: str, headless: bool = None):
+        """Safely launch persistent Edge context with automatic stale lock cleanup and fallback temp profiles."""
+        for lk in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile", "LOCK"):
+            fp = os.path.join(self.profile_dir, lk)
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+            except Exception:
+                pass
+
+        is_hl = self.headless if headless is None else headless
+        try:
+            return p.chromium.launch_persistent_context(
+                user_data_dir=self.profile_dir,
+                channel="msedge",
+                headless=is_hl,
+                args=launch_args,
+                user_agent=ua,
+                viewport={"width": 1440, "height": 900} if is_hl else None,
+                locale="en-US"
+            )
+        except Exception:
+            temp_profile = tempfile.mkdtemp(prefix="temu_edge_session_")
+            try:
+                return p.chromium.launch_persistent_context(
+                    user_data_dir=temp_profile,
+                    channel="msedge",
+                    headless=is_hl,
+                    args=launch_args,
+                    user_agent=ua,
+                    viewport={"width": 1440, "height": 900} if is_hl else None,
+                    locale="en-US"
+                )
+            except Exception:
+                return p.chromium.launch_persistent_context(
+                    user_data_dir=temp_profile,
+                    headless=is_hl,
+                    args=launch_args,
+                    user_agent=ua,
+                    viewport={"width": 1440, "height": 900} if is_hl else None,
+                    locale="en-US"
+                )
+
     def _search_via_playwright(self, store_info: dict,
                                include_term: str, excludes: list[str],
                                condition: str, seen_ids: set,
@@ -112,26 +155,7 @@ class TemuScraper:
             ]
             ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
 
-            try:
-                browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    channel="msedge",
-                    headless=self.headless,
-                    args=launch_args,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    locale="en-US"
-                )
-            except Exception:
-                browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    headless=self.headless,
-                    args=launch_args,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    locale="en-US"
-                )
-
+            browser_context = self._launch_browser_context(p, launch_args, ua)
             page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
 
             page.add_init_script("""
@@ -484,26 +508,7 @@ class TemuScraper:
         ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0"
 
         with sync_playwright() as p:
-            try:
-                browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    channel="msedge",
-                    headless=self.headless,
-                    args=launch_args,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    locale="en-US"
-                )
-            except Exception:
-                browser_context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    headless=self.headless,
-                    args=launch_args,
-                    user_agent=ua,
-                    viewport={"width": 1440, "height": 900},
-                    locale="en-US"
-                )
-
+            browser_context = self._launch_browser_context(p, launch_args, ua)
             page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
 
             try:
@@ -604,21 +609,7 @@ class TemuScraper:
                 "--start-maximized",
                 "--no-sandbox"
             ]
-            try:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    channel="msedge",
-                    headless=False,
-                    args=launch_args,
-                    locale="en-US"
-                )
-            except Exception:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=self.profile_dir,
-                    headless=False,
-                    args=launch_args,
-                    locale="en-US"
-                )
+            context = self._launch_browser_context(p, launch_args, ua="", headless=False)
             page = context.pages[0] if context.pages else context.new_page()
             page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', { get: () => undefined });

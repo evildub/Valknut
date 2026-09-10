@@ -342,10 +342,7 @@ class TikTokScraper:
                         if stop_event and stop_event.is_set():
                             break
                         if pause_event:
-                            while pause_event.is_set():
-                                if stop_event and stop_event.is_set():
-                                    break
-                                time.sleep(0.5)
+                            pause_event.wait()
 
                         # Count visible PDP / product cards
                         current_card_count = page.evaluate("""() => {

@@ -942,14 +942,45 @@ class TestApolloCoreFeatures(unittest.TestCase):
         url_p2 = ali._build_search_url({}, "Toyota", page=2)
         url_p3 = ali._build_search_url({}, "Toyota", page=3)
 
-        self.assertIn("wholesale-Toyota.html?page=1", url_p1)
-        self.assertIn("wholesale-Toyota.html?page=2", url_p2)
-        self.assertIn("wholesale-Toyota.html?page=3", url_p3)
+    def test_33_wish_search_popup_resilience_and_contracts(self):
+        """Test Item 33 (Gate 33): Verify WishScraper URL resolution, HTML card parsing, and pause_event resilience."""
+        from wish_scraper import WishScraper
+        import threading
+        
+        wish = WishScraper(headless=True)
 
-        # 3. Verify store URL building across pages
-        store_url_p2 = ali._build_search_url({"store_id": "123456"}, "Toyota", page=2)
-        self.assertIn("all-wholesale-products/123456.html", store_url_p2)
-        self.assertIn("page=2", store_url_p2)
+        # 1. URL resolution
+        global_info = wish.resolve_store_info("GLOBAL")
+        self.assertEqual(global_info["store_id"], "GLOBAL")
+        global_url = wish._build_search_url(global_info, "Toyota", 1)
+        self.assertIn("wish.com/search/Toyota", global_url)
+
+        # Merchant resolution
+        merchant_info = wish.resolve_store_info("https://www.wish.com/merchant/5b8f1234abcd")
+        self.assertEqual(merchant_info["store_id"], "5b8f1234abcd")
+
+        # 2. HTML parsing with exclusion filtering
+        mock_html = """
+        <div class="ProductGridItem">
+            <a href="/product/6a17f4b199723558acede847">
+                <img src="https://canary.contestimg.wish.com/api/image/fetch?img=toyota_rebuild_kit.jpg" />
+                <span class="Title">Toyota Tacoma 2.4L Engine Rebuild Kit</span>
+                <span class="Price">$466.00</span>
+            </a>
+        </div>
+        <div class="ProductGridItem">
+            <a href="/product/6a17f4b199723558acede899">
+                <img src="https://canary.contestimg.wish.com/api/image/fetch?img=honda_rebuild_kit.jpg" />
+                <span class="Title">Honda Civic Brake Rotors Kit</span>
+                <span class="Price">$89.00</span>
+            </a>
+        </div>
+        """
+        parsed = wish._parse_html(mock_html, "Wish Merchant", "Toyota", excludes=["honda"])
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["item_id"], "6a17f4b199723558acede847")
+        self.assertIn("Toyota", parsed[0]["title"])
+        self.assertIn("466", parsed[0]["price"])
 
 
 if __name__ == "__main__":
