@@ -22,6 +22,17 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger("Apollo.PrintervalScraper")
 
+POD_GENERIC_STOPWORDS = {
+    "the", "and", "for", "with", "shirt", "hoodie", "gift", "gifts", "tshirt", "t-shirt",
+    "tank", "top", "tops", "tee", "sweatshirt", "sweater", "mug", "mugs", "sticker", "stickers",
+    "poster", "canvas", "bag", "bags", "backpack", "hat", "hats", "cap", "caps", "blanket",
+    "flag", "flags", "pillow", "case", "phone", "onesie", "apron", "men", "mens", "women",
+    "womens", "unisex", "kids", "youth", "baby", "size", "sizes", "plus", "luxury", "brand",
+    "custom", "customized", "name", "2d", "3d", "half", "zipper", "zip", "retro", "vintage",
+    "classic", "graphic", "printed", "print", "funny", "cool", "cute", "best", "style", "fashion",
+    "apparel", "merch", "merchandise", "product", "item", "items"
+}
+
 
 class PrintervalScraper:
     def __init__(self, headless: bool = True):
@@ -35,6 +46,35 @@ class PrintervalScraper:
         )
         os.makedirs(self.profile_dir, exist_ok=True)
         self.cache_file = os.path.join(self.profile_dir, "printerval_seller_cache.json")
+
+    def _is_valid_pod_variant(self, parent_title: str, variant_title: str, variant_slug: str, brand: str = "", keyword: str = "") -> bool:
+        """Validate that candidate variant represents the same underlying POD artwork/design."""
+        raw_tokens = re.findall(r'[a-zA-Z0-9]{3,}', parent_title.lower())
+        core_parent_tokens = [t for t in raw_tokens if t not in POD_GENERIC_STOPWORDS]
+
+        var_text = f"{variant_title.lower()} {variant_slug.lower()}"
+
+        # If brand was searched for or exists in parent title, variant must not omit or conflict with it
+        target_b = (brand or keyword or "").lower().strip()
+        if target_b and target_b not in ("adhoc request", "full store sweep", ""):
+            if target_b in parent_title.lower() and target_b not in var_text:
+                return False
+
+        if not core_parent_tokens:
+            core_parent_tokens = [t for t in raw_tokens if t not in ("the", "and", "for", "with")]
+
+        if not core_parent_tokens:
+            return True
+
+        matched = [t for t in core_parent_tokens if t in var_text]
+        match_ratio = len(matched) / len(core_parent_tokens)
+
+        if len(core_parent_tokens) == 1:
+            return len(matched) >= 1
+        elif len(core_parent_tokens) == 2:
+            return len(matched) >= 1
+        else:
+            return len(matched) >= 2 or match_ratio >= 0.5
 
     def _load_cache(self) -> dict:
         """Load persistent item_id -> {seller, title, price} cache."""
@@ -580,14 +620,18 @@ class PrintervalScraper:
                         const seen = new Set();
                         
                         const selectors = [
+                            '#modal-also-available a[href*="-p"]',
+                            '.modal-also-available a[href*="-p"]',
                             '.tab-more-also-available-product a[href*="-p"]',
                             '.tab-more-also-available-product-wrapper a[href*="-p"]',
                             '.available-product-wrapper a[href*="-p"]',
+                            '.available-product-item a[href*="-p"]',
+                            '.available-product a[href*="-p"]',
                             '.js-also-available-on-box a[href*="-p"]',
-                            '#modal-also-available a[href*="-p"]',
-                            '.modal-also-available a[href*="-p"]',
                             '.box-also-available a[href*="-p"]',
-                            'a.js-also-available-product'
+                            'a.available-product-link',
+                            'a.js-also-available-product',
+                            'a.md-product-title[href*="-p"]'
                         ];
                         
                         const allElements = document.querySelectorAll(selectors.join(', '));
@@ -611,7 +655,7 @@ class PrintervalScraper:
                             
                             // Price
                             let price = '';
-                            const parentEl = a.closest('div.item, div.product-item, div') || a;
+                            const parentEl = a.closest('div.item, div.product-item, div.available-product-item, div') || a;
                             const priceEl = parentEl.querySelector('[class*="price"], .product-price-current, span');
                             if (priceEl) {
                                 const mP = (priceEl.innerText || '').match(/\\$\\s*[\\d,]+(?:\\.\\d+)?/);
@@ -637,8 +681,6 @@ class PrintervalScraper:
                     }""", parent_id)
 
                     new_for_this_parent = 0
-                    parent_tokens = {t for t in re.findall(r'[a-zA-Z0-9]{3,}', parent_title.lower()) if t not in ("the", "and", "for", "with", "shirt", "hoodie", "gift")}
-                    target_b = (brand or keyword or "").lower().strip()
 
                     for v in extracted_variants:
                         v_id = str(v.get("item_id", "")).strip()
@@ -648,12 +690,14 @@ class PrintervalScraper:
                         u = v.get("url", "")
                         slug = u.split("/")[-1].split("-p")[0]
 
-                        # Token relevance safeguard to drop unrelated recommendation carousel noise
-                        if target_b and target_b not in ("adhoc request", "full store sweep", ""):
-                            has_b = target_b in slug.lower() or target_b in v.get("title", "").lower()
-                            has_p = any(ptk in slug.lower() or ptk in v.get("title", "").lower() for ptk in parent_tokens)
-                            if not has_b and not has_p and parent_tokens:
-                                continue
+                        v_title = v.get("title", "").replace("\n", " ").strip()
+                        if not v_title or len(v_title) < 4 or v_title.startswith("$") or v_title.lower().startswith("discover"):
+                            # Synthesize clean title from slug
+                            v_title = slug.replace("-", " ").title()
+
+                        # Token & Brand relevance validation: ensure variant matches the specific POD artwork/design
+                        if not self._is_valid_pod_variant(parent_title, v_title, slug, brand=brand, keyword=keyword):
+                            continue
 
                         known_ids.add(v_id)
                         
@@ -661,11 +705,6 @@ class PrintervalScraper:
                         type_part = slug.split("-")[-1].title() if "-" in slug else "Merchandise"
                         if len(type_part) <= 2:
                             type_part = "Merchandise"
-
-                        v_title = v.get("title", "").replace("\n", " ").strip()
-                        if not v_title or len(v_title) < 4 or v_title.startswith("$") or v_title.lower().startswith("discover"):
-                            # Synthesize clean title from slug
-                            v_title = slug.replace("-", " ").title()
 
                         price = v.get("price") or parent.get("price") or "$19.95"
                         variant_id = v_id if v_id else (re.search(r'-p(\d+)', u).group(1) if re.search(r'-p(\d+)', u) else f"{parent_id}_{slug}")
