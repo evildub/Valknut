@@ -59,7 +59,7 @@ class TikTokScraper:
                 return p
         return None
 
-    def launch_interactive_auth(self, target_url: str = "https://shop.tiktok.com/us"):
+    def launch_interactive_auth(self, target_url: str = "https://shop.tiktok.com/us", window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         """Launch interactive Edge browser with persistent TikTok session for analyst login or CAPTCHA solving."""
         if not HAS_PLAYWRIGHT:
             import webbrowser
@@ -71,8 +71,13 @@ class TikTokScraper:
             with sync_playwright() as p:
                 launch_kwargs = {
                     "headless": False,
-                    "viewport": {"width": 1280, "height": 850},
-                    "args": ["--disable-blink-features=AutomationControlled", "--no-first-run"]
+                    "viewport": {"width": window_size[0], "height": window_size[1]},
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-first-run",
+                        f"--window-position={window_pos[0]},{window_pos[1]}",
+                        f"--window-size={window_size[0]},{window_size[1]}"
+                    ]
                 }
                 if edge_path:
                     launch_kwargs["executable_path"] = edge_path

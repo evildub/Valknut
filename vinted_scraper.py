@@ -531,7 +531,7 @@ class VintedScraper:
         _log(f"🏁 [Vinted Multi-Region Sweep Complete] Harvested {len(all_multi_items)} listings across all {len(target_regions)} locales!")
         return all_multi_items
 
-    def launch_interactive_auth(self, region_code: str = "UK"):
+    def launch_interactive_auth(self, region_code: str = "UK", window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         r"""
         Open a visible Microsoft Edge / Chromium browser to solve Cloudflare Turnstile challenge once.
         Session clearance tokens and cookies are permanently saved in %LOCALAPPDATA%\Apollo_Vinted_Session.
@@ -552,19 +552,27 @@ class VintedScraper:
                             os.remove(lock_f)
                         except Exception:
                             pass
+                launch_args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    f"--window-position={window_pos[0]},{window_pos[1]}",
+                    f"--window-size={window_size[0]},{window_size[1]}"
+                ]
                 with sync_playwright() as p:
                     try:
                         browser = p.chromium.launch_persistent_context(
                             user_data_dir=profile_dir,
                             headless=False,
                             channel="msedge",
-                            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+                            viewport={"width": window_size[0], "height": window_size[1]},
+                            args=launch_args
                         )
                     except Exception:
                         browser = p.chromium.launch_persistent_context(
                             user_data_dir=profile_dir,
                             headless=False,
-                            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"]
+                            viewport={"width": window_size[0], "height": window_size[1]},
+                            args=launch_args
                         )
                     page = browser.pages[0] if browser.pages else browser.new_page()
                     try:

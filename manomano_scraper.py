@@ -118,16 +118,22 @@ class ManoManoScraper:
         except Exception as e:
             logger.debug(f"Cookie sync error: {e}")
 
-    def launch_interactive_auth(self, locale_key: str = "All"):
+    def launch_interactive_auth(self, locale_key: str = "All", window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         """Launch visible Edge to clear Cloudflare Turnstile across European domains."""
         try:
             with sync_playwright() as p:
-                args = ["--disable-blink-features=AutomationControlled", "--no-first-run", "--no-default-browser-check"]
+                args = [
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    f"--window-position={window_pos[0]},{window_pos[1]}",
+                    f"--window-size={window_size[0]},{window_size[1]}"
+                ]
                 context = p.chromium.launch_persistent_context(
                     self.session_dir,
                     headless=False,
                     channel="msedge",
-                    viewport={"width": 1280, "height": 850},
+                    viewport={"width": window_size[0], "height": window_size[1]},
                     args=args
                 )
                 page = context.pages[0] if context.pages else context.new_page()

@@ -601,12 +601,13 @@ class TemuScraper:
 
         return items
 
-    def launch_interactive_auth(self):
+    def launch_interactive_auth(self, window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         """Launch visible Edge browser session for user to dismiss Temu login/guest wall and save persistent profile."""
         with sync_playwright() as p:
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
-                "--start-maximized",
+                f"--window-position={window_pos[0]},{window_pos[1]}",
+                f"--window-size={window_size[0]},{window_size[1]}",
                 "--no-sandbox"
             ]
             context = self._launch_browser_context(p, launch_args, ua="", headless=False)

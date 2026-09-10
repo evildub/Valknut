@@ -87,7 +87,7 @@ class MercadoLibreScraper:
                     except Exception:
                         pass
 
-    def _get_context(self, force_visible: bool = False):
+    def _get_context(self, force_visible: bool = False, window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         """Initialize or return existing persistent Playwright context with stealth evasions."""
         from playwright.sync_api import sync_playwright
         if self._context is None:
@@ -108,12 +108,14 @@ class MercadoLibreScraper:
             is_headless = False
             if self.headless and not force_visible:
                 args.extend(["--window-position=-2400,-2400", "--window-size=1366,850"])
+            elif force_visible:
+                args.extend([f"--window-position={window_pos[0]},{window_pos[1]}", f"--window-size={window_size[0]},{window_size[1]}"])
 
             kwargs = {
                 "user_data_dir": self.profile_dir,
                 "headless": is_headless,
                 "args": args,
-                "viewport": {"width": 1366, "height": 850},
+                "viewport": {"width": window_size[0] if force_visible else 1366, "height": window_size[1] if force_visible else 850},
                 "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 "locale": "es-MX",
                 "timezone_id": "America/Mexico_City",
@@ -151,7 +153,7 @@ class MercadoLibreScraper:
         finally:
             self._clean_profile_locks()
 
-    def launch_interactive_auth(self, site_code: str = "MLM"):
+    def launch_interactive_auth(self, site_code: str = "MLM", window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         """
         Open a visible browser session for the user to sign in or solve
         the initial security challenge, persisting cookies permanently.
@@ -160,7 +162,7 @@ class MercadoLibreScraper:
             try:
                 self.close()
                 self._clean_profile_locks()
-                context = self._get_context(force_visible=True)
+                context = self._get_context(force_visible=True, window_pos=window_pos, window_size=window_size)
                 
                 # Close duplicate restored tabs
                 while len(context.pages) > 1:

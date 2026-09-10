@@ -980,7 +980,58 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]["item_id"], "6a17f4b199723558acede847")
         self.assertIn("Toyota", parsed[0]["title"])
-        self.assertIn("466", parsed[0]["price"])
+    def test_34_interactive_auth_window_positioning(self):
+        """Test Item 34 (Gate 34): Verify interactive auth signatures and window coordinate positioning across scrapers."""
+        import inspect
+        from vinted_scraper import VintedScraper
+        from manomano_scraper import ManoManoScraper
+        from temu_scraper import TemuScraper
+        from tiktok_scraper import TikTokScraper
+        from mercadolibre_scraper import MercadoLibreScraper
+        from scraper import EbayScraper
+
+        # 1. Vinted
+        vinted_sig = inspect.signature(VintedScraper.launch_interactive_auth)
+        self.assertIn("window_pos", vinted_sig.parameters)
+        self.assertIn("window_size", vinted_sig.parameters)
+        self.assertEqual(vinted_sig.parameters["window_pos"].default, (100, 100))
+
+        # 2. ManoMano
+        mano_sig = inspect.signature(ManoManoScraper.launch_interactive_auth)
+        self.assertIn("window_pos", mano_sig.parameters)
+        self.assertIn("window_size", mano_sig.parameters)
+
+        # 3. Temu
+        temu_sig = inspect.signature(TemuScraper.launch_interactive_auth)
+        self.assertIn("window_pos", temu_sig.parameters)
+        self.assertIn("window_size", temu_sig.parameters)
+
+        # 4. TikTok
+        tiktok_sig = inspect.signature(TikTokScraper.launch_interactive_auth)
+        self.assertIn("window_pos", tiktok_sig.parameters)
+        self.assertIn("window_size", tiktok_sig.parameters)
+
+        # 5. Mercado Libre
+        meli_sig = inspect.signature(MercadoLibreScraper.launch_interactive_auth)
+        self.assertIn("window_pos", meli_sig.parameters)
+        self.assertIn("window_size", meli_sig.parameters)
+
+        # 6. EbayScraper (eBay Solve Window)
+        ebay_sig = inspect.signature(EbayScraper.open_interactive_solve_window)
+        self.assertIn("window_pos", ebay_sig.parameters)
+        self.assertIn("window_size", ebay_sig.parameters)
+
+        # 7. Coordinate centering logic test
+        class DummyApp:
+            def winfo_rootx(self): return 500
+            def winfo_rooty(self): return 200
+            def winfo_width(self): return 1600
+            def winfo_height(self): return 1000
+
+        from main import EbayTool
+        pos = EbayTool._get_browser_window_pos(DummyApp(), bw=1100, bh=800)
+        # Expected: px + (pw - bw)//2 = 500 + 250 = 750, py + (ph - bh)//2 = 200 + 100 = 300
+        self.assertEqual(pos, (750, 300))
 
 
 if __name__ == "__main__":

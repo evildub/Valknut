@@ -2270,6 +2270,21 @@ class EbayTool(tk.Tk):
             return "Mercado Libre"
         return "eBay"
 
+    def _get_browser_window_pos(self, bw: int = 1100, bh: int = 800) -> tuple:
+        """Calculate screen coordinates to center interactive browser popups on the active monitor."""
+        try:
+            px = self.winfo_rootx()
+            py = self.winfo_rooty()
+            pw = self.winfo_width()
+            ph = self.winfo_height()
+            if pw > 100 and ph > 100:
+                offset_x = max(20, (pw - bw) // 2) if pw >= bw else 20
+                offset_y = max(20, (ph - bh) // 2) if ph >= bh else 20
+                return (px + offset_x, py + offset_y)
+            return (100, 100)
+        except Exception:
+            return (100, 100)
+
     def _launch_manomano_session(self):
         """Launch interactive Edge session to clear Cloudflare Turnstile for ManoMano."""
         loc = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
@@ -2278,13 +2293,15 @@ class EbayTool(tk.Tk):
             if k.lower() in loc.lower():
                 clean_loc = k
                 break
+        w_pos = self._get_browser_window_pos()
         self._log(f"🧰 Launching ManoMano Interactive Session ({clean_loc})...")
-        threading.Thread(target=lambda: self.manomano_scraper.launch_interactive_auth(locale_key=clean_loc), daemon=True).start()
+        threading.Thread(target=lambda: self.manomano_scraper.launch_interactive_auth(locale_key=clean_loc, window_pos=w_pos), daemon=True).start()
 
     def _launch_temu_session(self):
         """Launch interactive Edge session to clear Temu guest/login challenge."""
+        w_pos = self._get_browser_window_pos()
         self._log("🟠 Launching Temu Interactive Session...")
-        threading.Thread(target=self.temu_scraper.launch_interactive_auth, daemon=True).start()
+        threading.Thread(target=lambda: self.temu_scraper.launch_interactive_auth(window_pos=w_pos), daemon=True).start()
 
     def _on_market_changed(self, event=None):
         market = self.marketplace_var.get()
@@ -4461,8 +4478,9 @@ class EbayTool(tk.Tk):
 
         def _open_in_browser():
             target = store_url or f"https://www.ebay.com/str/{store_name}"
+            w_pos = self._get_browser_window_pos()
             self._log(f"🌐 Launching live scraper browser window for '{target}'...")
-            threading.Thread(target=lambda: self.scraper.open_interactive_solve_window(target), daemon=True).start()
+            threading.Thread(target=lambda: self.scraper.open_interactive_solve_window(target, window_pos=w_pos), daemon=True).start()
 
         def _retry():
             win.destroy()
@@ -7511,8 +7529,9 @@ class EbayTool(tk.Tk):
             if k in meli_c.lower():
                 site_code = v
                 break
+        w_pos = self._get_browser_window_pos()
         self._log(f"🔑 Opening Mercado Libre ({meli_c} - {site_code}) authentication window in Microsoft Edge. Please log in—your authenticated session will be saved permanently!")
-        self.mercadolibre_scraper.launch_interactive_auth(site_code=site_code)
+        self.mercadolibre_scraper.launch_interactive_auth(site_code=site_code, window_pos=w_pos)
         messagebox.showinfo("Mercado Libre Login", f"A browser window is opening to Mercado Libre ({meli_c}).\n\nPlease log in or create an account (you only need to do this once!).\n\nYour session cookies will be permanently stored for all future automated searches across this region.")
 
     def _launch_vinted_session(self):
@@ -7528,14 +7547,16 @@ class EbayTool(tk.Tk):
             if any(n in v_c for n in names):
                 reg_code = code
                 break
+        w_pos = self._get_browser_window_pos()
         self._log(f"👗 Opening Vinted authentication window for {v_c} in Microsoft Edge. If Cloudflare prompts to 'Verify you are human' or accept cookies, please complete it.")
-        self.vinted_scraper.launch_interactive_auth(region_code=reg_code)
+        self.vinted_scraper.launch_interactive_auth(region_code=reg_code, window_pos=w_pos)
         messagebox.showinfo("Vinted Connect & Cloudflare Sync", f"A browser window is opening to Vinted ({v_c}).\n\nIf Cloudflare asks to 'Verify you are human' or accept cookies, please complete it.\n\nYour clearance tokens will be permanently saved for all automated background sweeps!")
 
     def _launch_tiktok_session(self):
         """Open persistent Edge browser session to establish TikTok Shop cookies."""
+        w_pos = self._get_browser_window_pos()
         self._log("🎵 Opening TikTok Shop authentication & anti-bot clearance window in Microsoft Edge...")
-        threading.Thread(target=lambda: self.tiktok_scraper.launch_interactive_auth(), daemon=True).start()
+        threading.Thread(target=lambda: self.tiktok_scraper.launch_interactive_auth(window_pos=w_pos), daemon=True).start()
         messagebox.showinfo("TikTok Shop Connect", "A browser window is opening to TikTok Shop.\n\nIf prompted by a security check or slider puzzle, solve it once to establish verified session cookies.\n\nApollo will automatically save and use this session for all subsequent scans.")
 
     # ══════════════════════════════════════════════════════════════════════════

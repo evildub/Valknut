@@ -167,7 +167,7 @@ class EbayScraper:
         os.makedirs(base, exist_ok=True)
         return base
 
-    def open_interactive_solve_window(self, url: str):
+    def open_interactive_solve_window(self, url: str, window_pos: tuple = (100, 100), window_size: tuple = (1100, 800)):
         """Launch a visible browser window using the persistent profile to let analyst solve CAPTCHA."""
         if not HAS_PLAYWRIGHT:
             import webbrowser
@@ -180,8 +180,13 @@ class EbayScraper:
             with sync_playwright() as p:
                 launch_kwargs = {
                     "headless": False,
-                    "viewport": {"width": 1280, "height": 800},
-                    "args": ["--disable-blink-features=AutomationControlled", "--no-first-run"]
+                    "viewport": {"width": window_size[0], "height": window_size[1]},
+                    "args": [
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-first-run",
+                        f"--window-position={window_pos[0]},{window_pos[1]}",
+                        f"--window-size={window_size[0]},{window_size[1]}"
+                    ]
                 }
                 if edge_path:
                     launch_kwargs["executable_path"] = edge_path
