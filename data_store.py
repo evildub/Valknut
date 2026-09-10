@@ -87,8 +87,16 @@ class DataStore:
                     pass
 
         if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
-                self._data = json.load(f)
+            loaded = None
+            for attempt in range(3):
+                try:
+                    with open(DATA_FILE, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    break
+                except Exception:
+                    time.sleep(0.05)
+            self._data = loaded if isinstance(loaded, dict) else DEFAULT_DATA
+
             # migrate old format if needed
             for brand, val in self._data.get("brands", {}).items():
                 if not isinstance(val, dict):
@@ -101,8 +109,17 @@ class DataStore:
             self._save()
 
     def _save(self):
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, indent=2, ensure_ascii=False)
+        tmp_file = f"{DATA_FILE}.tmp"
+        try:
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(self._data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_file, DATA_FILE)
+        except Exception:
+            try:
+                with open(DATA_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self._data, f, indent=2, ensure_ascii=False)
+            except Exception:
+                pass
 
     @property
     def data(self):
