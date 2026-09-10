@@ -9225,7 +9225,22 @@ class ConnectedNetworkModal(tk.Toplevel):
         targeted_cb = tk.Checkbutton(f_row, text="🎯 Hide Targeted / Harvested", variable=self.hide_targeted_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["accent"], activebackground=t["panel"], font=FONT_SM)
         targeted_cb.pack(side="left", padx=(0, 8))
 
-        # ── 3. Discovered Network Table (With Configurable Previews & Zero Overlap) ──
+        # ── 4. Action Toolbar (Docked to Bottom First) ────────────────────────
+        btn_bar = tk.Frame(self, bg=t["panel"], padx=16, pady=10, relief="flat", highlightbackground=t["border"], highlightthickness=1)
+        btn_bar.pack(side="bottom", fill="x", padx=12, pady=(4, 10))
+
+        self.count_var = tk.StringVar(value="0 connected listings discovered")
+        count_lbl = tk.Label(btn_bar, textvariable=self.count_var, bg=t["panel"], fg=t["text"], font=FONT_HEAD)
+        count_lbl.pack(side="left")
+
+        tk.Button(btn_bar, text="✕ Close", command=self.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="🏪 Enrich Sellers", command=self._enrich_selected_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="📥 Add to Results Table", command=self._add_to_results, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="📋 Copy Seller Handles", command=self._copy_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="🏪 Add to Stores Box", command=self._add_all_to_stores, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="➕ Add Sellers to Target Queue", command=self._add_sellers_to_queue, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=16, pady=6).pack(side="right", padx=6)
+
+        # ── 3. Discovered Network Table (Fills Remaining Space) ───────────────
         table_frame = tk.Frame(self, bg=t["bg"])
         table_frame.pack(side="top", fill="both", expand=True, padx=12, pady=4)
         table_frame.rowconfigure(0, weight=1)
@@ -9272,21 +9287,6 @@ class ConnectedNetworkModal(tk.Toplevel):
         self.tree.bind("<Control-a>", self._select_all_rows)
         self.tree.bind("<Control-A>", self._select_all_rows)
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
-
-        # ── 4. Action Toolbar ─────────────────────────────────────────────────
-        btn_bar = tk.Frame(self, bg=t["panel"], padx=16, pady=12, relief="flat", highlightbackground=t["border"], highlightthickness=1)
-        btn_bar.pack(side="bottom", fill="x", padx=12, pady=(6, 12))
-
-        self.count_var = tk.StringVar(value="0 connected listings discovered")
-        count_lbl = tk.Label(btn_bar, textvariable=self.count_var, bg=t["panel"], fg=t["text"], font=FONT_HEAD)
-        count_lbl.pack(side="left")
-
-        tk.Button(btn_bar, text="✕ Close", command=self.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
-        tk.Button(btn_bar, text="🏪 Enrich Sellers", command=self._enrich_selected_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
-        tk.Button(btn_bar, text="📋 Copy Seller Handles", command=self._copy_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
-        tk.Button(btn_bar, text="🏪 Add to Stores Box", command=self._add_all_to_stores, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
-        tk.Button(btn_bar, text="📥 Add to Results Table", command=self._add_to_results, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
-        tk.Button(btn_bar, text="➕ Add Sellers to Target Queue", command=self._add_sellers_to_queue, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=16, pady=6).pack(side="right", padx=6)
 
     def _on_thumb_size_changed(self, event=None):
         size_name = self.thumb_size_var.get()
@@ -9719,6 +9719,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         
         t = self.t
         menu = tk.Menu(self, tearoff=0, bg=t["panel"], fg=t["text"], activebackground=t["accent"], activeforeground="white")
+        menu.add_command(label="📥 Add Selected to Results Table", command=self._add_to_results)
         menu.add_command(label="🏪 Enrich Seller Name(s)", command=self._enrich_selected_sellers)
         menu.add_command(label="➕ Add This Seller to Target Queue", command=self._add_single_seller_to_queue)
         menu.add_command(label="🏪 Add This Seller to Stores Box", command=self._add_single_seller_to_stores)
@@ -10044,44 +10045,90 @@ class ConnectedNetworkModal(tk.Toplevel):
         self.parent._log(f"📋 Copied {len(unique_sellers)} seller handles to clipboard: {text}")
 
     def _add_to_results(self):
+        """Add highlighted or all discovered network listings to the main Results table."""
         selected_iids = self.tree.selection()
         target_records = []
         if selected_iids:
             for iid in selected_iids:
                 vals = self.tree.item(iid)["values"]
+                target_id = str(vals[6]).strip() if len(vals) > 6 else (str(vals[4]).strip() if len(vals) > 4 else "")
                 for r in self.discovered_items:
-                    target_id = str(vals[6]).strip() if len(vals) > 6 else (str(vals[4]).strip() if len(vals) > 4 else "")
-                    if target_id and str(r.get("item_id")) == target_id:
+                    if target_id and str(r.get("item_id", "")).strip() == target_id:
                         target_records.append(r)
                         break
         else:
-            target_records = self.discovered_items
+            target_records = list(self.discovered_items)
+
+        if not target_records:
+            self.count_var.set("⚠ No discovered listings to add.")
+            return
 
         added = 0
-        brand_name = self.target_item.get("brand", "General Sweep")
+        detected_brand = self.target_item.get("brand") or "General Brand"
         ptype = self.target_item.get("product_type", "")
+        is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+        is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
+
+        default_marketplace = "Printerval" if is_printerval else ("Mercado Libre" if is_meli else "eBay")
+
         for itm in target_records:
+            t = itm.get("title", "")
+            if hasattr(self.parent, "_auto_detect_brand_from_title"):
+                detected_b, detected_pt = self.parent._auto_detect_brand_from_title(t)
+                brand_name = detected_b if detected_b != "Unassigned" else detected_brand
+                pt_name = detected_pt or ptype
+            else:
+                brand_name = detected_brand
+                pt_name = ptype
+
+            itm_id = str(itm.get("item_id", "")).strip()
+            itm_url = itm.get("url", "")
+            if not itm_url:
+                if is_printerval and itm_id:
+                    itm_url = f"https://printerval.com/product-p{itm_id}"
+                elif is_meli and itm_id:
+                    itm_url = f"https://articulo.mercadolibre.com.mx/MLM-{itm_id}"
+                elif itm_id:
+                    itm_url = f"https://www.ebay.com/itm/{itm_id}"
+
+            mkt = itm.get("marketplace") or default_marketplace
+
             row = {
                 "brand": brand_name,
-                "product_type": ptype,
-                "title": itm.get("title", ""),
-                "item_id": str(itm.get("item_id", "")),
+                "product_type": pt_name,
+                "title": t,
+                "item_id": itm_id,
                 "price": itm.get("price", ""),
-                "seller": itm.get("seller", ""),
-                "location": "",
+                "seller": itm.get("seller", "") or "Unknown",
+                "location": itm.get("location", "") or ("United States" if is_printerval else ""),
                 "image_url": itm.get("image_url", ""),
-                "url": itm.get("url", f"https://www.ebay.com/itm/{itm.get('item_id', '')}"),
-                "marketplace": "eBay (Network Discovery)"
+                "url": itm_url,
+                "marketplace": mkt,
+                "similarity": itm.get("similarity", "Connected Network Match"),
+                "threat_badge": "👕 POD Print Syndicate" if is_printerval else itm.get("threat_badge", ""),
+                "threat_score": 65 if is_printerval else itm.get("threat_score", 0)
             }
-            if row["item_id"] and row["item_id"] not in self.parent.seen_item_ids:
-                self.parent.seen_item_ids.add(row["item_id"])
+
+            # Dedup check
+            dedup_key = itm_url.lower().split("?")[0] if itm_url else itm_id
+            if dedup_key and dedup_key not in self.parent.seen_item_ids:
+                if itm_id:
+                    self.parent.seen_item_ids.add(itm_id)
+                    self.parent.seen_item_ids.add(f"{mkt}_{itm_id}")
+                if itm_url:
+                    self.parent.seen_item_ids.add(dedup_key)
                 self.parent.results.append(row)
+                try:
+                    if hasattr(self.parent, "data_store"):
+                        self.parent.data_store.add_or_update_listing(row)
+                except Exception:
+                    pass
                 added += 1
 
         if hasattr(self.parent, "_repopulate_results_table"):
             self.parent._repopulate_results_table()
         if hasattr(self.parent, "_log"):
-            self.parent._log(f"🔗 Added {added} discovered network listings to Results table.")
+            self.parent._log(f"📥 Added {added} discovered network listings to Results table ({default_marketplace}).")
         self.count_var.set(f"✓ Added {added} discovered listings to Results!")
 
     def _add_sellers_to_queue(self):
