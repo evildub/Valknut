@@ -275,8 +275,6 @@ class FieldGuideModal(tk.Toplevel):
             master._apply_dark_titlebar(self)
         if hasattr(master, "_load_app_icon"):
             master._load_app_icon(self)
-        if hasattr(master, "_center_window"):
-            master._center_window(self, 960, 680)
 
         # Header Frame
         self._build_header()
@@ -292,6 +290,14 @@ class FieldGuideModal(tk.Toplevel):
 
         # Initial focus on search
         self.search_entry.focus_set()
+
+        # Center modal relative to master window and reveal
+        if hasattr(master, "_center_window"):
+            master._center_window(self, 960, 680)
+        else:
+            self.deiconify()
+        self.lift()
+        self.focus_force()
 
     def _t(self, key, default):
         return self.theme.get(key, default)

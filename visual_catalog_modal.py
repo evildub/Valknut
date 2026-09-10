@@ -35,9 +35,12 @@ class VisualCatalogModal(tk.Toplevel):
         if hasattr(master, "_apply_dark_titlebar"):
             master._apply_dark_titlebar(self)
 
-        self._center_window(1180, 760)
         self._build_ui()
         self._load_gallery()
+        self._center_window(1180, 760)
+        self.deiconify()
+        self.lift()
+        self.focus_force()
 
     def _t(self, key, default="#1e1e1e"):
         return self.theme.get(key, default)

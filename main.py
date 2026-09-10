@@ -3392,6 +3392,12 @@ class EbayTool(tk.Tk):
         platform_name = self._get_current_platform_name()
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
+        mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
+        meli_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
+        meli_d = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
+        wish_d = self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50 Items"
+        rb_d = self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "2 Pages (100)"
+        pv_d = self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "2 Pages (100)"
         condition = self.condition_var.get() if hasattr(self, "condition_var") else "all"
 
         queued_count = 0
@@ -3400,7 +3406,8 @@ class EbayTool(tk.Tk):
                 if any(q.get("store", "").strip().lower() == store.strip().lower() and 
                        q.get("brand", "").strip().lower() == term.strip().lower() and 
                        q.get("marketplace", "eBay").lower() == platform_name.lower() and
-                       q.get("vinted_country", "") == v_country
+                       q.get("vinted_country", "") == v_country and
+                       q.get("meli_country", "") == meli_c
                        for q in self.queue):
                     continue
 
@@ -3413,12 +3420,18 @@ class EbayTool(tk.Tk):
                     "marketplace": platform_name,
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
+                    "manomano_locale": mm_country,
+                    "meli_country": meli_c,
+                    "meli_depth": meli_d,
+                    "wish_depth": wish_d,
+                    "rb_depth": rb_d,
+                    "pv_depth": pv_d,
                     "includes": [term],  # Clean, standalone single keyword!
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {term} [Clean 1-Term Sweep]"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3448,6 +3461,12 @@ class EbayTool(tk.Tk):
         platform_name = self._get_current_platform_name()
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
+        mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
+        meli_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
+        meli_d = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
+        wish_d = self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50 Items"
+        rb_d = self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "2 Pages (100)"
+        pv_d = self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "2 Pages (100)"
 
         queued_count = 0
         for store in stores:
@@ -3457,7 +3476,8 @@ class EbayTool(tk.Tk):
                 if any(q.get("store", "").strip().lower() == store.strip().lower() and 
                        q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
                        q.get("marketplace", "eBay").lower() == platform_name.lower() and
-                       q.get("vinted_country", "") == v_country
+                       q.get("vinted_country", "") == v_country and
+                       q.get("meli_country", "") == meli_c
                        for q in self.queue):
                     continue
                 pdata = all_library_brands[parent_brand]
@@ -3481,12 +3501,18 @@ class EbayTool(tk.Tk):
                     "marketplace": platform_name,
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
+                    "manomano_locale": mm_country,
+                    "meli_country": meli_c,
+                    "meli_depth": meli_d,
+                    "wish_depth": wish_d,
+                    "rb_depth": rb_d,
+                    "pv_depth": pv_d,
                     "includes": includes,
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else ""
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3573,6 +3599,11 @@ class EbayTool(tk.Tk):
         v_country = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "All Locales"
         v_depth = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages"
         mm_country = self.manomano_country_var.get() if hasattr(self, "manomano_country_var") else "France"
+        meli_c = self.meli_country_var.get() if hasattr(self, "meli_country_var") else "Mexico"
+        meli_d = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
+        wish_d = self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50 Items"
+        rb_d = self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "2 Pages (100)"
+        pv_d = self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "2 Pages (100)"
 
         queued_count = 0
         is_full_store_sweep = self.store_full_sweep_var.get() if hasattr(self, "store_full_sweep_var") else False
@@ -3588,12 +3619,17 @@ class EbayTool(tk.Tk):
                     "vinted_country": v_country,
                     "vinted_depth": v_depth,
                     "manomano_locale": mm_country,
+                    "meli_country": meli_c,
+                    "meli_depth": meli_d,
+                    "wish_depth": wish_d,
+                    "rb_depth": rb_d,
+                    "pv_depth": pv_d,
                     "includes": ["*"],
                     "excludes": job_excludes,
                     "condition": condition
                 }
                 self.queue.append(entry)
-                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else "")
+                loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
                 label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ 🏪 FULL INVENTORY ({len(job_excludes)} excl)"
                 self.queue_list.insert("end", label)
                 queued_count += 1
@@ -3604,7 +3640,8 @@ class EbayTool(tk.Tk):
                            q.get("brand", "").strip().lower() == parent_brand.strip().lower() and 
                            q.get("marketplace", "eBay").lower() == platform_name.lower() and
                            q.get("vinted_country", "") == v_country and
-                           q.get("manomano_locale", "") == mm_country
+                           q.get("manomano_locale", "") == mm_country and
+                           q.get("meli_country", "") == meli_c
                            for q in self.queue):
                         continue
 
@@ -3630,12 +3667,17 @@ class EbayTool(tk.Tk):
                         "vinted_country": v_country,
                         "vinted_depth": v_depth,
                         "manomano_locale": mm_country,
+                        "meli_country": meli_c,
+                        "meli_depth": meli_d,
+                        "wish_depth": wish_d,
+                        "rb_depth": rb_d,
+                        "pv_depth": pv_d,
                         "includes": includes,
                         "excludes": job_excludes,
                         "condition": condition
                     }
                     self.queue.append(entry)
-                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else "")
+                    loc_tag = f" • {v_country.split()[0]}" if platform_name == "Vinted" else (f" • {meli_c.split()[0]}" if platform_name == "Mercado Libre" else (f" • {mm_country.split()[0]}" if platform_name == "ManoMano" else ""))
                     label = f"{self._store_label(store, platform=platform_name)}{loc_tag} ▸ {parent_brand} ({len(includes)} terms | {len(job_excludes)} excl)"
                     self.queue_list.insert("end", label)
                     queued_count += 1
@@ -3936,12 +3978,12 @@ class EbayTool(tk.Tk):
                     
                     if is_wish:
                         wish_items_target = 50
-                        if hasattr(self, "wish_depth_var"):
-                            try:
-                                m = re.search(r'(\d+)', self.wish_depth_var.get())
-                                if m: wish_items_target = int(m.group(1))
-                            except Exception:
-                                pass
+                        wish_depth_raw = job.get("wish_depth") or (self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50")
+                        try:
+                            m = re.search(r'(\d+)', wish_depth_raw)
+                            if m: wish_items_target = int(m.group(1))
+                        except Exception:
+                            pass
                         self.wish_scraper.max_items = wish_items_target
                         target_url = self.wish_scraper._build_search_url(
                             self.wish_scraper.resolve_store_info(store_raw),
@@ -3990,8 +4032,8 @@ class EbayTool(tk.Tk):
                         )
                     elif is_meli:
                         self.mercadolibre_scraper.headless = is_headless
-                        selected_c = meli_c
-                        depth_str = meli_d
+                        selected_c = job.get("meli_country", meli_c)
+                        depth_str = job.get("meli_depth", meli_d)
                         m_pages_match = re.search(r'(\d+)\s+Page', depth_str, re.IGNORECASE)
                         m_pages = int(m_pages_match.group(1)) if m_pages_match else 2
                         target_max_items = m_pages * 50
@@ -4029,11 +4071,11 @@ class EbayTool(tk.Tk):
                     elif is_redbubble:
                         self.redbubble_scraper.headless = is_headless
                         rb_max = 100
-                        if hasattr(self, "rb_depth_var"):
-                            m = re.search(r'\((\d+)\)', self.rb_depth_var.get())
-                            if m:
-                                try: rb_max = int(m.group(1))
-                                except ValueError: rb_max = 100
+                        rb_depth_raw = job.get("rb_depth") or (self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "100")
+                        m = re.search(r'\((\d+)\)', rb_depth_raw) or re.search(r'(\d+)', rb_depth_raw)
+                        if m:
+                            try: rb_max = int(m.group(1))
+                            except ValueError: rb_max = 100
                         items = self.redbubble_scraper.search(
                             actual_term,
                             max_items=rb_max,
@@ -4044,11 +4086,11 @@ class EbayTool(tk.Tk):
                     elif is_printerval:
                         self.printerval_scraper.headless = is_headless
                         pv_max = 100
-                        if hasattr(self, "pv_depth_var"):
-                            m = re.search(r'\((\d+)\)', self.pv_depth_var.get())
-                            if m:
-                                try: pv_max = int(m.group(1))
-                                except ValueError: pv_max = 100
+                        pv_depth_raw = job.get("pv_depth") or (self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "100")
+                        m = re.search(r'\((\d+)\)', pv_depth_raw) or re.search(r'(\d+)', pv_depth_raw)
+                        if m:
+                            try: pv_max = int(m.group(1))
+                            except ValueError: pv_max = 100
                         items = self.printerval_scraper.search(
                             actual_term,
                             max_items=pv_max,
@@ -6286,59 +6328,78 @@ class EbayTool(tk.Tk):
             messagebox.showinfo("Threat Intel", "No valid seller handles found to analyze.")
             return
 
+        self.stop_event.clear()
+        self.stop_btn.config(state="normal")
+        if hasattr(self, "progress"):
+            self.progress.start()
+
         self._status(f"Resolving Threat Intel for {len(unique_sellers)} sellers in parallel...")
         self._log(f"🌍 Starting Threat Intel & 3PL Smokescreen scan for {len(unique_sellers)} sellers...")
 
         def _worker():
-            # Check data_store cache first
-            uncached = []
-            cached_intel = {}
-            for s in unique_sellers:
-                cached = self.data_store.get_seller_intel(s)
-                if cached and cached.get("country") and cached.get("country") != "Unknown":
-                    cached_intel[s] = cached
-                else:
-                    uncached.append(s)
+            try:
+                # Check data_store cache first
+                uncached = []
+                cached_intel = {}
+                for s in unique_sellers:
+                    cached = self.data_store.get_seller_intel(s)
+                    if cached and cached.get("country") and cached.get("country") != "Unknown":
+                        cached_intel[s] = cached
+                    else:
+                        uncached.append(s)
 
-            # Resolve uncached in parallel via high-speed batch resolver
-            if uncached:
-                resolved_map = self.scraper.batch_resolve_seller_countries(uncached)
-                for s, data in resolved_map.items():
-                    country_val = data.get("country", "Unknown")
-                    m_since = data.get("member_since", "")
-                    if country_val and country_val != "Unknown":
-                        self.data_store.set_seller_intel(s, country_val, member_since=m_since)
-                        cached_intel[s] = {"country": country_val, "member_since": m_since}
+                # Resolve uncached in parallel via high-speed batch resolver
+                if uncached and not self.stop_event.is_set():
+                    resolved_map = self.scraper.batch_resolve_seller_countries(uncached)
+                    for s, data in resolved_map.items():
+                        country_val = data.get("country", "Unknown")
+                        m_since = data.get("member_since", "")
+                        if country_val and country_val != "Unknown":
+                            self.data_store.set_seller_intel(s, country_val, member_since=m_since)
+                            cached_intel[s] = {"country": country_val, "member_since": m_since}
 
-            # Update results with enriched intel
-            updated_count = 0
-            critical_threats = 0
-            for it in target_items:
-                s = str(it.get("seller", "")).replace("🛡", "").replace("(Authorized)", "").strip()
-                intel = cached_intel.get(s) or self.data_store.get_seller_intel(s)
-                seller_country = intel.get("country", "") if intel else ""
-                loc = it.get("location", "")
-                assessment = self.data_store.compute_threat_assessment(seller_country, loc)
+                # Update results with enriched intel
+                updated_count = 0
+                critical_threats = 0
+                for it in target_items:
+                    if self.stop_event.is_set():
+                        break
+                    s = str(it.get("seller", "")).replace("🛡", "").replace("(Authorized)", "").strip()
+                    intel = cached_intel.get(s) or self.data_store.get_seller_intel(s)
+                    seller_country = intel.get("country", "") if intel else ""
+                    loc = it.get("location", "")
+                    assessment = self.data_store.compute_threat_assessment(seller_country, loc)
 
-                it["seller_origin"] = assessment.get("country", "Unknown")
-                it["seller_flag"] = assessment.get("flag", "❓")
-                it["threat_score"] = assessment.get("score", "UNKNOWN")
-                it["threat_badge"] = assessment.get("badge", "Unresolved")
+                    it["seller_origin"] = assessment.get("country", "Unknown")
+                    it["seller_flag"] = assessment.get("flag", "❓")
+                    it["threat_score"] = assessment.get("score", "UNKNOWN")
+                    it["threat_badge"] = assessment.get("badge", "Unresolved")
 
-                if assessment.get("score") == "CRITICAL":
-                    critical_threats += 1
-                updated_count += 1
+                    if assessment.get("score") == "CRITICAL":
+                        critical_threats += 1
+                    updated_count += 1
 
-            def _apply():
-                self._repopulate_results_table()
-                msg = f"Enriched Threat Intel for {updated_count} listings across {len(unique_sellers)} unique sellers!"
-                if critical_threats > 0:
-                    msg += f"\n\n🚨 IDENTIFIED {critical_threats} CRITICAL 3PL SMOKESCREEN / GHOST ORIGIN TARGETS!"
-                self._status(f"Threat Intel scan complete: {updated_count} enriched.")
-                self._log(f"✅ Threat Intel scan complete: {updated_count} listings enriched ({critical_threats} critical threats).")
-                messagebox.showinfo("Threat Intel Complete", msg, parent=self)
+                def _apply():
+                    if hasattr(self, "progress"):
+                        self.progress.stop()
+                    self.stop_btn.config(state="disabled")
+                    self._repopulate_results_table()
+                    if self.stop_event.is_set():
+                        self._status(f"⏹ Threat Intel scan halted ({updated_count} enriched).")
+                        self._log(f"⏹ Threat Intel scan halted by user ({updated_count} listings updated).")
+                    else:
+                        msg = f"Enriched Threat Intel for {updated_count} listings across {len(unique_sellers)} unique sellers!"
+                        if critical_threats > 0:
+                            msg += f"\n\n🚨 IDENTIFIED {critical_threats} CRITICAL 3PL SMOKESCREEN / GHOST ORIGIN TARGETS!"
+                        self._status(f"Threat Intel scan complete: {updated_count} enriched ({critical_threats} critical).")
+                        self._log(f"✅ Threat Intel scan complete: {updated_count} listings enriched ({critical_threats} critical threats).")
+                        messagebox.showinfo("Threat Intel Complete", msg, parent=self)
 
-            self.after(0, _apply)
+                self.after(0, _apply)
+            finally:
+                self.after(0, lambda: self.stop_btn.config(state="disabled"))
+                if hasattr(self, "progress"):
+                    self.after(0, lambda: self.progress.stop())
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -6393,6 +6454,8 @@ class EbayTool(tk.Tk):
         self._status(f"🏪 Enriching {len(target_items)} sellers...")
         self.stop_event.clear()
         self.stop_btn.config(state="normal")
+        if hasattr(self, "progress"):
+            self.progress.start()
 
         def _worker():
             enriched_count = 0
@@ -6436,7 +6499,8 @@ class EbayTool(tk.Tk):
                             if threat_score:
                                 other["threat_score"] = threat_score
 
-                self.after(0, lambda: self._status(f"🏪 Enriching Sellers: {current}/{total} -> '{s_name}'"))
+                pct = int((current / total) * 100) if total else 0
+                self.after(0, lambda: self._status(f"🏪 Enriching Sellers [{current}/{total}] ({pct}%) -> '{s_name}'"))
                 self.after(0, lambda: self._log(f"  ✓ [{item.get('marketplace', 'Platform')}] Enriched: '{item.get('title', '')[:40]}...' → Seller: '{s_name}', Price: {item.get('price', '')}"))
                 self.after(0, lambda: self._repopulate_results_table())
 
@@ -6500,6 +6564,8 @@ class EbayTool(tk.Tk):
                     )
 
             finally:
+                if hasattr(self, "progress"):
+                    self.after(0, lambda: self.progress.stop())
                 self.after(0, lambda: self.stop_btn.config(state="disabled"))
                 if self.stop_event.is_set():
                     self.after(0, lambda: self._status(f"⏹ Seller enrichment halted ({enriched_count} updated)."))
@@ -8749,6 +8815,7 @@ class MultiLocaleModal(tk.Toplevel):
     """
     def __init__(self, parent, target_items: list = None):
         super().__init__(parent)
+        self.withdraw()
         self.parent = parent
         self.target_items = target_items if target_items else list(parent.results)
         self.t = parent.theme
@@ -8773,12 +8840,13 @@ class MultiLocaleModal(tk.Toplevel):
         self.minsize(840, 520)
         self.parent._apply_dark_titlebar(self)
 
+        self._build_ui()
+
         # Center modal relative to parent window
         self.parent._center_window(self, 980, 660)
+        self.deiconify()
         self.lift()
         self.focus_force()
-
-        self._build_ui()
 
     def _build_ui(self):
         t = self.t
@@ -9027,6 +9095,7 @@ class ConnectedNetworkModal(tk.Toplevel):
     """
     def __init__(self, parent, target_item: dict):
         super().__init__(parent)
+        self.withdraw()
         self.parent = parent
         self.target_item = target_item
         self.t = parent.theme
@@ -9040,12 +9109,12 @@ class ConnectedNetworkModal(tk.Toplevel):
         self.minsize(980, 620)
         self.parent._apply_dark_titlebar(self)
         
-        # Center modal relative to parent window
+        self._build_ui()
         self.parent._center_window(self, 1200, 780)
+        self.deiconify()
         self.lift()
         self.focus_force()
         
-        self._build_ui()
         self._start_network_scan()
 
     def _build_ui(self):
@@ -9991,6 +10060,7 @@ class ReverseVisualModal(tk.Toplevel):
     """
     def __init__(self, parent, hits: list, target_img, label: str = "Visual Reference", marketplace: str = "eBay", region: Optional[str] = None, target_phash: str = ""):
         super().__init__(parent)
+        self.withdraw()
         self.parent = parent
         self.hits = hits or []
         self.target_img = target_img
@@ -10009,14 +10079,14 @@ class ReverseVisualModal(tk.Toplevel):
         self.minsize(980, 620)
         self.parent._apply_dark_titlebar(self)
 
-        # Center modal relative to parent window
-        # Center modal relative to parent window
+        self._build_ui()
+        self._populate_tree()
+
+        # Center modal relative to parent window and reveal
         self.parent._center_window(self, 1200, 780)
         self.lift()
         self.focus_force()
 
-        self._build_ui()
-        self._populate_tree()
         self.after(200, self._enrich_all_hits)
 
     def _build_ui(self):
@@ -10667,6 +10737,7 @@ class WhitelistManagerModal(tk.Toplevel):
     """
     def __init__(self, parent):
         super().__init__(parent)
+        self.withdraw()
         self.parent = parent
         self.t = parent.theme
         self.data_store = parent.data_store
@@ -10677,13 +10748,13 @@ class WhitelistManagerModal(tk.Toplevel):
         self.minsize(800, 500)
         self.parent._apply_dark_titlebar(self)
         
-        # Center modal relative to parent window
+        self._build_ui()
+        self._refresh_table()
+
+        # Center modal relative to parent window and reveal
         self.parent._center_window(self, 980, 640)
         self.lift()
         self.focus_force()
-        
-        self._build_ui()
-        self._refresh_table()
 
     def _build_ui(self):
         t = self.t
@@ -10828,6 +10899,7 @@ class WhitelistManagerModal(tk.Toplevel):
 
     def _add_dealer_dialog(self, edit_handle=None):
         dlg = tk.Toplevel(self)
+        dlg.withdraw()
         is_edit = bool(edit_handle)
         dlg.title("✏ Edit Authorized Dealership" if is_edit else "➕ Add Authorized Dealership")
         dlg.geometry("480x380")
@@ -10835,7 +10907,6 @@ class WhitelistManagerModal(tk.Toplevel):
         dlg.transient(self)
         dlg.grab_set()
         self.parent._apply_dark_titlebar(dlg)
-        self.parent._center_window(dlg, 480, 380)
 
         t = self.t
         f = tk.Frame(dlg, bg=t["panel"], padx=16, pady=16)
@@ -10900,15 +10971,17 @@ class WhitelistManagerModal(tk.Toplevel):
         tk.Button(btn_box, text="Cancel", command=_close_dlg, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=10, pady=4).pack(side="right", padx=4)
         tk.Button(btn_box, text="💾 Save Changes" if is_edit else "💾 Save Dealer", command=_save, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=4).pack(side="right")
 
+        self.parent._center_window(dlg, 480, 380)
+
     def _bulk_import_dialog(self):
         dlg = tk.Toplevel(self)
+        dlg.withdraw()
         dlg.title("📋 Bulk Import Authorized Dealerships")
         dlg.geometry("560x480")
         dlg.configure(bg=self.t["bg"])
         dlg.transient(self)
         dlg.grab_set()
         self.parent._apply_dark_titlebar(dlg)
-        self.parent._center_window(dlg, 560, 480)
 
         def _close_bulk():
             try: dlg.grab_release()
@@ -10950,6 +11023,8 @@ class WhitelistManagerModal(tk.Toplevel):
         tk.Button(btn_box, text="Cancel", command=dlg.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=10, pady=4).pack(side="right", padx=4)
         tk.Button(btn_box, text="📥 Import Dealers", command=_do_import, bg=t["accent"], fg="white", font=("Segoe UI", 9, "bold"), relief="flat", padx=14, pady=4).pack(side="right")
 
+        self.parent._center_window(dlg, 560, 480)
+
     def _remove_selected(self):
         sel = self.tree.selection()
         if not sel:
@@ -10987,6 +11062,7 @@ class AnalystGuideModal(tk.Toplevel):
     """Interactive Analyst Operations Guide, Feature Comparison & Workflow Reference."""
     def __init__(self, parent):
         super().__init__(parent)
+        self.withdraw()
         self.parent = parent
         self.theme = parent.theme
         t = self.theme
@@ -11001,8 +11077,6 @@ class AnalystGuideModal(tk.Toplevel):
             parent._apply_dark_titlebar(self)
         if hasattr(parent, "_load_app_icon"):
             parent._load_app_icon(self)
-        if hasattr(parent, "_center_window"):
-            parent._center_window(self, 860, 700)
 
         # Header Frame
         header = tk.Frame(self, bg=t["panel"], padx=18, pady=14, relief="solid", bd=1)
@@ -11129,6 +11203,14 @@ class AnalystGuideModal(tk.Toplevel):
         tk.Button(btn_bar, text="✕ Close Guide", command=self.destroy,
                   font=("Segoe UI", 9, "bold"), bg=t["accent"], fg="white",
                   relief="flat", padx=16, pady=6, cursor="hand2").pack(side="right")
+
+        # Center modal relative to parent window and reveal
+        if hasattr(parent, "_center_window"):
+            parent._center_window(self, 860, 700)
+        else:
+            self.deiconify()
+        self.lift()
+        self.focus_force()
 
 
 if __name__ == "__main__":
