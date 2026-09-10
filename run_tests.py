@@ -578,6 +578,21 @@ class TestApolloCoreFeatures(unittest.TestCase):
             self.assertEqual(res[0]["thumbnail"], "https://printerval.com/img/tank.jpg")
             self.assertEqual(res[0]["marketplace"], "printerval.com")
 
+            # Verify title synthesis prevents category-only partial titles (e.g. 'Baby Blankets')
+            t_synth = ps._synthesize_variant_title(
+                "Camaro SS 5th gen 14-15 - silver Camaro T-Shirt",
+                "camaro-ss-5th-gen-14-15-silver-baby-blankets",
+                "Baby Blankets"
+            )
+            self.assertEqual(t_synth, "Camaro SS 5th gen 14-15 - silver Baby Blankets")
+
+            t_synth2 = ps._synthesize_variant_title(
+                "Chevrolet Camaro Luxury Brand Custom Name 2D Half Zipper Hoodie",
+                "chevrolet-camaro-luxury-brand-custom-name-2d-half-zipper-hoodie",
+                "Hoodies"
+            )
+            self.assertEqual(t_synth2, "Chevrolet Camaro Luxury Brand Custom Name 2D Half Zipper Hoodie")
+
     def test_21_redbubble_pod_and_portfolio_engine(self):
         """Test Item 21: Verify Redbubble Next.js payload parsing, POD 1-to-74 expansion, and artist portfolio sweeper."""
         from redbubble_scraper import RedbubbleScraper

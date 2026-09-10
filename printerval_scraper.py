@@ -79,6 +79,59 @@ class PrintervalScraper:
         else:
             return len(matched) >= 2 or match_ratio >= 0.5
 
+    def _synthesize_variant_title(self, parent_title: str, slug: str, card_title: str = "") -> str:
+        """
+        Synthesize the full, accurate listing title for a Printerval variant using the URL slug,
+        parent title, and card text, preventing partial/truncated category-only titles like 'Baby Blankets'.
+        """
+        # If card_title is already a full product title with design name (e.g. >= 4 words and contains parent tokens)
+        if card_title and len(card_title.split()) >= 4:
+            p_toks = set(re.findall(r'[a-zA-Z0-9]{3,}', parent_title.lower())) if parent_title else set()
+            c_toks = set(re.findall(r'[a-zA-Z0-9]{3,}', card_title.lower()))
+            if len(p_toks & c_toks) >= 2 or not p_toks:
+                return card_title
+
+        if not slug:
+            return parent_title or card_title or "Merchandise"
+
+        slug_words = [w for w in slug.split("-") if w]
+        parent_tokens = re.findall(r'[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', parent_title) if parent_title else []
+        parent_map = {t.lower(): t for t in parent_tokens}
+
+        formatted_words = []
+        i = 0
+        while i < len(slug_words):
+            if i + 1 < len(slug_words):
+                two_pair = f"{slug_words[i]}-{slug_words[i+1]}".lower()
+                if two_pair in parent_map:
+                    formatted_words.append(parent_map[two_pair])
+                    i += 2
+                    continue
+            w = slug_words[i]
+            w_lower = w.lower()
+            if w_lower == "t" and i + 1 < len(slug_words) and slug_words[i+1].lower().startswith("shirt"):
+                formatted_words.append("T-" + slug_words[i+1].title())
+                i += 2
+                continue
+            if w_lower in parent_map:
+                formatted_words.append(parent_map[w_lower])
+            elif w.upper() in ("SS", "Z28", "RS", "GT", "ZL1", "2D", "3D", "4D", "USA", "V8", "V6", "SKU", "POD"):
+                formatted_words.append(w.upper())
+            else:
+                formatted_words.append(w.title())
+            i += 1
+
+        raw_res = " ".join(formatted_words)
+        if parent_title and " - " in parent_title:
+            prefix = parent_title.split(" - ")[0].strip()
+            pref_tokens = re.findall(r'[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*', prefix)
+            pref_len = len(pref_tokens)
+            if pref_len > 0 and [w.lower() for w in formatted_words[:pref_len]] == [p.lower() for p in pref_tokens]:
+                rem_words = formatted_words[pref_len:]
+                raw_res = prefix + " - " + " ".join(rem_words)
+
+        return raw_res
+
     def _load_cache(self) -> dict:
         """Load persistent item_id -> {seller, title, price} cache."""
         if os.path.exists(self.cache_file):
@@ -535,7 +588,7 @@ class PrintervalScraper:
                         it["seller"] = res["seller"]
                     if res.get("price"):
                         it["price"] = res["price"]
-                    if res.get("title") and (not it.get("title") or it.get("title").startswith("Printerval")):
+                    if res.get("title") and (not it.get("title") or it.get("title").startswith("Printerval") or len(it.get("title", "")) < len(res.get("title", ""))):
                         it["title"] = res["title"]
                     if res.get("image_url") and (not it.get("image_url") or "unsafe/540" in it.get("image_url", "")):
                         it["image_url"] = res["image_url"]
@@ -743,16 +796,16 @@ class PrintervalScraper:
                         u = v.get("url", "")
                         slug = u.split("/")[-1].split("-p")[0]
 
-                        # Derive clean product type
+                        card_raw = v.get("title", "").replace("\n", " ").strip()
+                        card_clean = re.sub(r'\$\s*[\d,]+(?:\.\d+)?', '', card_raw).strip()
+
+                        # Derive clean product type from slug
                         type_part = slug.split("-")[-1].title() if "-" in slug else "Merchandise"
                         if len(type_part) <= 2:
                             type_part = "Merchandise"
 
-                        v_title = v.get("title", "").replace("\n", " ").strip()
-                        if not v_title or len(v_title) < 4 or v_title.startswith("$") or v_title.lower().startswith("discover") or v_title.lower() in ("t-shirts", "hoodies", "tank tops", "sweatshirts", "mugs", "stickers", "onesies", "garden flags", "house flags", "bags", "baseball caps", "long sleeves", "trucker hats"):
-                            # Synthesize clean title from parent and category
-                            parent_core = re.sub(r'\s*-\s*(?:T-Shirt|Hoodies|Hoodie|Sweatshirts|Tank Tops|Mugs|Stickers|Long Sleeves|Garden Flags|Bags|Baseball Caps|Caps|Onesies).*$', '', parent_title, flags=re.IGNORECASE).strip()
-                            v_title = f"{parent_core} - {type_part}" if parent_core else slug.replace("-", " ").title()
+                        # Synthesize full, clean listing title preserving parent design casing and full name
+                        v_title = self._synthesize_variant_title(parent_title, slug, card_clean)
 
                         # Token & Brand relevance validation: ensure variant matches the specific POD artwork/design
                         if not self._is_valid_pod_variant(parent_title, v_title, slug, brand=brand, keyword=keyword):
