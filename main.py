@@ -9455,7 +9455,8 @@ class ConnectedNetworkModal(tk.Toplevel):
         hide_same_seller = self.hide_same_seller_var.get()
         hide_targeted = self.hide_targeted_var.get()
         match_filter = self.match_filter_var.get()
-        src_seller = (self.target_item.get("seller") or "").strip().lower()
+        src_raw = (self.target_item.get("seller") or "").strip()
+        src_seller = self._clean_seller_handle(src_raw).lower() if hasattr(self, "_clean_seller_handle") else src_raw.lower()
 
         # Collect active targeted / queued / harvested store handles
         stores_in_input = set()
@@ -9465,8 +9466,10 @@ class ConnectedNetworkModal(tk.Toplevel):
             for line in raw_text.splitlines():
                 l = line.strip().lower()
                 if l and l != placeholder.lower():
+                    clean_l = self._clean_seller_handle(l).lower() if hasattr(self, "_clean_seller_handle") else l
                     lbl = self.parent._store_label(l).lower() if hasattr(self.parent, "_store_label") else l
                     stores_in_input.add(l)
+                    stores_in_input.add(clean_l)
                     stores_in_input.add(lbl)
 
         queued_stores = set()
@@ -9474,8 +9477,10 @@ class ConnectedNetworkModal(tk.Toplevel):
             for q in self.parent.queue:
                 s = q.get("store", "").strip().lower()
                 if s:
+                    clean_s = self._clean_seller_handle(s).lower() if hasattr(self, "_clean_seller_handle") else s
                     lbl = self.parent._store_label(s).lower() if hasattr(self.parent, "_store_label") else s
                     queued_stores.add(s)
+                    queued_stores.add(clean_s)
                     queued_stores.add(lbl)
 
         executed_stores = set()
@@ -9483,18 +9488,34 @@ class ConnectedNetworkModal(tk.Toplevel):
             for ex in self.parent.executed_jobs:
                 s = ex.get("store", "").strip().lower()
                 if s:
+                    clean_s = self._clean_seller_handle(s).lower() if hasattr(self, "_clean_seller_handle") else s
                     lbl = self.parent._store_label(s).lower() if hasattr(self.parent, "_store_label") else s
                     executed_stores.add(s)
+                    executed_stores.add(clean_s)
                     executed_stores.add(lbl)
 
         results_stores = set()
+        harvested_item_ids = set()
+        harvested_urls = set()
         if hasattr(self.parent, "results"):
             for it in self.parent.results:
                 s = str(it.get("seller", "")).replace("🛡", "").replace("(Authorized)", "").strip().lower()
+                clean_s = self._clean_seller_handle(s).lower() if hasattr(self, "_clean_seller_handle") else s
                 if s and s not in ("unknown", "resolving..."):
                     results_stores.add(s)
+                    results_stores.add(clean_s)
+                iid = str(it.get("item_id", "")).strip()
+                if iid:
+                    harvested_item_ids.add(iid)
+                u = str(it.get("url", "")).strip().lower()
+                if u:
+                    harvested_urls.add(u)
 
         targeted_or_harvested = stores_in_input | queued_stores | executed_stores | results_stores
+        if src_seller:
+            targeted_or_harvested.add(src_seller)
+        if src_raw:
+            targeted_or_harvested.add(src_raw.lower())
 
         size_name = self.thumb_size_var.get()
         cfg = THUMB_CONFIG.get(size_name, THUMB_CONFIG.get("Medium (100px)", {"rowheight": 110, "img_size": 100, "col_width": 116}))
@@ -9504,17 +9525,27 @@ class ConnectedNetworkModal(tk.Toplevel):
         ds = getattr(self.parent, "data_store", None)
         shown_count = 0
         for itm in self.discovered_items:
-            seller = (itm.get("seller") or "Unknown").strip()
+            raw_seller = (itm.get("seller") or "Unknown").strip()
+            seller = self._clean_seller_handle(raw_seller) if hasattr(self, "_clean_seller_handle") else raw_seller
             seller_clean = seller.lower()
+            itm_id = str(itm.get("item_id", "")).strip()
+            itm_url = str(itm.get("url", "")).strip().lower()
+
             is_wl = ds.is_seller_whitelisted(seller) if ds else False
-            is_same = bool(src_seller and seller_clean == src_seller)
-            is_targeted_or_harvested = bool(seller_clean in targeted_or_harvested)
+            is_same = bool(src_seller and (seller_clean == src_seller or raw_seller.lower() == src_seller))
+            is_targeted_or_harvested = bool(
+                is_same or
+                seller_clean in targeted_or_harvested or 
+                raw_seller.lower() in targeted_or_harvested or
+                (itm_id and itm_id in harvested_item_ids) or 
+                (itm_url and itm_url in harvested_urls)
+            )
 
             if hide_wl and is_wl:
                 continue
             if hide_same_seller and is_same:
                 continue
-            if hide_targeted and is_targeted_or_harvested and not is_same:
+            if hide_targeted and is_targeted_or_harvested:
                 continue
 
             sim_txt = itm.get("similarity", "Related Listing")
