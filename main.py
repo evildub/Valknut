@@ -275,6 +275,25 @@ THEMES = {
         "select_bg": "#d49b5a",
         "select_fg": "#1e140f",
         "hidden": True,
+    },
+    "aether_horizon": {
+        "name": "🌌 Aether Horizon",
+        "bg": "#06080F",
+        "panel": "#0D111D",
+        "entry_bg": "#141A29",
+        "accent": "#00D2FF",
+        "accent2": "#7C3AED",
+        "success": "#10B981",
+        "warning": "#FBBF24",
+        "danger": "#F43F5E",
+        "text": "#F8FAFC",
+        "subtext": "#94A3B8",
+        "border": "#1E293B",
+        "btn_normal_bg": "#0F172A",
+        "btn_normal_fg": "#00D2FF",
+        "btn_accent_fg": "#06080F",
+        "select_bg": "#00D2FF",
+        "select_fg": "#06080F",
     }
 }
 
@@ -502,6 +521,7 @@ THEME_QUOTES = {
 
 THEME_SUBHEADERS = {
     "apollo_exec": "☀ The Light • Clarity • Precision",
+    "aether_horizon": "🌌 AETHER NEURAL HORIZON — PURE INTENT • RELENTLESS EXECUTION",
     "continental": "🪙 THE CONTINENTAL — HIGH TABLE EXCOMMUNICADO & SYNDICATE ELIMINATION SUITE",
     "honey_badger": "🦡 HONEY BADGER INTEL — FEARLESS TAKEDOWNS & UNRELENTING RECON",
     "brundo_recon": "🐕 AGENT BRUNDO K9 RECON — 14/10 GOOD BOY • 100% TAKEDOWN RATE",
@@ -8736,7 +8756,7 @@ class EbayTool(tk.Tk):
             lbl_v.grid(row=r_idx, column=1, sticky="nw", pady=3)
 
         _row(info_frame, 0, "Creator & Lead Architect:", "Jerry Seidenstucker (Personal Project)")
-        _row(info_frame, 1, "AI Pair Programmer:", "Antigravity (Google DeepMind)")
+        _row(info_frame, 1, "AI Pair Programmer & Engine:", "Aether (Aeth) • Antigravity / Google DeepMind")
         _row(info_frame, 2, "Intellectual Property:", "© 2026 Jerry Seidenstucker. All Rights Reserved.")
         _row(info_frame, 3, "Architecture Version:", "Apollo v2.0.0 Enterprise Tactical Suite")
         _row(info_frame, 4, "License Mode:", "Proprietary / Authorized Internal Evaluation")
