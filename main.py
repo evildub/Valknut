@@ -3981,8 +3981,8 @@ class EbayTool(tk.Tk):
             is_vinted = "vinted" in p_low or "vinted." in s_low
             is_wish = "wish" in p_low or "wish.com" in s_low
             is_temu = "temu" in p_low or "temu.com" in s_low
-            is_aliexpress = "aliexpress" in p_low or "aliexpress.com" in s_low
-            is_meli = "mercadolibre" in p_low or "mercadolivre" in p_low or "mercadolibre" in s_low or "mercadolivre" in s_low
+            is_aliexpress = "aliexpress" in p_low or "aliexpress.com" in s_low or "ali" in p_low
+            is_meli = "mercado" in p_low or "mercadolibre" in p_low or "mercadolivre" in p_low or "mercadolibre" in s_low or "mercadolivre" in s_low or "meli" in p_low
             is_redbubble = "redbubble" in p_low or "redbubble.com" in s_low
             is_printerval = "printerval" in p_low or "printerval.com" in s_low
 
@@ -4811,7 +4811,7 @@ class EbayTool(tk.Tk):
             return "Temu"
         elif "vinted" in mkt_low or "vinted." in url:
             return "Vinted"
-        elif "mercadolibre" in mkt_low or "mercadolivre" in mkt_low or "mercadolibre." in url or "mercadolivre." in url:
+        elif "mercado" in mkt_low or "mercadolibre" in mkt_low or "mercadolivre" in mkt_low or "mercadolibre." in url or "mercadolivre." in url:
             return "Mercado Libre"
         elif mkt:
             return mkt
@@ -6605,7 +6605,7 @@ class EbayTool(tk.Tk):
                 ali_items = [it for it in target_items if "ali" in it.get("marketplace", "").lower() or "aliexpress" in it.get("url", "").lower()]
                 wish_items = [it for it in target_items if "wish" in it.get("marketplace", "").lower() or "wish" in it.get("url", "").lower()]
                 temu_items = [it for it in target_items if "temu" in it.get("marketplace", "").lower() or "temu" in it.get("url", "").lower()]
-                meli_items = [it for it in target_items if "mercadolibre" in it.get("marketplace", "").lower() or "mercadolivre" in it.get("marketplace", "").lower() or "mercadolibre" in it.get("url", "").lower() or "mercadolivre" in it.get("url", "").lower()]
+                meli_items = [it for it in target_items if "mercado" in it.get("marketplace", "").lower() or "mercadolibre" in it.get("marketplace", "").lower() or "mercadolivre" in it.get("marketplace", "").lower() or "mercadolibre" in it.get("url", "").lower() or "mercadolivre" in it.get("url", "").lower()]
                 printerval_items = [it for it in target_items if "printerval" in it.get("marketplace", "").lower() or "printerval" in it.get("url", "").lower()]
                 tiktok_items = [it for it in target_items if "tiktok" in it.get("marketplace", "").lower() or "tiktok" in it.get("url", "").lower()]
 
@@ -8923,6 +8923,7 @@ class MultiLocaleModal(tk.Toplevel):
         self.probing = False
 
         self.is_meli = any(
+            "mercado" in it.get("marketplace", "").lower() or 
             "mercadolibre" in it.get("marketplace", "").lower() or 
             "mercadolivre" in it.get("marketplace", "").lower() or 
             "mercadolibre" in it.get("url", "").lower() or 

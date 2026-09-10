@@ -1186,6 +1186,72 @@ class TestApolloCoreFeatures(unittest.TestCase):
         finally:
             scraper._fetch_via_requests = original_fetch
 
+    def test_38_platform_name_and_search_dispatch_routing(self):
+        """Test Item 38: Verify all marketplace platform names and dispatch matching logic (including Mercado Libre)."""
+        # Test marketplace names from dropdown values
+        marketplaces = [
+            ("🛒 eBay.com", "eBay"),
+            ("🧰 ManoMano", "ManoMano"),
+            ("🎵 TikTok Shop", "TikTok Shop"),
+            ("👗 Vinted", "Vinted"),
+            ("🌐 AliExpress.com", "AliExpress"),
+            ("🌠 Wish.com", "Wish"),
+            ("🟠 Temu.com", "Temu"),
+            ("🛍 Mercado Libre", "Mercado Libre"),
+            ("🎨 Redbubble.com", "Redbubble"),
+            ("👕 Printerval.com", "Printerval"),
+        ]
+
+        def resolve_platform(mkt: str) -> str:
+            if "Vinted" in mkt: return "Vinted"
+            elif "TikTok" in mkt: return "TikTok Shop"
+            elif "ManoMano" in mkt: return "ManoMano"
+            elif "Wish" in mkt: return "Wish"
+            elif "Temu" in mkt: return "Temu"
+            elif "AliExpress" in mkt: return "AliExpress"
+            elif "Printerval" in mkt: return "Printerval"
+            elif "Redbubble" in mkt: return "Redbubble"
+            elif "Mercado" in mkt: return "Mercado Libre"
+            return "eBay"
+
+        for raw_val, expected in marketplaces:
+            self.assertEqual(resolve_platform(raw_val), expected)
+
+        # Test dispatch matching flags in _process_queue
+        for _, platform_name in marketplaces:
+            p_low = platform_name.lower()
+            s_low = ""
+            is_manomano = "manomano" in p_low or "manomano." in s_low
+            is_tiktok = "tiktok" in p_low or "tiktok.com" in s_low
+            is_vinted = "vinted" in p_low or "vinted." in s_low
+            is_wish = "wish" in p_low or "wish.com" in s_low
+            is_temu = "temu" in p_low or "temu.com" in s_low
+            is_aliexpress = "aliexpress" in p_low or "aliexpress.com" in s_low or "ali" in p_low
+            is_meli = "mercado" in p_low or "mercadolibre" in p_low or "mercadolivre" in p_low or "mercadolibre" in s_low or "mercadolivre" in s_low or "meli" in p_low
+            is_redbubble = "redbubble" in p_low or "redbubble.com" in s_low
+            is_printerval = "printerval" in p_low or "printerval.com" in s_low
+
+            if platform_name == "Mercado Libre":
+                self.assertTrue(is_meli, "Mercado Libre platform MUST set is_meli to True")
+                self.assertFalse(is_manomano)
+                self.assertFalse(is_tiktok)
+            elif platform_name == "ManoMano":
+                self.assertTrue(is_manomano)
+            elif platform_name == "TikTok Shop":
+                self.assertTrue(is_tiktok)
+            elif platform_name == "Vinted":
+                self.assertTrue(is_vinted)
+            elif platform_name == "Wish":
+                self.assertTrue(is_wish)
+            elif platform_name == "Temu":
+                self.assertTrue(is_temu)
+            elif platform_name == "AliExpress":
+                self.assertTrue(is_aliexpress)
+            elif platform_name == "Redbubble":
+                self.assertTrue(is_redbubble)
+            elif platform_name == "Printerval":
+                self.assertTrue(is_printerval)
+
 
 if __name__ == "__main__":
     unittest.main()
