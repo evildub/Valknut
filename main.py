@@ -4328,15 +4328,16 @@ class EbayTool(tk.Tk):
 
                         # 2. Targeted Search Verification & Search Hygiene
                         b_low = job.get("brand", "").lower().strip()
-                        is_full_sweep = (
-                            b_low in ("full store sweep", "store inventory", "all products", "full search", "", "custom search", "mercado libre", "mercado", "global", "global search", "marketplace") or 
-                            include_term in ("*", "", "all")
+                        is_sweep_brand = (
+                            not b_low or
+                            any(w in b_low for w in ("full store sweep", "store inventory", "all products", "full search", "custom search", "mercado libre", "mercado", "global", "global search", "marketplace", "full sweep", "sweep"))
                         )
+                        is_full_sweep = is_sweep_brand or is_meli or (include_term in ("*", "", "all"))
                         if not is_full_sweep and include_term:
                             t_low = title.lower()
                             search_tokens = [tk.lower().strip() for tk in re.split(r"[\s+,]+", include_term) if len(tk.strip()) >= 2]
                             target_b = b_low
-                            if target_b and target_b not in ("full store sweep", "full search", "custom search", "store inventory", "all products", "mercado libre", "mercado", "global", "global search", "marketplace"):
+                            if target_b and not any(w in target_b for w in ("full store sweep", "full search", "custom search", "store inventory", "all products", "mercado libre", "mercado", "global", "global search", "marketplace", "sweep")):
                                 search_tokens.extend([tk.lower().strip() for tk in re.split(r"[\s+,]+", target_b) if len(tk.strip()) >= 2])
 
                             brand_data = self.data_store.get_brands().get(job.get("brand", ""), {})
@@ -4358,7 +4359,10 @@ class EbayTool(tk.Tk):
                         # 3. Auto-detect brand & product type from title
                         auto_b, auto_pt = self._auto_detect_brand_from_title(title)
                         if is_full_sweep:
-                            item["brand"] = auto_b
+                            if auto_b != "Unassigned":
+                                item["brand"] = auto_b
+                            else:
+                                item["brand"] = include_term.capitalize() if include_term and include_term != "*" else (job.get("brand") or "Unassigned")
                             if not item.get("product_type"):
                                 item["product_type"] = auto_pt
                         else:
