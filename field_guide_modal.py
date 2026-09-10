@@ -259,6 +259,7 @@ TOOLS_DATA = [
 class FieldGuideModal(tk.Toplevel):
     def __init__(self, master, theme: dict):
         super().__init__(master)
+        self.withdraw()
         self.master_app = master
         self.theme = theme
         self.title("Apollo Brand Intelligence - Analyst Field Guide & Threat Glossary")

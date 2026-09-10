@@ -18,6 +18,7 @@ FONT_SM = ("Segoe UI", 8)
 class VisualCatalogModal(tk.Toplevel):
     def __init__(self, master, visual_catalog_manager, theme, on_update_callback=None):
         super().__init__(master)
+        self.withdraw()
         self.vcm = visual_catalog_manager
         self.theme = theme
         self.on_update = on_update_callback
@@ -48,19 +49,8 @@ class VisualCatalogModal(tk.Toplevel):
             parent._center_window(win, width, height)
             return
 
-        try:
-            parent.update_idletasks()
-        except Exception:
-            pass
-        try:
-            win.update_idletasks()
-        except Exception:
-            pass
-
-        w = width or win.winfo_width()
-        h = height or win.winfo_height()
-        if w <= 1: w = 600
-        if h <= 1: h = 400
+        w = width or 600
+        h = height or 400
 
         try:
             m_x = parent.winfo_rootx()
@@ -348,7 +338,7 @@ class VisualCatalogModal(tk.Toplevel):
 
         # Selection Checkbox
         sel_var = tk.BooleanVar(value=is_selected)
-        chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=self._t("entry_bg", "#1a1a1a"),
+        chk = tk.Checkbutton(card, variable=sel_var, bg=panel_bg, selectcolor=accent_color,
                              activebackground=panel_bg, command=lambda: self._toggle_card_selection(eid))
         chk.pack(side="left", padx=(0, 6))
 
@@ -436,6 +426,7 @@ class VisualCatalogModal(tk.Toplevel):
     def _open_cluster_inspector(self, entry):
         """Open Cluster Inspector Modal to view and manage all variants in a cluster."""
         win = tk.Toplevel(self)
+        win.withdraw()
         win.title(f"🔍 Cluster Inspector: {entry.get('label', 'Multi-Hash Cluster')}")
         win.configure(bg=self._t("bg", "#121212"))
         win.transient(self)
@@ -541,6 +532,7 @@ class VisualCatalogModal(tk.Toplevel):
 
         t = self.theme
         win = tk.Toplevel(self)
+        win.withdraw()
         win.title("Merge into Multi-Hash Threat Cluster")
         win.configure(bg=self._t("bg", "#121212"))
         win.resizable(False, False)
@@ -646,6 +638,7 @@ class VisualCatalogModal(tk.Toplevel):
 
     def _add_from_url(self):
         win = tk.Toplevel(self)
+        win.withdraw()
         win.title("Add Photo from Web URL")
         win.configure(bg=self._t("bg", "#121212"))
         win.resizable(False, False)
@@ -681,6 +674,7 @@ class VisualCatalogModal(tk.Toplevel):
 
     def _show_add_dialog(self, filepath=None, url=None):
         dlg = tk.Toplevel(self)
+        dlg.withdraw()
         dlg.title("Add Visual Asset to Catalog")
         dlg.configure(bg=self._t("bg", "#121212"))
         dlg.resizable(False, False)

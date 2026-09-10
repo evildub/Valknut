@@ -1177,7 +1177,7 @@ class EbayTool(tk.Tk):
         self.themed_widgets["text_labels"].append(max_stores_btn)
         lbl.bind("<Double-Button-1>", lambda e: toggle_stores())
         
-        self.store_placeholder = "https://www.ebay.com/str/store1\nhttps://www.aliexpress.com/store/110123456\nseller3"
+        self.store_placeholder = "🌐 Global eBay Search: https://www.ebay.com/sch/\n(Leave blank to sweep entire eBay marketplace by keyword, or enter specific store/seller URLs)"
         self.store_text.insert("1.0", self.store_placeholder)
         self.store_text.config(fg=t["subtext"])
         self.store_text.bind("<FocusIn>", self._clear_store_ph)
@@ -1911,7 +1911,7 @@ class EbayTool(tk.Tk):
         for cb in self.themed_widgets["checks"]:
             try:
                 fg_col = t["danger"] if cb == getattr(self, "hr_cb", None) else (t.get("accent2", t["text"]) if cb == getattr(self, "st_cb", None) else t["text"])
-                cb.configure(bg=cb.master["bg"], fg=fg_col, selectcolor=t["entry_bg"], activebackground=cb.master["bg"])
+                cb.configure(bg=cb.master["bg"], fg=fg_col, selectcolor=t["accent"], activebackground=cb.master["bg"])
             except Exception: pass
 
         for m in (getattr(self, "settings_menu", None), getattr(self, "col_menu", None), getattr(self, "theme_menu", None)):
@@ -2011,19 +2011,8 @@ class EbayTool(tk.Tk):
 
     def _center_window(self, win, w=None, h=None):
         """Center a Toplevel window accurately over parent window across multi-monitor setups."""
-        try:
-            self.update_idletasks()
-        except Exception:
-            pass
-        try:
-            win.update_idletasks()
-        except Exception:
-            pass
-
-        width = w or win.winfo_width()
-        height = h or win.winfo_height()
-        if width <= 1: width = 600
-        if height <= 1: height = 400
+        width = w or 600
+        height = h or 400
 
         master_x = self.winfo_rootx()
         master_y = self.winfo_rooty()
@@ -9102,15 +9091,15 @@ class ConnectedNetworkModal(tk.Toplevel):
         self.match_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._populate_tree())
 
         self.hide_same_seller_var = tk.BooleanVar(value=False)
-        same_seller_cb = tk.Checkbutton(f_row, text="Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        same_seller_cb = tk.Checkbutton(f_row, text="Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["accent"], activebackground=t["panel"], font=FONT_SM)
         same_seller_cb.pack(side="left", padx=(0, 8))
 
         self.hide_wl_var = tk.BooleanVar(value=False)
-        wl_cb = tk.Checkbutton(f_row, text="🛡 Hide Whitelisted Dealers", variable=self.hide_wl_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        wl_cb = tk.Checkbutton(f_row, text="🛡 Hide Whitelisted Dealers", variable=self.hide_wl_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["accent"], activebackground=t["panel"], font=FONT_SM)
         wl_cb.pack(side="left", padx=(0, 8))
 
         self.hide_targeted_var = tk.BooleanVar(value=False)
-        targeted_cb = tk.Checkbutton(f_row, text="🎯 Hide Targeted / Harvested", variable=self.hide_targeted_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        targeted_cb = tk.Checkbutton(f_row, text="🎯 Hide Targeted / Harvested", variable=self.hide_targeted_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["accent"], activebackground=t["panel"], font=FONT_SM)
         targeted_cb.pack(side="left", padx=(0, 8))
 
         # ── 3. Discovered Network Table (With Configurable Previews & Zero Overlap) ──
@@ -10059,11 +10048,11 @@ class ReverseVisualModal(tk.Toplevel):
         self.match_filter_combo.bind("<<ComboboxSelected>>", lambda e: self._populate_tree())
 
         self.hide_same_seller_var = tk.BooleanVar(value=False)
-        same_seller_cb = tk.Checkbutton(f_row, text="Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        same_seller_cb = tk.Checkbutton(f_row, text="Hide Same Seller", variable=self.hide_same_seller_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["accent"], activebackground=t["panel"], font=FONT_SM)
         same_seller_cb.pack(side="left", padx=(0, 8))
 
         self.hide_wl_var = tk.BooleanVar(value=False)
-        wl_cb = tk.Checkbutton(f_row, text="🛡 Hide Whitelisted Dealers", variable=self.hide_wl_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["entry_bg"], activebackground=t["panel"], font=FONT_SM)
+        wl_cb = tk.Checkbutton(f_row, text="🛡 Hide Whitelisted Dealers", variable=self.hide_wl_var, command=self._populate_tree, bg=t["panel"], fg=t["text"], selectcolor=t["accent"], activebackground=t["panel"], font=FONT_SM)
         wl_cb.pack(side="left", padx=(0, 8))
 
         # ── 3. Action Toolbar (Pack bottom first to prevent table overflow clipping) ──
