@@ -41,26 +41,55 @@ class VisualCatalogModal(tk.Toplevel):
     def _t(self, key, default="#1e1e1e"):
         return self.theme.get(key, default)
 
-    def _center_window(self, width, height):
-        if hasattr(self.master, "_center_window"):
-            self.master._center_window(self, width, height)
+    def _center_window(self, width, height, target_win=None):
+        win = target_win or self
+        parent = self if target_win else self.master
+        if hasattr(parent, "_center_window") and target_win is None:
+            parent._center_window(win, width, height)
             return
-        self.update_idletasks()
+
         try:
-            m_x = self.master.winfo_rootx()
-            m_y = self.master.winfo_rooty()
-            m_w = self.master.winfo_width()
-            m_h = self.master.winfo_height()
-            if m_w > 100 and m_h > 100:
-                x = m_x + (m_w - width) // 2
-                y = max(30, m_y + (m_h - height) // 2)
+            parent.update_idletasks()
+        except Exception:
+            pass
+        try:
+            win.update_idletasks()
+        except Exception:
+            pass
+
+        w = width or win.winfo_width()
+        h = height or win.winfo_height()
+        if w <= 1: w = 600
+        if h <= 1: h = 400
+
+        try:
+            m_x = parent.winfo_rootx()
+            m_y = parent.winfo_rooty()
+            m_w = parent.winfo_width()
+            m_h = parent.winfo_height()
+            if m_w > 50 and m_h > 50:
+                x = m_x + (m_w - w) // 2
+                y = m_y + (m_h - h) // 2
+                if y < m_y:
+                    y = m_y + 10
             else:
                 x = m_x + 20
-                y = max(30, m_y + 20)
+                y = m_y + 20
         except Exception:
-            x = (self.winfo_screenwidth() // 2) - (width // 2)
-            y = max(30, (self.winfo_screenheight() // 2) - (height // 2))
-        self.geometry(f"{width}x{height}+{x}+{y}")
+            x = (win.winfo_screenwidth() // 2) - (w // 2)
+            y = max(30, (win.winfo_screenheight() // 2) - (h // 2))
+
+        win.geometry(f"{w}x{h}+{x}+{y}")
+        try:
+            win.transient(parent)
+        except Exception:
+            pass
+        try:
+            win.deiconify()
+            win.lift()
+            win.focus_force()
+        except Exception:
+            pass
 
     def _build_ui(self):
         panel_bg = self._t("panel", "#1e1e1e")
@@ -408,13 +437,13 @@ class VisualCatalogModal(tk.Toplevel):
         """Open Cluster Inspector Modal to view and manage all variants in a cluster."""
         win = tk.Toplevel(self)
         win.title(f"🔍 Cluster Inspector: {entry.get('label', 'Multi-Hash Cluster')}")
-        win.geometry("680x520")
         win.configure(bg=self._t("bg", "#121212"))
         win.transient(self)
         win.grab_set()
 
         if hasattr(self.master, "_apply_dark_titlebar"):
             self.master._apply_dark_titlebar(win)
+        self._center_window(680, 520, target_win=win)
 
         p_bg = self._t("panel", "#1e1e1e")
         txt_c = self._t("text", "#ffffff")
@@ -514,13 +543,13 @@ class VisualCatalogModal(tk.Toplevel):
         win = tk.Toplevel(self)
         win.title("Merge into Multi-Hash Threat Cluster")
         win.configure(bg=self._t("bg", "#121212"))
-        win.geometry("500x260")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
 
         if hasattr(self.master, "_apply_dark_titlebar"):
             self.master._apply_dark_titlebar(win)
+        self._center_window(500, 260, target_win=win)
 
         selected_entries = [e for e in self.vcm.get_all_entries() if e.get("id") in self.selected_card_ids]
         suggested_label = selected_entries[0].get("label", "Threat Cluster")
@@ -619,13 +648,13 @@ class VisualCatalogModal(tk.Toplevel):
         win = tk.Toplevel(self)
         win.title("Add Photo from Web URL")
         win.configure(bg=self._t("bg", "#121212"))
-        win.geometry("480x160")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
 
         if hasattr(self.master, "_apply_dark_titlebar"):
             self.master._apply_dark_titlebar(win)
+        self._center_window(480, 160, target_win=win)
 
         tk.Label(win, text="Direct Image URL (JPG/PNG/WEBP):", font=FONT_BOLD,
                  bg=self._t("bg", "#121212"), fg=self._t("text", "#ffffff")).pack(anchor="w", padx=16, pady=(16, 4))
@@ -654,13 +683,13 @@ class VisualCatalogModal(tk.Toplevel):
         dlg = tk.Toplevel(self)
         dlg.title("Add Visual Asset to Catalog")
         dlg.configure(bg=self._t("bg", "#121212"))
-        dlg.geometry("460x340")
         dlg.resizable(False, False)
         dlg.transient(self)
         dlg.grab_set()
 
         if hasattr(self.master, "_apply_dark_titlebar"):
             self.master._apply_dark_titlebar(dlg)
+        self._center_window(460, 340, target_win=dlg)
 
         # Asset Type Radio
         type_var = tk.StringVar(value="benign")

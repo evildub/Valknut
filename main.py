@@ -2011,20 +2011,45 @@ class EbayTool(tk.Tk):
 
     def _center_window(self, win, w=None, h=None):
         """Center a Toplevel window accurately over parent window across multi-monitor setups."""
-        win.update_idletasks()
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+        try:
+            win.update_idletasks()
+        except Exception:
+            pass
+
         width = w or win.winfo_width()
         height = h or win.winfo_height()
+        if width <= 1: width = 600
+        if height <= 1: height = 400
+
         master_x = self.winfo_rootx()
         master_y = self.winfo_rooty()
         master_w = self.winfo_width()
         master_h = self.winfo_height()
-        if master_w > 100 and master_h > 100:
+
+        if master_w > 50 and master_h > 50:
             x = master_x + (master_w - width) // 2
-            y = max(30, master_y + (master_h - height) // 2)
+            y = master_y + (master_h - height) // 2
+            if y < master_y:
+                y = master_y + 10
         else:
             x = (win.winfo_screenwidth() - width) // 2
             y = max(30, (win.winfo_screenheight() - height) // 2)
+
         win.geometry(f"{width}x{height}+{x}+{y}")
+        try:
+            win.transient(self)
+        except Exception:
+            pass
+        try:
+            win.deiconify()
+            win.lift()
+            win.focus_force()
+        except Exception:
+            pass
 
     def _apply_dark_titlebar(self, win=None):
         """Enable immersive dark mode title bar, icon, and custom caption colors via Windows DWM API."""

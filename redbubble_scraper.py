@@ -362,6 +362,7 @@ class RedbubbleScraper:
                                 "seller": seller,
                                 "location": "United States",
                                 "image_url": img_url,
+                                "thumbnail": img_url or parent.get("thumbnail", "") or parent.get("image_url", ""),
                                 "url": u,
                                 "marketplace": "redbubble.com",
                                 "condition": "New",

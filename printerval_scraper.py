@@ -547,8 +547,9 @@ class PrintervalScraper:
                 seller = parent.get("seller") or "Printerval Creator"
                 brand = parent.get("brand", "")
                 keyword = parent.get("keyword", "")
+                parent_title = parent.get("title", "")
 
-                _log(f"👕 [Printerval] Expanding variants for [{idx+1}/{total_parents}]: '{parent.get('title', '')[:35]}...'")
+                _log(f"👕 [Printerval] Expanding variants for [{idx+1}/{total_parents}]: '{parent_title[:35]}...'")
 
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=25000)
@@ -677,7 +678,8 @@ class PrintervalScraper:
                             "price": price,
                             "seller": seller,
                             "location": "United States",
-                            "image_url": v.get("image_url", ""),
+                            "image_url": v.get("image_url", "") or parent.get("image_url", ""),
+                            "thumbnail": v.get("image_url", "") or parent.get("thumbnail", "") or parent.get("image_url", ""),
                             "url": u,
                             "marketplace": "printerval.com",
                             "condition": "New",

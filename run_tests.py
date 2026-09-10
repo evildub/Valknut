@@ -546,6 +546,37 @@ class TestApolloCoreFeatures(unittest.TestCase):
         empty_res = ps.expand_design_variants([])
         self.assertEqual(empty_res, [])
 
+        # Verify parent metadata handling does not raise NameError
+        from unittest.mock import MagicMock, patch
+        mock_parent = {
+            "item_id": "123456",
+            "url": "https://printerval.com/vintage-car-t-shirt-p123456",
+            "title": "Vintage Car Retro T-Shirt",
+            "seller": "CoolArtist",
+            "brand": "Vintage",
+            "keyword": "car",
+            "price": "$19.95"
+        }
+        # Verify method handles parents gracefully with mock playwright
+        with patch.object(ps, "_get_context") as mock_ctx:
+            mock_page = MagicMock()
+            mock_ctx.return_value.pages = [mock_page]
+            mock_page.evaluate.return_value = [
+                {
+                    "item_id": "789012",
+                    "url": "https://printerval.com/vintage-car-hoodie-p789012",
+                    "title": "Vintage Car Hoodie",
+                    "price": "$39.95",
+                    "image_url": "https://printerval.com/img/hoodie.jpg"
+                }
+            ]
+            res = ps.expand_design_variants([mock_parent])
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["title"], "Vintage Car Hoodie")
+            self.assertEqual(res[0]["product_type"], "Hoodie")
+            self.assertEqual(res[0]["thumbnail"], "https://printerval.com/img/hoodie.jpg")
+            self.assertEqual(res[0]["marketplace"], "printerval.com")
+
     def test_21_redbubble_pod_and_portfolio_engine(self):
         """Test Item 21: Verify Redbubble Next.js payload parsing, POD 1-to-74 expansion, and artist portfolio sweeper."""
         from redbubble_scraper import RedbubbleScraper
