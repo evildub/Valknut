@@ -549,12 +549,12 @@ class TestApolloCoreFeatures(unittest.TestCase):
         # Verify parent metadata handling does not raise NameError
         from unittest.mock import MagicMock, patch
         mock_parent = {
-            "item_id": "123456",
-            "url": "https://printerval.com/vintage-car-t-shirt-p123456",
-            "title": "Vintage Car Retro T-Shirt",
+            "item_id": "2097505",
+            "url": "https://printerval.com/camaro-ss-5th-gen-14-15-silver-camaro-t-shirt-p2097505",
+            "title": "Camaro SS 5th Gen 14-15 Silver Camaro T-Shirt",
             "seller": "CoolArtist",
-            "brand": "Vintage",
-            "keyword": "car",
+            "brand": "Camaro",
+            "keyword": "camaro",
             "price": "$19.95"
         }
         # Verify method handles parents gracefully with mock playwright
@@ -563,18 +563,19 @@ class TestApolloCoreFeatures(unittest.TestCase):
             mock_ctx.return_value.pages = [mock_page]
             mock_page.evaluate.return_value = [
                 {
-                    "item_id": "789012",
-                    "url": "https://printerval.com/vintage-car-hoodie-p789012",
-                    "title": "Vintage Car Hoodie",
-                    "price": "$39.95",
-                    "image_url": "https://printerval.com/img/hoodie.jpg"
+                    "item_id": "38966653",
+                    "url": "https://printerval.com/camaro-ss-5th-gen-14-15-silver-camaro-tank-tops-p38966653",
+                    "title": "Camaro SS 5th Gen 14-15 Silver Camaro Tank Tops",
+                    "price": "$24.95",
+                    "image_url": "https://printerval.com/img/tank.jpg"
                 }
             ]
             res = ps.expand_design_variants([mock_parent])
             self.assertEqual(len(res), 1)
-            self.assertEqual(res[0]["title"], "Vintage Car Hoodie")
-            self.assertEqual(res[0]["product_type"], "Hoodie")
-            self.assertEqual(res[0]["thumbnail"], "https://printerval.com/img/hoodie.jpg")
+            self.assertEqual(res[0]["item_id"], "38966653")
+            self.assertEqual(res[0]["title"], "Camaro SS 5th Gen 14-15 Silver Camaro Tank Tops")
+            self.assertEqual(res[0]["product_type"], "Tops")
+            self.assertEqual(res[0]["thumbnail"], "https://printerval.com/img/tank.jpg")
             self.assertEqual(res[0]["marketplace"], "printerval.com")
 
     def test_21_redbubble_pod_and_portfolio_engine(self):

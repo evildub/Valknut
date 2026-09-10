@@ -668,13 +668,12 @@ class PrintervalScraper:
                             v_title = slug.replace("-", " ").title()
 
                         price = v.get("price") or parent.get("price") or "$19.95"
-
-                        variant_sku_id = f"{parent_id}_{slug}" if (slug and slug != parent_id) else v_id
+                        variant_id = v_id if v_id else (re.search(r'-p(\d+)', u).group(1) if re.search(r'-p(\d+)', u) else f"{parent_id}_{slug}")
                         variant_item = {
                             "brand": brand,
                             "product_type": type_part,
                             "title": v_title,
-                            "item_id": variant_sku_id,
+                            "item_id": variant_id,
                             "price": price,
                             "seller": seller,
                             "location": "United States",
