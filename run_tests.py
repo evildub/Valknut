@@ -925,6 +925,32 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertIn("autostore123", store_url)
         self.assertIn("brake", store_url)
 
+    def test_32_aliexpress_multipage_search_depth(self):
+        """Test Item 32 (Gate 32): Verify AliExpress multi-page URL generation and search depth parameter contracts."""
+        from aliexpress_scraper import AliExpressScraper
+        import inspect
+
+        ali = AliExpressScraper(headless=True)
+
+        # 1. Verify search signature has max_pages
+        sig = inspect.signature(ali.search)
+        self.assertIn("max_pages", sig.parameters, "AliExpressScraper.search must accept max_pages")
+        self.assertEqual(sig.parameters["max_pages"].default, 3)
+
+        # 2. Verify URL building across pages 1, 2, and 3
+        url_p1 = ali._build_search_url({}, "Toyota", page=1)
+        url_p2 = ali._build_search_url({}, "Toyota", page=2)
+        url_p3 = ali._build_search_url({}, "Toyota", page=3)
+
+        self.assertIn("wholesale-Toyota.html?page=1", url_p1)
+        self.assertIn("wholesale-Toyota.html?page=2", url_p2)
+        self.assertIn("wholesale-Toyota.html?page=3", url_p3)
+
+        # 3. Verify store URL building across pages
+        store_url_p2 = ali._build_search_url({"store_id": "123456"}, "Toyota", page=2)
+        self.assertIn("all-wholesale-products/123456.html", store_url_p2)
+        self.assertIn("page=2", store_url_p2)
+
 
 if __name__ == "__main__":
     unittest.main()

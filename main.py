@@ -3418,6 +3418,7 @@ class EbayTool(tk.Tk):
         wish_d = self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50 Items"
         rb_d = self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "2 Pages (100)"
         pv_d = self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "2 Pages (100)"
+        ali_d = self.ali_depth_var.get() if hasattr(self, "ali_depth_var") else "3 Pages (180)"
         condition = self.condition_var.get() if hasattr(self, "condition_var") else "all"
 
         queued_count = 0
@@ -3446,6 +3447,7 @@ class EbayTool(tk.Tk):
                     "wish_depth": wish_d,
                     "rb_depth": rb_d,
                     "pv_depth": pv_d,
+                    "ali_depth": ali_d,
                     "includes": [term],  # Clean, standalone single keyword!
                     "excludes": job_excludes,
                     "condition": condition
@@ -3487,6 +3489,7 @@ class EbayTool(tk.Tk):
         wish_d = self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50 Items"
         rb_d = self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "2 Pages (100)"
         pv_d = self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "2 Pages (100)"
+        ali_d = self.ali_depth_var.get() if hasattr(self, "ali_depth_var") else "3 Pages (180)"
 
         queued_count = 0
         for store in stores:
@@ -3527,6 +3530,7 @@ class EbayTool(tk.Tk):
                     "wish_depth": wish_d,
                     "rb_depth": rb_d,
                     "pv_depth": pv_d,
+                    "ali_depth": ali_d,
                     "includes": includes,
                     "excludes": job_excludes,
                     "condition": condition
@@ -3624,6 +3628,7 @@ class EbayTool(tk.Tk):
         wish_d = self.wish_depth_var.get() if hasattr(self, "wish_depth_var") else "50 Items"
         rb_d = self.rb_depth_var.get() if hasattr(self, "rb_depth_var") else "2 Pages (100)"
         pv_d = self.pv_depth_var.get() if hasattr(self, "pv_depth_var") else "2 Pages (100)"
+        ali_d = self.ali_depth_var.get() if hasattr(self, "ali_depth_var") else "3 Pages (180)"
 
         queued_count = 0
         is_full_store_sweep = self.store_full_sweep_var.get() if hasattr(self, "store_full_sweep_var") else False
@@ -3644,6 +3649,7 @@ class EbayTool(tk.Tk):
                     "wish_depth": wish_d,
                     "rb_depth": rb_d,
                     "pv_depth": pv_d,
+                    "ali_depth": ali_d,
                     "includes": ["*"],
                     "excludes": job_excludes,
                     "condition": condition
@@ -3692,6 +3698,7 @@ class EbayTool(tk.Tk):
                         "wish_depth": wish_d,
                         "rb_depth": rb_d,
                         "pv_depth": pv_d,
+                        "ali_depth": ali_d,
                         "includes": includes,
                         "excludes": job_excludes,
                         "condition": condition
@@ -3841,11 +3848,12 @@ class EbayTool(tk.Tk):
         meli_d = self.meli_depth_var.get() if hasattr(self, "meli_depth_var") else "2 Pages (100)"
         vinted_c = self.vinted_country_var.get() if hasattr(self, "vinted_country_var") else "United Kingdom"
         vinted_d = self.vinted_depth_var.get() if hasattr(self, "vinted_depth_var") else "2 Pages (192)"
+        ali_d = self.ali_depth_var.get() if hasattr(self, "ali_depth_var") else "3 Pages (180)"
 
         self.progress.start()
         thread = threading.Thread(
             target=self._process_queue,
-            args=(is_headless, default_mkt, meli_c, meli_d, vinted_c, vinted_d),
+            args=(is_headless, default_mkt, meli_c, meli_d, vinted_c, vinted_d, ali_d),
             daemon=True
         )
         thread.start()
@@ -3881,7 +3889,7 @@ class EbayTool(tk.Tk):
             except Exception:
                 pass
 
-    def _process_queue(self, is_headless=True, default_mkt="eBay", meli_c="Mexico", meli_d="2 Pages (100)", vinted_c="United Kingdom", vinted_d="2 Pages (192)"):
+    def _process_queue(self, is_headless=True, default_mkt="eBay", meli_c="Mexico", meli_d="2 Pages (100)", vinted_c="United Kingdom", vinted_d="2 Pages (192)", ali_d="3 Pages (180)"):
         # Ensure scrapers honor current headless background mode
         self.scraper.headless = is_headless
         self.aliexpress_scraper.headless = is_headless
@@ -4036,11 +4044,14 @@ class EbayTool(tk.Tk):
                             pause_event=self.pause_event
                         )
                     elif is_aliexpress:
+                        ali_depth_str = job.get("ali_depth", ali_d)
+                        m_ali_pages = re.search(r'(\d+)\s+Page', ali_depth_str, re.IGNORECASE)
+                        ali_pages = int(m_ali_pages.group(1)) if m_ali_pages else 3
                         target_url = self.aliexpress_scraper._build_search_url(
                             self.aliexpress_scraper.resolve_store_info(store_raw),
                             actual_term
                         )
-                        self._log(f"  🔗 URL: {target_url}")
+                        self._log(f"  🔗 URL: {target_url} (Depth: {ali_pages} page(s))")
                         job_record["url"] = target_url
                         items = self.aliexpress_scraper.search(
                             store_raw,
@@ -4048,7 +4059,8 @@ class EbayTool(tk.Tk):
                             job["excludes"],
                             condition=job.get("condition", "all"),
                             stop_event=self.stop_event,
-                            pause_event=self.pause_event
+                            pause_event=self.pause_event,
+                            max_pages=ali_pages
                         )
                     elif is_meli:
                         self.mercadolibre_scraper.headless = is_headless

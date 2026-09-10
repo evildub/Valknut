@@ -79,7 +79,8 @@ class AliExpressScraper:
                exclude_terms: list[str] = None,
                condition: str = "all",
                stop_event: threading.Event = None,
-               pause_event: threading.Event = None) -> list[dict]:
+               pause_event: threading.Event = None,
+               max_pages: int = 3) -> list[dict]:
         """
         Search an AliExpress store or wholesale marketplace for include_term, client-filtering exclude_terms.
         Supports real-time pause and cancel events.
@@ -94,7 +95,7 @@ class AliExpressScraper:
             try:
                 items = self._search_via_playwright(
                     store_info, include_term, exclude_terms, condition, seen_ids,
-                    stop_event=stop_event, pause_event=pause_event
+                    stop_event=stop_event, pause_event=pause_event, max_pages=max_pages
                 )
                 if items or (stop_event and stop_event.is_set()):
                     return items
@@ -104,7 +105,8 @@ class AliExpressScraper:
         # Fallback to curl_cffi stealth requests
         page = 1
         seller_label = store_info.get("store_name", "AliExpress Seller")
-        while page <= MAX_PAGES:
+        limit_pages = max_pages or MAX_PAGES
+        while page <= limit_pages:
             if stop_event and stop_event.is_set():
                 break
             if pause_event:
@@ -193,11 +195,13 @@ class AliExpressScraper:
                                include_term: str, excludes: list[str],
                                condition: str, seen_ids: set,
                                stop_event: threading.Event = None,
-                               pause_event: threading.Event = None) -> list[dict]:
+                               pause_event: threading.Event = None,
+                               max_pages: int = 3) -> list[dict]:
         """Execute stealth Playwright browser scraping for AliExpress with anti-slider session persistence."""
         items = []
         page_num = 1
         seller_label = store_info.get("store_name", "AliExpress Seller")
+        limit_pages = max_pages or MAX_PAGES
 
         with sync_playwright() as p:
             launch_args = [
@@ -241,7 +245,7 @@ class AliExpressScraper:
             """)
 
             try:
-                while page_num <= MAX_PAGES:
+                while page_num <= limit_pages:
                     if stop_event and stop_event.is_set():
                         break
                     if pause_event:
@@ -254,11 +258,11 @@ class AliExpressScraper:
                     except Exception:
                         pass
 
-                    # Human-like delay & smooth progressive scroll to trigger dynamic lazy loaded products
-                    for _ in range(4):
-                        time.sleep(0.5)
+                    # Human-like delay & smooth progressive deep scroll to trigger all dynamic lazy loaded products
+                    for _ in range(8):
+                        time.sleep(0.35)
                         try:
-                            page.evaluate("window.scrollBy(0, 800)")
+                            page.evaluate("window.scrollBy(0, 1000)")
                         except Exception:
                             pass
                     time.sleep(1.0)
@@ -266,9 +270,15 @@ class AliExpressScraper:
                     html = page.content()
                     page_items = self._parse_html(html, seller_label, include_term, excludes)
 
-                    if not page_items:
-                        # Try evaluating DOM directly inside Playwright if HTML structure was dynamic
-                        page_items = self._extract_dom_items(page, seller_label, include_term, excludes)
+                    # Also evaluate DOM directly inside Playwright to capture dynamic hydrated elements
+                    dom_items = self._extract_dom_items(page, seller_label, include_term, excludes)
+                    if dom_items:
+                        existing_ids = {it.get("item_id") or it.get("url") for it in page_items}
+                        for dit in dom_items:
+                            did = dit.get("item_id") or dit.get("url")
+                            if did and did not in existing_ids:
+                                page_items.append(dit)
+                                existing_ids.add(did)
 
                     if not page_items:
                         break
@@ -282,7 +292,7 @@ class AliExpressScraper:
                             items.append(it)
                             new_found += 1
 
-                    if new_found == 0 or len(page_items) < 8:
+                    if new_found == 0 or len(page_items) < 5:
                         break
 
                     page_num += 1
@@ -312,6 +322,12 @@ class AliExpressScraper:
                         if (seen.has(itemId)) return;
                         seen.add(itemId);
 
+                        // Skip top header brand banner cards where cards lack real product titles
+                        if (a.closest('[class*="storeDirect"]') || a.closest('[class*="brandWrapper"]')) {
+                            const hasWord = a.innerText && /[a-zA-Z]{3,}/.test(a.innerText);
+                            if (!hasWord && !a.getAttribute('title')) return;
+                        }
+
                         const card = a.closest('div[class*="search-item-card"]') ||
                                      a.closest('div[class*="card-out-wrapper"]') ||
                                      a.closest('div[class*="multi--content--"]') || 
@@ -319,7 +335,35 @@ class AliExpressScraper:
                                      a.closest('div[class*="item"]') || 
                                      a.parentElement;
                         
-                        let title = a.innerText || a.getAttribute('title') || '';
+                        let title = '';
+                        if (card) {
+                            const titleEl = card.querySelector('h1, h3, h2, [class*="multi--title"], [class*="titleText"], div[class*="title"], span[class*="title"]');
+                            if (titleEl && titleEl.innerText.trim().length > 4) {
+                                title = titleEl.innerText.trim();
+                            }
+                        }
+                        if (!title && a.getAttribute('title') && a.getAttribute('title').trim().length > 4) {
+                            title = a.getAttribute('title').trim();
+                        }
+                        if (!title && card) {
+                            const imgEl = card.querySelector('img[alt]');
+                            if (imgEl && imgEl.getAttribute('alt') && imgEl.getAttribute('alt').trim().length > 4) {
+                                const alt = imgEl.getAttribute('alt').trim();
+                                if (!/^(product|image|aliexpress|choice|top sale)$/i.test(alt)) {
+                                    title = alt;
+                                }
+                            }
+                        }
+                        if (!title) {
+                            const raw = (a.innerText || '').trim();
+                            const cleaned = raw.replace(/(?:US\\s*\\$|\\$|€|£)\\s*[\\d,]+(?:\\.\\d+)?/g, '')
+                                               .replace(/(?:See preview|Similar items|New shoppers|sold|off|Delivery).*$/gi, '')
+                                               .trim();
+                            if (cleaned.length > 4) {
+                                title = cleaned;
+                            }
+                        }
+
                         let img = '';
                         let price = '';
                         let seller = '';
@@ -374,13 +418,13 @@ class AliExpressScraper:
                             const priceEl = card.querySelector('div[class*="price"], span[class*="price"], div[class*="sale"]');
                             if (priceEl) price = priceEl.innerText.trim();
 
-                            const titleEl = card.querySelector('h1, h3, h2, div[class*="title"], span[class*="title"]');
-                            if (titleEl && titleEl.innerText.trim().length > 4) {
-                                title = titleEl.innerText.trim();
-                            }
-
-                            const storeEl = card.querySelector('a[href*="/store/"], span[class*="store--name--"]');
+                            const storeEl = card.querySelector('a[href*="/store/"], span[class*="store--name--"], a[class*="store--name"]');
                             if (storeEl && storeEl.innerText.trim()) seller = storeEl.innerText.trim();
+                        }
+
+                        if (!price) {
+                            const mP = (a.innerText || '').match(/(?:US\\s*\\$|\\$|€|£)\\s*[\\d,]+(?:\\.\\d+)?/);
+                            if (mP) price = mP[0];
                         }
 
                         results.push({
@@ -388,7 +432,7 @@ class AliExpressScraper:
                             url: href.split('?')[0],
                             item_id: itemId,
                             image_url: img,
-                            price: price,
+                            price: price || 'N/A',
                             seller: seller
                         });
                     });
