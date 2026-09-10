@@ -909,6 +909,22 @@ class TestApolloCoreFeatures(unittest.TestCase):
         finally:
             app.destroy()
 
+    def test_31_ebay_global_and_store_search_dispatch(self):
+        """Test Item 31 (Gate 31): Verify eBay scraper URL generation and dispatch without undefined variables."""
+        from scraper import EbayScraper
+        scraper = EbayScraper()
+        
+        # 1. Global keyword search (no store)
+        global_url = scraper._build_url({}, "toyota", ["case"], 1, "all")
+        self.assertIn("ebay.com", global_url)
+        self.assertIn("_nkw=toyota", global_url)
+        
+        # 2. Store specific search
+        store_info = scraper.resolve_seller("autostore123")
+        store_url = scraper._build_url(store_info, "brake pads", [], 1, "new")
+        self.assertIn("autostore123", store_url)
+        self.assertIn("brake", store_url)
+
 
 if __name__ == "__main__":
     unittest.main()

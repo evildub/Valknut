@@ -4195,29 +4195,6 @@ class EbayTool(tk.Tk):
                             pause_event=self.pause_event
                         )
                         job_record["url"] = f"https://shop.tiktok.com/us/search?q={actual_term.replace(' ', '+')}"
-                    elif client:
-                        if "aliexpress" in mkt_tag.lower():
-                            ali_pages = 3
-                            if hasattr(self, "ali_depth_var"):
-                                try: ali_pages = int(self.ali_depth_var.get().split()[0])
-                                except Exception: pass
-                            if hasattr(client, "max_pages"):
-                                client.max_pages = ali_pages
-                        elif "wish" in mkt_tag.lower():
-                            wish_items_target = 50
-                            if hasattr(self, "wish_depth_var"):
-                                try:
-                                    m = re.search(r'(\d+)', self.wish_depth_var.get())
-                                    if m: wish_items_target = int(m.group(1))
-                                except Exception: pass
-                            if hasattr(client, "max_items"):
-                                client.max_items = wish_items_target
-                        items = client.search(
-                            store_raw,
-                            actual_term,
-                            job["excludes"],
-                            condition=job.get("condition", "all")
-                        )
                     else:
                         target_url = self.scraper._build_url(
                             self.scraper.resolve_store_info(store_raw),

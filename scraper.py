@@ -599,8 +599,15 @@ class EbayScraper:
                     nkw_parts.append(f"-{ex_str}")
         nkw = " ".join(nkw_parts).strip()
 
-        store_name = store_info.get("store_name", "")
-        seller = store_info.get("seller", "")
+        if isinstance(store_info, str):
+            store_name = store_info
+            seller = store_info
+        elif isinstance(store_info, dict):
+            store_name = store_info.get("store_name", "")
+            seller = store_info.get("seller", "")
+        else:
+            store_name = ""
+            seller = ""
 
         params = {
             "_from": "R40",
