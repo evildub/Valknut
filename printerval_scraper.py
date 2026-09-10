@@ -945,22 +945,36 @@ class PrintervalScraper:
                             let price = pEl ? (pEl.innerText || '').trim() : '';
                             let seller = sEl ? (sEl.innerText || '').trim() : '';
 
+                            // Extract image with complete data-srcset / data-original / lazy-load support
                             let img = '';
-                            const sourceEl = card.querySelector('picture source[srcset]');
-                            if (sourceEl && sourceEl.srcset) {
-                                const urls = sourceEl.srcset.match(/https?:\\/\\/[^\\s"']+/g);
-                                if (urls && urls.length > 0) {
-                                    img = urls[urls.length - 1].replace(/\\s+\\d+[wx]$/, '').trim();
+                            const sourceEls = card.querySelectorAll('picture source, source');
+                            for (let s of sourceEls) {
+                                const rawSet = s.srcset || s.getAttribute('data-srcset') || '';
+                                if (rawSet) {
+                                    const urls = rawSet.match(/https?:\\/\\/[^\\s"']+/g);
+                                    if (urls && urls.length > 0) {
+                                        img = urls[urls.length - 1].replace(/\\s+\\d+[wx]$/, '').trim();
+                                        break;
+                                    }
                                 }
                             }
 
                             if (!img || img.startsWith('data:') || img.includes('1x1.png')) {
                                 const imgEls = card.querySelectorAll('img');
                                 for (let im of imgEls) {
-                                    const cand = im.currentSrc || im.src || im.getAttribute('data-src') || im.getAttribute('data-original') || im.getAttribute('data-img') || '';
-                                    if (cand && !cand.startsWith('data:') && !cand.includes('1x1.png') && !cand.includes('.svg') && !cand.includes('heart')) {
-                                        img = cand;
-                                        break;
+                                    const cand = im.getAttribute('data-original') ||
+                                                 im.getAttribute('data-src') ||
+                                                 im.getAttribute('data-srcset') ||
+                                                 im.getAttribute('data-lazy-src') ||
+                                                 im.getAttribute('data-thumb') ||
+                                                 (im.currentSrc && !im.currentSrc.startsWith('data:') && !im.currentSrc.includes('1x1.png') ? im.currentSrc : '') ||
+                                                 (im.src && !im.src.startsWith('data:') && !im.src.includes('1x1.png') ? im.src : '');
+                                    if (cand) {
+                                        const urls = cand.match(/https?:\\/\\/[^\\s"']+/g);
+                                        if (urls && urls.length > 0) {
+                                            img = urls[urls.length - 1].replace(/\\s+\\d+[wx]$/, '').trim();
+                                            break;
+                                        }
                                     }
                                 }
                             }

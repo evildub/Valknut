@@ -9686,14 +9686,27 @@ class ConnectedNetworkModal(tk.Toplevel):
             if selected: sel = selected[0]
         if sel:
             vals = self.tree.item(sel)["values"]
-            if len(vals) > 6:
-                item_id = str(vals[6]).strip()
-                if item_id:
-                    webbrowser.open(f"https://www.ebay.com/itm/{item_id}")
-            elif len(vals) > 4:
-                item_id = str(vals[4]).strip()
-                if item_id:
-                    webbrowser.open(f"https://www.ebay.com/itm/{item_id}")
+            item_id = str(vals[6]).strip() if len(vals) > 6 else (str(vals[4]).strip() if len(vals) > 4 else "")
+            
+            target_url = ""
+            for itm in self.discovered_items:
+                if str(itm.get("item_id", "")).strip() == item_id:
+                    target_url = itm.get("url", "")
+                    break
+            
+            if target_url:
+                webbrowser.open(target_url)
+                return
+
+            is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+            is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
+
+            if is_printerval:
+                webbrowser.open(f"https://printerval.com/product-p{item_id}")
+            elif is_meli:
+                webbrowser.open(f"https://articulo.mercadolibre.com.mx/MLM-{item_id}" if not item_id.startswith("http") else item_id)
+            elif item_id:
+                webbrowser.open(f"https://www.ebay.com/itm/{item_id}")
 
     def _show_row_context_menu(self, event):
         row_id = self.tree.identify_row(event.y)
@@ -9763,8 +9776,24 @@ class ConnectedNetworkModal(tk.Toplevel):
         if sel:
             vals = self.tree.item(sel)["values"]
             item_id = str(vals[6]).strip() if len(vals) > 6 else (str(vals[4]).strip() if len(vals) > 4 else "")
-            if item_id:
-                url = f"https://www.ebay.com/itm/{item_id}"
+            
+            url = ""
+            for itm in self.discovered_items:
+                if str(itm.get("item_id", "")).strip() == item_id:
+                    url = itm.get("url", "")
+                    break
+            
+            if not url and item_id:
+                is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+                is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
+                if is_printerval:
+                    url = f"https://printerval.com/product-p{item_id}"
+                elif is_meli:
+                    url = f"https://articulo.mercadolibre.com.mx/MLM-{item_id}" if not item_id.startswith("http") else item_id
+                else:
+                    url = f"https://www.ebay.com/itm/{item_id}"
+
+            if url:
                 self.clipboard_clear()
                 self.clipboard_append(url)
                 self.count_var.set(f"📋 Copied listing URL: {url}")
