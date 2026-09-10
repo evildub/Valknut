@@ -620,18 +620,14 @@ class PrintervalScraper:
                         const seen = new Set();
                         
                         const selectors = [
+                            'a[data-source-box="also-available"]',
+                            '.js-also-available-product a',
                             '#modal-also-available a[href*="-p"]',
                             '.modal-also-available a[href*="-p"]',
                             '.tab-more-also-available-product a[href*="-p"]',
                             '.tab-more-also-available-product-wrapper a[href*="-p"]',
-                            '.available-product-wrapper a[href*="-p"]',
-                            '.available-product-item a[href*="-p"]',
-                            '.available-product a[href*="-p"]',
-                            '.js-also-available-on-box a[href*="-p"]',
                             '.box-also-available a[href*="-p"]',
-                            'a.available-product-link',
-                            'a.js-also-available-product',
-                            'a.md-product-title[href*="-p"]'
+                            'a.js-also-available-product'
                         ];
                         
                         const allElements = document.querySelectorAll(selectors.join(', '));
@@ -645,6 +641,7 @@ class PrintervalScraper:
                             seen.add(vId);
                             
                             const cleanUrl = rawHref.split('?')[0];
+                            const parentEl = a.closest('div.item, div.product-item, div.available-product-item, div.js-also-available-product, div') || a;
                             
                             // Text / Title
                             let title = '';
@@ -655,18 +652,34 @@ class PrintervalScraper:
                             
                             // Price
                             let price = '';
-                            const parentEl = a.closest('div.item, div.product-item, div.available-product-item, div') || a;
                             const priceEl = parentEl.querySelector('[class*="price"], .product-price-current, span');
                             if (priceEl) {
                                 const mP = (priceEl.innerText || '').match(/\\$\\s*[\\d,]+(?:\\.\\d+)?/);
                                 if (mP) price = mP[0];
                             }
                             
-                            // Image
+                            // High-Res Image Extraction (prioritize picture > source to avoid 1x1 placeholder pngs)
                             let img = '';
-                            const imgEl = a.querySelector('img') || parentEl.querySelector('img');
-                            if (imgEl) {
-                                img = imgEl.currentSrc || imgEl.src || imgEl.getAttribute('data-src') || imgEl.getAttribute('data-original') || '';
+                            const picture = a.querySelector('picture') || (parentEl ? parentEl.querySelector('picture') : null);
+                            if (picture) {
+                                const source = picture.querySelector('source');
+                                if (source && source.srcset && source.srcset.startsWith('http')) {
+                                    img = source.srcset.split(',')[0].split(' ')[0].trim();
+                                }
+                            }
+                            if (!img) {
+                                const imgEl = a.querySelector('img') || (parentEl ? parentEl.querySelector('img') : null);
+                                if (imgEl) {
+                                    if (imgEl.currentSrc && imgEl.currentSrc.startsWith('http') && !imgEl.currentSrc.includes('1x1.png') && !imgEl.currentSrc.includes('data:')) {
+                                        img = imgEl.currentSrc;
+                                    } else if (imgEl.src && imgEl.src.startsWith('http') && !imgEl.src.includes('1x1.png') && !imgEl.src.includes('data:')) {
+                                        img = imgEl.src;
+                                    } else if (imgEl.getAttribute('data-src') && imgEl.getAttribute('data-src').startsWith('http')) {
+                                        img = imgEl.getAttribute('data-src');
+                                    } else if (imgEl.getAttribute('data-original') && imgEl.getAttribute('data-original').startsWith('http')) {
+                                        img = imgEl.getAttribute('data-original');
+                                    }
+                                }
                             }
                             
                             items.push({
@@ -690,24 +703,26 @@ class PrintervalScraper:
                         u = v.get("url", "")
                         slug = u.split("/")[-1].split("-p")[0]
 
+                        # Derive clean product type
+                        type_part = slug.split("-")[-1].title() if "-" in slug else "Merchandise"
+                        if len(type_part) <= 2:
+                            type_part = "Merchandise"
+
                         v_title = v.get("title", "").replace("\n", " ").strip()
-                        if not v_title or len(v_title) < 4 or v_title.startswith("$") or v_title.lower().startswith("discover"):
-                            # Synthesize clean title from slug
-                            v_title = slug.replace("-", " ").title()
+                        if not v_title or len(v_title) < 4 or v_title.startswith("$") or v_title.lower().startswith("discover") or v_title.lower() in ("t-shirts", "hoodies", "tank tops", "sweatshirts", "mugs", "stickers", "onesies", "garden flags", "house flags", "bags", "baseball caps", "long sleeves", "trucker hats"):
+                            # Synthesize clean title from parent and category
+                            parent_core = re.sub(r'\s*-\s*(?:T-Shirt|Hoodies|Hoodie|Sweatshirts|Tank Tops|Mugs|Stickers|Long Sleeves|Garden Flags|Bags|Baseball Caps|Caps|Onesies).*$', '', parent_title, flags=re.IGNORECASE).strip()
+                            v_title = f"{parent_core} - {type_part}" if parent_core else slug.replace("-", " ").title()
 
                         # Token & Brand relevance validation: ensure variant matches the specific POD artwork/design
                         if not self._is_valid_pod_variant(parent_title, v_title, slug, brand=brand, keyword=keyword):
                             continue
 
                         known_ids.add(v_id)
-                        
-                        # Derive clean product type
-                        type_part = slug.split("-")[-1].title() if "-" in slug else "Merchandise"
-                        if len(type_part) <= 2:
-                            type_part = "Merchandise"
 
                         price = v.get("price") or parent.get("price") or "$19.95"
                         variant_id = v_id if v_id else (re.search(r'-p(\d+)', u).group(1) if re.search(r'-p(\d+)', u) else f"{parent_id}_{slug}")
+                        v_img = v.get("image_url", "") or parent.get("image_url", "")
                         variant_item = {
                             "brand": brand,
                             "product_type": type_part,
@@ -716,8 +731,8 @@ class PrintervalScraper:
                             "price": price,
                             "seller": seller,
                             "location": "United States",
-                            "image_url": v.get("image_url", "") or parent.get("image_url", ""),
-                            "thumbnail": v.get("image_url", "") or parent.get("thumbnail", "") or parent.get("image_url", ""),
+                            "image_url": v_img,
+                            "thumbnail": v_img,
                             "url": u,
                             "marketplace": "printerval.com",
                             "condition": "New",
