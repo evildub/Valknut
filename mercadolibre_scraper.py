@@ -880,8 +880,17 @@ class MercadoLibreScraper:
                     "keyword": default_brand
                 })
 
-            # 2. Iterate through all /p/{id}/s? options pages (up to 5 pages) to harvest competing merchants
-            if base_item_id:
+            # 2. Check if Options sub-page exists before attempting pagination
+            has_options_button = False
+            try:
+                opt_btn = page.query_selector(".ui-pdp-other-sellers__button, button.seo-ui-anchor__button, a[href*='opcoes-de-compra'], a[href*='opciones-de-compra'], a[href*='/s?']")
+                if opt_btn:
+                    has_options_button = True
+            except Exception:
+                pass
+
+            # 3. Iterate through /p/{id}/s? options pages ONLY if product has an options button
+            if base_item_id and has_options_button:
                 opt_page_num = 1
                 while opt_page_num <= 5:
                     if stop_event and stop_event.is_set():
@@ -901,6 +910,17 @@ class MercadoLibreScraper:
 
                         page_data = page.evaluate("""
                             () => {
+                                const isError = (
+                                    document.title.toLowerCase().includes('ocorreu um problema') ||
+                                    document.title.toLowerCase().includes('hubo un problema') ||
+                                    document.body.innerText.includes('Ocorreu um problema') ||
+                                    document.body.innerText.includes('Hubo un problema') ||
+                                    document.body.innerText.includes('Erro: VIP')
+                                );
+                                if (isError) {
+                                    return { parsed: [], hasNext: false, isError: true };
+                                }
+
                                 const parsed = [];
                                 const allLinks = Array.from(document.querySelectorAll('a'));
                                 const sellerLinks = allLinks.filter(a => 
@@ -945,9 +965,12 @@ class MercadoLibreScraper:
                                 }
 
                                 const hasNext = !!document.querySelector('.andes-pagination__button--next:not(.andes-pagination__button--disabled)');
-                                return { parsed, hasNext };
+                                return { parsed, hasNext, isError: false };
                             }
                         """)
+
+                        if page_data.get("isError"):
+                            break
 
                         parsed_sellers = page_data.get("parsed", [])
                         for s_info in parsed_sellers:
@@ -995,7 +1018,7 @@ class MercadoLibreScraper:
                         logger.debug(f"Options page navigation exception: {opt_ex}")
                         break
 
-            # 3. Fallback if options endpoint was empty or not available
+            # 4. Fallback: Parse inline other sellers from base page if options endpoint was empty or not available
             if len(catalog_items) <= 1:
                 cards = soup.select(
                     ".ui-pdp-other-sellers__card, .ui-pdp-other-sellers__item, div[data-testid='other-sellers-card'], li.ui-pdp-other-sellers__item"
