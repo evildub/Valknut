@@ -265,8 +265,8 @@ class EbayScraper:
                 if store_info.get("is_item") and store_info.get("item_id"):
                     item_id = store_info["item_id"]
                     try:
-                        page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="load", timeout=20000)
-                        time.sleep(1.5)
+                        page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="domcontentloaded", timeout=15000)
+                        time.sleep(0.8)
                         item_html = page.content()
                         resolved = ""
                         # Prioritize Store Link, then JSON sellerName, then /usr/ profile link
@@ -291,8 +291,8 @@ class EbayScraper:
                 # If store URL was passed without a resolved seller username, resolve it directly in browser
                 if store_info.get("is_store") and store_info.get("store_name") and not store_info.get("seller"):
                     try:
-                        page.goto(f"https://www.ebay.com/str/{store_info['store_name']}", wait_until="load", timeout=20000)
-                        time.sleep(1.0)
+                        page.goto(f"https://www.ebay.com/str/{store_info['store_name']}", wait_until="domcontentloaded", timeout=15000)
+                        time.sleep(0.8)
                         store_html = page.content()
                         m_ssn = re.search(r'"_ssn":\s*"([a-zA-Z0-9_.-]+)"', store_html)
                         m_seller = re.search(r'"(?:sellerId|ownerUsername|username)":\s*"([a-zA-Z0-9_.-]+)"', store_html)
@@ -332,17 +332,24 @@ class EbayScraper:
 
                     url = self._build_url(cand_info, include_term, excludes, 1, condition)
                     try:
-                        page.goto(url, wait_until="load", timeout=25000)
-                        time.sleep(1.2)
-                        # Trigger lazy-loaded items (eBay virtualized stream)
-                        for _ in range(3):
-                            page.evaluate("window.scrollBy(0, 1200)")
-                            time.sleep(0.3)
-                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                        try:
+                            page.wait_for_selector(".s-card, .s-item, .str-item-card, .srp-results, .srp-save-null-search", timeout=6000)
+                        except Exception:
+                            pass
                         time.sleep(0.6)
+                        # Trigger lazy-loaded items (eBay virtualized stream)
+                        for _ in range(2):
+                            page.evaluate("window.scrollBy(0, 1200)")
+                            time.sleep(0.2)
+                        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        time.sleep(0.4)
                         html = page.content()
                     except Exception:
-                        continue
+                        try: html = page.content()
+                        except Exception: html = ""
+                        if not html:
+                            continue
 
                     page_items = self._parse_html(html, fallback_seller=cand or seller_label)
                     if page_items:
@@ -368,17 +375,24 @@ class EbayScraper:
 
                         url = self._build_url(active_info, include_term, excludes, page_num, condition)
                         try:
-                            page.goto(url, wait_until="load", timeout=25000)
-                            time.sleep(1.2)
-                            # Trigger lazy-loaded items for paginated pages
-                            for _ in range(3):
-                                page.evaluate("window.scrollBy(0, 1200)")
-                                time.sleep(0.3)
-                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                            try:
+                                page.wait_for_selector(".s-card, .s-item, .str-item-card, .srp-results, .srp-save-null-search", timeout=5000)
+                            except Exception:
+                                pass
                             time.sleep(0.6)
+                            # Trigger lazy-loaded items for paginated pages
+                            for _ in range(2):
+                                page.evaluate("window.scrollBy(0, 1200)")
+                                time.sleep(0.2)
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            time.sleep(0.4)
                             html = page.content()
                         except Exception:
-                            break
+                            try: html = page.content()
+                            except Exception: html = ""
+                            if not html:
+                                break
 
                         page_items = self._parse_html(html, fallback_seller=seller_label)
                         if not page_items:
@@ -397,7 +411,7 @@ class EbayScraper:
                             break
 
                         page_num += 1
-                        time.sleep(random.uniform(1.0, 2.0))
+                        time.sleep(random.uniform(0.8, 1.5))
 
                 if not items and html:
                     html_low = html.lower()
@@ -1196,7 +1210,7 @@ class EbayScraper:
                 page = context.pages[0] if context.pages else context.new_page()
                 
                 # Navigate to US item page first to establish session
-                page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="load", timeout=25000)
+                page.goto(f"https://www.ebay.com/itm/{item_id}", wait_until="domcontentloaded", timeout=15000)
                 
                 # In-browser parallel fetch across locales
                 domain_list = [loc.get("domain") for loc in candidate_locales]
