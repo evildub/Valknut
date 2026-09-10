@@ -439,6 +439,11 @@ class EbayScraper:
             return info
             
         url_str = url.strip().rstrip("/")
+        if any(g in url_str.lower() for g in ("global", "marketplace", "all products", "catalog", "full search")) or url_str.lower() in (
+            "https://www.ebay.com", "http://www.ebay.com", "https://ebay.com", "http://ebay.com",
+            "www.ebay.com", "ebay.com", "https://www.ebay.com/sch", "https://www.ebay.com/sch/i.html"
+        ):
+            return info
 
         # Check for query parameters first (e.g. pasted eBay search URL)
         if "?" in url_str:
@@ -549,8 +554,10 @@ class EbayScraper:
 
     def resolve_seller(self, url: str) -> str:
         """Backwards compatibility for main.py."""
+        if not url or any(g in url.lower() for g in ("global", "marketplace", "all products", "catalog", "full search")):
+            return "eBay Global Search"
         info = self.resolve_store_info(url)
-        return info.get("store_name") or info.get("seller") or url
+        return info.get("store_name") or info.get("seller") or "eBay Global Search"
 
     # ── Exclusion Sanitizer ───────────────────────────────────────────────────
     def _sanitize_exclusions(self, include_term: str, exclude_terms: list[str]) -> list[str]:

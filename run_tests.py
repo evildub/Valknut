@@ -723,8 +723,36 @@ class TestApolloCoreFeatures(unittest.TestCase):
         is_fluff, reason = self.data_store.is_universal_fluff(title)
         self.assertFalse(is_fluff, f"Silicone coaster was incorrectly flagged as fluff: {reason}")
 
-    def test_export_marketplace_dotcom_normalization(self):
-        """Verify that Redbubble and Printerval strictly normalize to redbubble.com and printerval.com for Excel export."""
+    def test_28_ebay_global_keyword_search(self):
+        """Test Item 28: Verify eBay global/general keyword search without store input."""
+        from scraper import EbayScraper
+        scraper = EbayScraper(headless=True)
+
+        # 1. resolve_store_info on empty/global strings
+        info_empty = scraper.resolve_store_info("")
+        self.assertEqual(info_empty["store_name"], "")
+        self.assertEqual(info_empty["seller"], "")
+        self.assertFalse(info_empty["is_store"])
+
+        info_global = scraper.resolve_store_info("🛒 Global eBay Search")
+        self.assertEqual(info_global["store_name"], "")
+        self.assertEqual(info_global["seller"], "")
+        self.assertFalse(info_global["is_store"])
+
+        # 2. _build_url generates clean native eBay keyword search URL
+        url = scraper._build_url(info_global, "Toyota TRD", ["case", "poster"], 1, "new")
+        self.assertIn("_nkw=Toyota+TRD", url.replace(" ", "+"))
+        self.assertIn("-case", url)
+        self.assertIn("-poster", url)
+        self.assertIn("LH_ItemCondition=1000", url)
+        self.assertNotIn("_ssn=", url)
+
+        # 3. resolve_seller returns clean label for UI logging
+        seller_label = scraper.resolve_seller("🛒 Global eBay Search")
+        self.assertEqual(seller_label, "eBay Global Search")
+
+    def test_29_export_marketplace_dotcom_normalization(self):
+        """Test Item 29: Verify that Redbubble and Printerval strictly normalize to redbubble.com and printerval.com for Excel export."""
         from exporter import normalize_marketplace_code
         self.assertEqual(normalize_marketplace_code("Redbubble"), "redbubble.com")
         self.assertEqual(normalize_marketplace_code("redbubble.com"), "redbubble.com")

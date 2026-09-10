@@ -2442,12 +2442,12 @@ class EbayTool(tk.Tk):
                 self.store_text.config(fg=t["subtext"])
             self._log("👕 Switched platform to: Printerval.com (Global Catalog & Creator Sweeps active)")
         else:
-            self.store_placeholder = "https://www.ebay.com/str/store1\nstore2\nseller3"
-            if not current_text or "vinted.co" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "Global" in current_text:
+            self.store_placeholder = "🌐 Global eBay Search: https://www.ebay.com/sch/\n(Leave blank to sweep entire eBay marketplace by keyword, or enter specific store/seller URLs)"
+            if not current_text or "vinted.co" in current_text or "aliexpress.com" in current_text or "wish.com" in current_text or "temu.com" in current_text or "mercadolibre" in current_text or "redbubble.com" in current_text or "printerval.com" in current_text or "store1" in current_text or "Global" in current_text:
                 self.store_text.delete("1.0", "end")
                 self.store_text.insert("1.0", self.store_placeholder)
                 self.store_text.config(fg=t["subtext"])
-            self._log("🛒 Switched platform to: eBay.com (Store & Seller Search active)")
+            self._log("🛒 Switched platform to: eBay.com (Global Search & Store Sweeps active)")
 
     def _get_stores_from_input(self):
         """Parse stores from input text box, safely ignoring placeholders and handling Global platform modes."""
@@ -2463,8 +2463,6 @@ class EbayTool(tk.Tk):
         is_redbubble = "Redbubble" in market
         is_printerval = "Printerval" in market
 
-        is_any_global = (is_manomano or is_vinted or is_ali or is_wish or is_temu or is_tiktok or is_meli or is_redbubble or is_printerval)
-
         def _get_global_token():
             if is_manomano: return ["🧰 Global ManoMano Search"]
             if is_vinted: return ["👗 Global Vinted Search"]
@@ -2475,7 +2473,7 @@ class EbayTool(tk.Tk):
             if is_meli: return ["🌐 Global Mercado Libre Search"]
             if is_redbubble: return ["🌐 Global Redbubble Search"]
             if is_printerval: return ["🌐 Global Printerval Search"]
-            return []
+            return ["🛒 Global eBay Search"]
 
         if (not raw_text or 
             raw_text == self.store_placeholder.strip() or 
@@ -2483,14 +2481,15 @@ class EbayTool(tk.Tk):
             "store1" in raw_text or 
             "enter store" in raw_text.lower() or
             "leave blank to sweep" in raw_text.lower()):
-            if is_any_global:
-                return _get_global_token()
-            return []
+            return _get_global_token()
 
         lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
         valid_stores = []
         ignored_exact = {
             "https://www.ebay.com/str/store1",
+            "https://www.ebay.com/sch/",
+            "https://www.ebay.com",
+            "store1",
             "store2",
             "seller3",
             "https://www.aliexpress.com/store/110123456",
@@ -2512,7 +2511,7 @@ class EbayTool(tk.Tk):
                 continue
             valid_stores.append(l)
 
-        if not valid_stores and is_any_global:
+        if not valid_stores:
             return _get_global_token()
 
         return valid_stores
