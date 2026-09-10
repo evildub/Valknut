@@ -4010,7 +4010,9 @@ class EbayTool(tk.Tk):
                                 condition=job.get("condition", "all"),
                                 log_callback=self._log
                             )
-                            job_record["url"] = f"https://listado.mercadolibre.com.mx/{actual_term.replace(' ', '-')}"
+                            from mercadolibre_scraper import REGIONAL_DOMAINS
+                            reg_domain = REGIONAL_DOMAINS.get(target_code, {}).get("domain", "listado.mercadolibre.com.mx")
+                            job_record["url"] = f"https://{reg_domain}/{actual_term.replace(' ', '-')}"
                     elif is_redbubble:
                         self.redbubble_scraper.headless = is_headless
                         rb_max = 100

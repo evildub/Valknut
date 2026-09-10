@@ -19,6 +19,7 @@ import logging
 import threading
 import urllib.parse
 from typing import List, Dict, Optional
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger("Apollo.MercadoLibreScraper")
 
@@ -268,7 +269,7 @@ class MercadoLibreScraper:
 
             # 1. Dismiss cookie banner if present
             try:
-                cookie_btn = page.query_selector("button[data-testid='action:understood-button'], button:has-text('Aceptar cookies')")
+                cookie_btn = page.query_selector("button[data-testid='action:understood-button'], button:has-text('Aceptar cookies'), button:has-text('Aceitar cookies'), button:has-text('Entendido'), button:has-text('Concordar')")
                 if cookie_btn and cookie_btn.is_visible():
                     cookie_btn.click()
                     page.wait_for_timeout(500)
@@ -276,13 +277,13 @@ class MercadoLibreScraper:
                 pass
 
             # 2. Captcha Wall Handling
-            if "captcha/wall" in cur_url or "seguridad" in cur_title:
+            if "captcha/wall" in cur_url or "seguridad" in cur_title or "seguranca" in cur_title or "segurança" in cur_title:
                 if not self.headless:
                     log_func("⚠ [Mercado Libre] Security captcha challenge presented. Please solve the captcha in the browser window...")
                     for sec in range(45):
                         cur_url = page.url.lower()
                         cur_title = page.title().lower()
-                        if "captcha/wall" not in cur_url and "seguridad" not in cur_title:
+                        if "captcha/wall" not in cur_url and "seguridad" not in cur_title and "seguranca" not in cur_title and "segurança" not in cur_title:
                             log_func("✅ [Mercado Libre] Security captcha passed!")
                             page.wait_for_timeout(2000)
                             break
@@ -293,7 +294,7 @@ class MercadoLibreScraper:
                     for sec in range(6):
                         cur_url = page.url.lower()
                         cur_title = page.title().lower()
-                        if "captcha/wall" not in cur_url and "seguridad" not in cur_title:
+                        if "captcha/wall" not in cur_url and "seguridad" not in cur_title and "seguranca" not in cur_title and "segurança" not in cur_title:
                             break
                         page.wait_for_timeout(1000)
 
@@ -301,7 +302,7 @@ class MercadoLibreScraper:
             cur_url = page.url.lower()
             cur_title = page.title().lower()
 
-            # 3. Account Login Gate Detection ("Hello! To continue, log in to your account" / "Para continuar, ingresa a tu cuenta")
+            # 3. Account Login Gate Detection (Spanish / Portuguese / English)
             is_login_gate = False
             try:
                 body_text = page.inner_text("body").lower()
@@ -309,8 +310,15 @@ class MercadoLibreScraper:
                     "i already have an account" in body_text or 
                     "para continuar, ingresa" in body_text or 
                     "inicia sesión" in body_text or 
+                    "para continuar, acesse" in body_text or
+                    "acesse a sua conta" in body_text or
+                    "acesse sua conta" in body_text or
+                    "entre na sua conta" in body_text or
+                    "já tenho conta" in body_text or
+                    "ja tenho conta" in body_text or
                     "/login" in cur_url or 
-                    "auth.mercadolibre" in cur_url):
+                    "auth.mercadolibre" in cur_url or
+                    "auth.mercadolivre" in cur_url):
                     is_login_gate = True
             except Exception:
                 pass
@@ -371,18 +379,20 @@ class MercadoLibreScraper:
 
         return True
 
-    def search(self, query: str, max_items: int = 50, condition: str = "all", log_callback=None) -> List[Dict]:
+    def search(self, query: str, max_items: int = 50, condition: str = "all", expand_catalog: bool = True, log_callback=None) -> List[Dict]:
         """
         Execute search on Mercado Libre using persistent stealth automation.
+        Automatically expands Catalog Buy Box listings (/p/) to harvest all competing merchants.
         
         Args:
-            query: Keyword string (e.g., 'Toyota emblem')
+            query: Keyword string (e.g., 'Bravecto' or 'Toyota emblem')
             max_items: Maximum listings to return
             condition: 'all', 'new', or 'used'
+            expand_catalog: If True, deep checks catalog product pages for all competing sellers
             log_callback: Optional callable for live UI logging
             
         Returns:
-            List of normalized listing dicts.
+            List of normalized listing dicts with each seller as their own result row.
         """
         def _log(msg):
             if log_callback:
@@ -445,7 +455,7 @@ class MercadoLibreScraper:
                                 '.ui-search-item__title, .poly-component__title, h2, a.poly-component__title, .ui-search-item__group__element, h3.poly-component__title-wrapper'
                             );
                             const linkEl = c.querySelector(
-                                'a.ui-search-link, a.poly-component__title, a[href*="articulo.mercadolibre"], a.ui-search-result__link, a[href*="mercadolibre.com"]'
+                                'a.ui-search-link, a.poly-component__title, a[href*="articulo.mercadolibre"], a[href*="produto.mercadolivre"], a.ui-search-result__link, a[href*="mercadolibre.com"], a[href*="mercadolivre.com"], a[href*="/p/"]'
                             );
                             const priceEl = c.querySelector(
                                 '.andes-money-amount__fraction, .ui-search-price__second-line .andes-money-amount__fraction, .poly-price__current .andes-money-amount__fraction'
@@ -493,11 +503,34 @@ class MercadoLibreScraper:
                         continue
                     seen_urls.add(item_url)
 
+                    is_catalog = "/p/" in item_url
+                    if is_catalog and expand_catalog:
+                        _log(f"🔎 [Mercado Libre] Detected Catalog Buy Box: '{raw_it.get('title', '')[:35]}...' -> Expanding all competing sellers...")
+                        try:
+                            expanded = self.extract_catalog_sellers(
+                                item_url,
+                                title=raw_it.get("title", ""),
+                                default_brand=query,
+                                context=context,
+                                close_browser=False
+                            )
+                            if expanded:
+                                for s_it in expanded:
+                                    s_it["keyword"] = query
+                                    results.append(s_it)
+                                    new_count += 1
+                                _log(f"📦 [Mercado Libre Catalog] Extracted {len(expanded)} distinct seller(s) for '{raw_it.get('title', '')[:30]}'.")
+                                if len(results) >= max_items:
+                                    break
+                                continue
+                        except Exception as cat_ex:
+                            logger.debug(f"Catalog expansion failed, falling back to card: {cat_ex}")
+
+                    # Standalone listing (or catalog fallback)
                     item_id = self._extract_item_id(item_url)
                     price_display, price_usd = self._convert_price_to_usd(raw_it.get("price_raw", ""), currency)
                     seller_name = raw_it.get("seller") or "Mercado Libre Seller"
                     item_loc = raw_it.get("location") or country
-                    is_catalog = "/p/" in item_url
 
                     results.append({
                         "brand": "",
@@ -537,158 +570,193 @@ class MercadoLibreScraper:
         _log(f"✅ [Mercado Libre] Search complete: Retrieved {len(results)} listings.")
         return results
 
-    def extract_catalog_sellers(self, catalog_url: str, title: str = "", default_brand: str = "") -> List[Dict]:
+    def parse_catalog_html(self, html_content: str, catalog_url: str = "", default_brand: str = "", site_code: str = None) -> List[Dict]:
+        """
+        Parse static or Playwright-retrieved catalog product HTML with BeautifulSoup.
+        Extracts Buy Box winner and all competing catalog merchants from /p/ product pages.
+        Supports Spanish (MLM, MLA, MCO, etc.) and Portuguese (MLB Brazil).
+        """
+        target_code = site_code or self.site_code
+        site_info = REGIONAL_DOMAINS.get(target_code, REGIONAL_DOMAINS["MLM"])
+        currency = site_info["currency"]
+        country = site_info["country"]
+        base_item_id = self._extract_item_id(catalog_url)
+
+        soup = BeautifulSoup(html_content, "html.parser")
+        results = []
+        seen_sellers = set()
+
+        # 1. Product Title
+        title_el = soup.select_one("h1.ui-pdp-title, h1.ui-vpp-title, h1")
+        title = title_el.get_text(strip=True) if title_el else (default_brand or "Mercado Libre Catalog Product")
+
+        # 2. Main Thumbnail
+        img_el = soup.select_one(".ui-pdp-image, .ui-pdp-gallery__figure img, img.ui-pdp-image, .ui-vpp-gallery__figure img, img[data-zoom]")
+        img_url = ""
+        if img_el:
+            img_url = img_el.get("src") or img_el.get("data-src") or ""
+
+        # 3. Buy Box Winner
+        main_seller = ""
+        for sel_css in (
+            ".ui-pdp-seller__link-trigger",
+            ".ui-seller-info a",
+            "a.ui-pdp-seller__header__title",
+            ".ui-pdp-seller__link",
+            ".ui-seller-data-header__title-wrapper",
+            "a.ui-pdp-official-store-info"
+        ):
+            if main_seller: break
+            el = soup.select_one(sel_css)
+            if el:
+                txt = el.get_text(strip=True)
+                if txt and not any(b in txt.lower() for b in ("mercado pontos", "devolución", "devolucao", "garantía", "garantia", "medios de pago", "ver mais", "ver más")):
+                    main_seller = re.sub(r'^(?:Vendido por|Vendido e entregue por|Por)\s+', '', txt, flags=re.IGNORECASE).strip()
+
+        if not main_seller:
+            for n in soup.find_all(["p", "span", "div", "a"]):
+                txt = n.get_text(strip=True)
+                if txt.lower().startswith("vendido por") or txt.lower().startswith("vendido e entregue por"):
+                    lines = [line.strip() for line in n.stripped_strings]
+                    if len(lines) >= 2:
+                        cand = re.sub(r'^(?:por)\s+', '', lines[1], flags=re.IGNORECASE).strip()
+                        if cand and not any(b in cand.lower() for b in ("mercado livre", "mercado libre", "ir a la página", "seguir", "mercado pontos")):
+                            main_seller = cand
+                            break
+
+        main_price_el = soup.select_one(".ui-pdp-price__second-line .andes-money-amount__fraction, .andes-money-amount__fraction")
+        main_price = main_price_el.get_text(strip=True) if main_price_el else ""
+
+        if main_seller and main_seller.lower() not in seen_sellers:
+            seen_sellers.add(main_seller.lower())
+            p_disp, p_usd = self._convert_price_to_usd(main_price, currency)
+            results.append({
+                "brand": default_brand,
+                "product_type": "Consumer Product",
+                "title": f"{title} [Buy Box Winner: {main_seller}]",
+                "item_id": base_item_id,
+                "price": p_disp,
+                "price_usd": p_usd,
+                "seller": main_seller,
+                "location": country,
+                "image_url": img_url,
+                "url": catalog_url,
+                "marketplace": "Mercado Libre",
+                "condition": "Catalog Buy Box",
+                "keyword": default_brand
+            })
+
+        # 4. Competing Sellers in "Otras opciones de compra" / "Outras opções de compra"
+        cards = soup.select(
+            ".ui-pdp-other-sellers__card, .ui-pdp-other-sellers__item, div[data-testid='other-sellers-card'], li.ui-pdp-other-sellers__item"
+        )
+        if not cards:
+            cards = soup.select(".ui-pdp-other-sellers a, a[href*='_CustId_'], a[href*='seller_id=']")
+
+        for cont in cards:
+            if cont.name == "a":
+                s_link = cont
+                parent_cont = cont.find_parent(["section", "div", "li"])
+            else:
+                s_link = cont.select_one("a")
+                parent_cont = cont
+
+            s_name = ""
+            if s_link:
+                s_name = s_link.get_text(strip=True)
+            if not s_name and parent_cont:
+                for tag in parent_cont.find_all(["span", "p", "div"]):
+                    t_str = tag.get_text(strip=True)
+                    if t_str.lower().startswith("vendido por") or t_str.lower().startswith("por "):
+                        s_name = t_str
+                        break
+
+            s_name = re.sub(r'^(?:vendido por|vendido e entregue por|por)\s+', '', s_name, flags=re.IGNORECASE).strip()
+            href_val = s_link.get("href", "") if s_link else catalog_url
+            if s_name.startswith("+") or any(x in s_name.lower() for x in ("producto", "produto", "ver más", "ver mais")):
+                cust_m = re.search(r'_CustId_(\d+)', href_val)
+                if cust_m:
+                    s_name = f"Seller_CustId_{cust_m.group(1)}"
+
+            p_el = parent_cont.select_one(".andes-money-amount__fraction") if parent_cont else None
+            c_price = p_el.get_text(strip=True) if p_el else main_price
+            
+            c_item_id = base_item_id
+            m_item = re.search(r'(?:item_id=|wid=)(ML[A-Z0-9_-]+)', href_val, re.IGNORECASE)
+            if m_item:
+                c_item_id = m_item.group(1).replace("-", "").upper()
+
+            if s_name and s_name.lower() not in seen_sellers and not any(x in s_name.lower() for x in ("ver mais", "ver más", "comprar", "agregar", "mercado libre", "mercado livre")):
+                seen_sellers.add(s_name.lower())
+                p_disp, p_usd = self._convert_price_to_usd(c_price, currency)
+                results.append({
+                    "brand": default_brand,
+                    "product_type": "Consumer Product",
+                    "title": f"{title} [Catalog Competitor: {s_name}]",
+                    "item_id": c_item_id,
+                    "price": p_disp,
+                    "price_usd": p_usd,
+                    "seller": s_name,
+                    "location": country,
+                    "image_url": img_url,
+                    "url": href_val or catalog_url,
+                    "marketplace": "Mercado Libre",
+                    "condition": "Catalog Competitor",
+                    "keyword": default_brand
+                })
+
+        # Fallback if no individual sellers were parsed
+        if not results:
+            p_disp, p_usd = self._convert_price_to_usd(main_price, currency)
+            results.append({
+                "brand": default_brand,
+                "product_type": "Consumer Product",
+                "title": title,
+                "item_id": base_item_id,
+                "price": p_disp,
+                "price_usd": p_usd,
+                "seller": main_seller or "Mercado Libre Seller",
+                "location": country,
+                "image_url": img_url,
+                "url": catalog_url,
+                "marketplace": "Mercado Libre",
+                "condition": "Catalog Buy Box",
+                "keyword": default_brand
+            })
+
+        return results
+
+    def extract_catalog_sellers(self, catalog_url: str, title: str = "", default_brand: str = "", context=None, close_browser: bool = True) -> List[Dict]:
         """
         Deep Catalog Multi-Seller Expansion.
         Extracts Buy Box winner and all competing catalog merchants from /p/ product pages.
+        Supports Spanish (MLM, MLA, MCO, etc.) and Portuguese (MLB Brazil).
         """
         catalog_items = []
         site_info = REGIONAL_DOMAINS.get(self.site_code, REGIONAL_DOMAINS["MLM"])
         currency = site_info["currency"]
         country = site_info["country"]
 
+        ctx = context or self._get_context()
+        page = None
         try:
-            context = self._get_context()
-            page = context.new_page()
+            page = ctx.new_page()
             page.goto(catalog_url, wait_until="domcontentloaded", timeout=25000)
             page.wait_for_timeout(2000)
 
-            data = page.evaluate("""
-                () => {
-                    const res = [];
-                    const seen = new Set();
-                    
-                    const tEl = document.querySelector('h1.ui-pdp-title, h1');
-                    const title = tEl ? tEl.innerText.trim() : '';
-                    const imgEl = document.querySelector('.ui-pdp-image, .ui-pdp-gallery__figure img, img.ui-pdp-image');
-                    const img = imgEl ? (imgEl.src || imgEl.getAttribute('data-src') || '') : '';
+            # Check if there is a 'Ver todas as opções' / 'Ver más opciones' sub-page link
+            opciones_link = page.query_selector("a[href*='opciones-de-compra'], a[href*='opcoes-de-compra']")
+            if opciones_link:
+                try:
+                    opciones_href = opciones_link.get_attribute("href")
+                    if opciones_href and ("opciones-de-compra" in opciones_href or "opcoes-de-compra" in opciones_href):
+                        page.goto(opciones_href, wait_until="domcontentloaded", timeout=15000)
+                        page.wait_for_timeout(1500)
+                except Exception:
+                    pass
 
-                    // 1. Primary Buy Box Winner
-                    let mainSeller = '';
-                    const selNodes = document.querySelectorAll('.ui-pdp-seller__link-trigger, .ui-seller-info a, a.ui-pdp-seller__header__title, span.ui-pdp-color--BLUE, .ui-pdp-seller__link, .ui-seller-data-header__title-wrapper');
-                    for (let n of selNodes) {
-                        const txt = n.innerText.trim();
-                        if (txt && !txt.includes('Mercado Puntos') && !txt.includes('Devolución') && !txt.includes('Garantía') && !txt.includes('Medios de pago') && !txt.includes('Ver más')) {
-                            mainSeller = txt.replace(/^Vendido por\\s+/i, '').replace(/^Por\\s+/i, '').trim();
-                            break;
-                        }
-                    }
-                    if (!mainSeller) {
-                        const allNodes = document.querySelectorAll('p, span, div, a');
-                        for (let n of allNodes) {
-                            const text = n.innerText ? n.innerText.trim() : '';
-                            if (text.startsWith('Vendido por')) {
-                                const lines = text.split('\\n').map(x => x.trim()).filter(x => x.length > 0);
-                                if (lines.length >= 2) {
-                                    let candidate = lines[1].replace(/^por\\s+/i, '').trim();
-                                    if (candidate && !['mercado libre', 'ir a la página', 'seguir', 'mercado puntos'].some(b => candidate.toLowerCase().includes(b))) {
-                                        mainSeller = candidate;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    const mainPriceEl = document.querySelector('.ui-pdp-price__second-line .andes-money-amount__fraction, .andes-money-amount__fraction');
-                    const mainPrice = mainPriceEl ? mainPriceEl.innerText.trim() : '';
-
-                    if (mainSeller && !seen.has(mainSeller.toLowerCase())) {
-                        seen.add(mainSeller.toLowerCase());
-                        res.push({
-                            title: title,
-                            seller: mainSeller,
-                            price_raw: mainPrice,
-                            role: 'Buy Box Winner',
-                            image_url: img,
-                            url: window.location.href,
-                            item_id: ''
-                        });
-                    }
-
-                    // 2. Competing Sellers in 'Otras opciones de compra'
-                    const otherLinks = document.querySelectorAll('a[href*=\"_CustId_\"], a[href*=\"seller_id=\"], .ui-pdp-other-sellers a');
-                    for (let a of otherLinks) {
-                        let sName = a.innerText.trim().replace(/^Vendido por\\s+/i, '').replace(/^Por\\s+/i, '').trim();
-                        const href = a.href || '';
-                        
-                        if (sName.startsWith('+') || sName.toLowerCase().includes('producto') || sName.toLowerCase().includes('ver más')) {
-                            const custMatch = href.match(/_CustId_(\\d+)/);
-                            if (custMatch) {
-                                sName = 'Seller_CustId_' + custMatch[1];
-                            }
-                        }
-
-                        let cPrice = '';
-                        let cItemId = '';
-                        const container = a.closest('section') || a.closest('div.ui-pdp-other-sellers') || a.closest('div');
-                        if (container) {
-                            const pEl = container.querySelector('.andes-money-amount__fraction');
-                            if (pEl) cPrice = pEl.innerText.trim();
-                        }
-                        const mItem = href.match(/item_id=(ML[A-Z]-?\\d+)/i);
-                        if (mItem) cItemId = mItem[1].replace('-', '').toUpperCase();
-
-                        if (sName && !seen.has(sName.toLowerCase()) && !['ver más', 'comprar', 'agregar', 'mercado'].some(x => sName.toLowerCase().includes(x))) {
-                            seen.add(sName.toLowerCase());
-                            res.push({
-                                title: title,
-                                seller: sName,
-                                price_raw: cPrice || mainPrice,
-                                role: 'Catalog Competitor',
-                                image_url: img,
-                                url: href || window.location.href,
-                                item_id: cItemId
-                            });
-                        }
-                    }
-
-                    return { title: title, img: img, sellers: res };
-                }
-            """)
-            page.close()
-
-            p_title = data.get("title") or title or "Mercado Libre Catalog Product"
-            p_img = data.get("img") or ""
-            sellers_list = data.get("sellers") or []
-            base_item_id = self._extract_item_id(catalog_url)
-
-            if not sellers_list:
-                price_disp, price_usd = self._convert_price_to_usd("", currency)
-                catalog_items.append({
-                    "brand": default_brand,
-                    "product_type": "Consumer Product",
-                    "title": p_title,
-                    "item_id": base_item_id,
-                    "price": price_disp,
-                    "price_usd": price_usd,
-                    "seller": "Mercado Libre Seller",
-                    "location": country,
-                    "image_url": p_img,
-                    "url": catalog_url,
-                    "marketplace": "Mercado Libre",
-                    "condition": "Catalog Product",
-                    "keyword": ""
-                })
-            else:
-                for s in sellers_list:
-                    price_disp, price_usd = self._convert_price_to_usd(s.get("price_raw") or "", currency)
-                    s_id = s.get("item_id") or base_item_id
-                    catalog_items.append({
-                        "brand": default_brand,
-                        "product_type": "Consumer Product",
-                        "title": f"{p_title} [{s.get('role', 'Catalog')}: {s.get('seller')}]",
-                        "item_id": s_id,
-                        "price": price_disp,
-                        "price_usd": price_usd,
-                        "seller": s.get("seller", "Mercado Libre Seller"),
-                        "location": country,
-                        "image_url": p_img,
-                        "url": s.get("url", catalog_url),
-                        "marketplace": "Mercado Libre",
-                        "condition": s.get("role", "Catalog Listing"),
-                        "keyword": ""
-                    })
+            html = page.content()
+            catalog_items = self.parse_catalog_html(html, catalog_url=catalog_url, default_brand=default_brand or title, site_code=self.site_code)
 
         except Exception as ex:
             logger.debug(f"Error expanding catalog item {catalog_url}: {ex}")
@@ -706,10 +774,14 @@ class MercadoLibreScraper:
                 "url": catalog_url,
                 "marketplace": "Mercado Libre",
                 "condition": "Catalog Listing",
-                "keyword": ""
+                "keyword": default_brand
             })
         finally:
-            self.close()
+            if page:
+                try: page.close()
+                except Exception: pass
+            if close_browser and context is None:
+                self.close()
 
         return catalog_items
 

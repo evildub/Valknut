@@ -760,8 +760,109 @@ class TestApolloCoreFeatures(unittest.TestCase):
         self.assertEqual(normalize_marketplace_code("printerval.com"), "printerval.com")
         self.assertEqual(normalize_marketplace_code("cafr.ebay.ca"), "ebay.ca - cafr")
 
+    def test_30_mercadolibre_catalog_multiseller_expansion(self):
+        """Test Item 30: Verify Mercado Libre / Livre Catalog Buy Box multi-seller expansion in Brazil (MLB) and Mexico (MLM)."""
+        from mercadolibre_scraper import MercadoLibreScraper
+
+        # 1. Brazil (MLB) Portuguese Catalog Product (e.g. Bravecto)
+        scraper_mlb = MercadoLibreScraper(headless=True, site_code="MLB")
+        mock_mlb_html = """
+        <html>
+            <body>
+                <h1 class="ui-pdp-title">Antiparasitário Bravecto Cães 40 a 56 Kg 1 Comprimido</h1>
+                <img class="ui-pdp-image" src="https://http2.mlstatic.com/D_NQ_NP_123456-MLB.jpg" />
+                
+                <!-- Buy Box Winner -->
+                <div class="ui-pdp-seller__header__title">
+                    <span>Vendido por </span>
+                    <a href="https://www.mercadolivre.com.br/loja/petlove">Petlove</a>
+                </div>
+                <div class="ui-pdp-price__second-line">
+                    <span class="andes-money-amount__fraction">229,90</span>
+                </div>
+
+                <!-- Outras opções de compra (Competing Catalog Sellers) -->
+                <div class="ui-pdp-other-sellers">
+                    <div class="ui-pdp-other-sellers__card">
+                        <a href="https://www.mercadolivre.com.br/p/MLB15918731?wid=MLB1234567890">Cobasi</a>
+                        <span class="andes-money-amount__fraction">235,00</span>
+                    </div>
+                    <div class="ui-pdp-other-sellers__card">
+                        <a href="https://perfil.mercadolivre.com.br/_CustId_987654321">Agro Pet Shop</a>
+                        <span class="andes-money-amount__fraction">225,50</span>
+                    </div>
+                    <div class="ui-pdp-other-sellers__card">
+                        <a href="https://www.mercadolivre.com.br/item?seller_id=456789&item_id=MLB99887766">Bicho Saudável</a>
+                        <span class="andes-money-amount__fraction">240,00</span>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+        catalog_url_mlb = "https://www.mercadolivre.com.br/p/MLB15918731"
+        sellers_mlb = scraper_mlb.parse_catalog_html(mock_mlb_html, catalog_url=catalog_url_mlb, default_brand="Bravecto", site_code="MLB")
+
+        self.assertEqual(len(sellers_mlb), 4, f"Expected 4 sellers (1 Buy Box + 3 Competitors), got {len(sellers_mlb)}")
+        
+        # Verify Buy Box winner
+        bb_winner = sellers_mlb[0]
+        self.assertEqual(bb_winner["seller"], "Petlove")
+        self.assertEqual(bb_winner["condition"], "Catalog Buy Box")
+        self.assertEqual(bb_winner["location"], "Brazil")
+        self.assertIn("BRL", bb_winner["price"])
+        self.assertEqual(bb_winner["item_id"], "MLB15918731")
+
+        # Verify Competing sellers
+        seller_names = [s["seller"] for s in sellers_mlb]
+        self.assertIn("Cobasi", seller_names)
+        self.assertIn("Agro Pet Shop", seller_names)
+        self.assertIn("Bicho Saudável", seller_names)
+
+        # Verify specific item IDs
+        cobasi_item = next(s for s in sellers_mlb if s["seller"] == "Cobasi")
+        self.assertEqual(cobasi_item["item_id"], "MLB1234567890")
+        self.assertEqual(cobasi_item["condition"], "Catalog Competitor")
+
+        # 2. Mexico (MLM) Spanish Catalog Product
+        scraper_mlm = MercadoLibreScraper(headless=True, site_code="MLM")
+        mock_mlm_html = """
+        <html>
+            <body>
+                <h1 class="ui-pdp-title">Bravecto Perros 40 a 56 Kg 1 Pipeta</h1>
+                <img class="ui-pdp-image" src="https://http2.mlstatic.com/D_NQ_NP_654321-MLM.jpg" />
+                
+                <!-- Buy Box Winner -->
+                <div class="ui-pdp-seller__header__title">
+                    <span>Vendido por </span>
+                    <a href="https://www.mercadolibre.com.mx/perfil/VET_SAN_ANGEL">Veterinaria San Angel</a>
+                </div>
+                <div class="ui-pdp-price__second-line">
+                    <span class="andes-money-amount__fraction">850</span>
+                </div>
+
+                <!-- Otras opciones de compra -->
+                <div class="ui-pdp-other-sellers">
+                    <div class="ui-pdp-other-sellers__card">
+                        <a href="https://www.mercadolibre.com.mx/p/MLM15918731?wid=MLM987654321">FarmaPet MX</a>
+                        <span class="andes-money-amount__fraction">820</span>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+        catalog_url_mlm = "https://www.mercadolibre.com.mx/p/MLM15918731"
+        sellers_mlm = scraper_mlm.parse_catalog_html(mock_mlm_html, catalog_url=catalog_url_mlm, default_brand="Bravecto", site_code="MLM")
+
+        self.assertEqual(len(sellers_mlm), 2)
+        self.assertEqual(sellers_mlm[0]["seller"], "Veterinaria San Angel")
+        self.assertEqual(sellers_mlm[0]["location"], "Mexico")
+        self.assertIn("MXN", sellers_mlm[0]["price"])
+        self.assertEqual(sellers_mlm[1]["seller"], "FarmaPet MX")
+        self.assertEqual(sellers_mlm[1]["item_id"], "MLM987654321")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
