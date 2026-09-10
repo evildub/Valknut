@@ -9282,6 +9282,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         count_lbl.pack(side="left")
 
         tk.Button(btn_bar, text="✕ Close", command=self.destroy, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
+        tk.Button(btn_bar, text="🏪 Enrich Sellers", command=self._enrich_selected_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
         tk.Button(btn_bar, text="📋 Copy Seller Handles", command=self._copy_sellers, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
         tk.Button(btn_bar, text="🏪 Add to Stores Box", command=self._add_all_to_stores, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
         tk.Button(btn_bar, text="📥 Add to Results Table", command=self._add_to_results, bg=t["entry_bg"], fg=t["text"], relief="flat", padx=12, pady=6, font=FONT_SM).pack(side="right", padx=4)
@@ -9718,6 +9719,7 @@ class ConnectedNetworkModal(tk.Toplevel):
         
         t = self.t
         menu = tk.Menu(self, tearoff=0, bg=t["panel"], fg=t["text"], activebackground=t["accent"], activeforeground="white")
+        menu.add_command(label="🏪 Enrich Seller Name(s)", command=self._enrich_selected_sellers)
         menu.add_command(label="➕ Add This Seller to Target Queue", command=self._add_single_seller_to_queue)
         menu.add_command(label="🏪 Add This Seller to Stores Box", command=self._add_single_seller_to_stores)
         menu.add_command(label="🛡 Whitelist This Seller (Authorized Dealer)", command=self._whitelist_selected_row_seller)
@@ -10161,6 +10163,79 @@ class ConnectedNetworkModal(tk.Toplevel):
             msg += f" (Skipped {skipped_executed} already-completed searches)"
         parent._log(f"🎯 Enqueued {added_count} batch jobs across {len(eligible_sellers)} sellers on {platform_name} (Shielded {skipped_count} whitelisted dealers, skipped {skipped_executed} already run).")
         self.count_var.set(f"🎯 {msg}")
+
+    def _enrich_selected_sellers(self):
+        """Enrich real merchant/artist names across discovered items in the Hunter Modal."""
+        selected_iids = self.tree.selection()
+        target_items = []
+        if selected_iids:
+            for iid in selected_iids:
+                vals = self.tree.item(iid)["values"]
+                item_id = str(vals[6]).strip() if len(vals) > 6 else (str(vals[4]).strip() if len(vals) > 4 else "")
+                for it in self.discovered_items:
+                    if str(it.get("item_id", "")).strip() == item_id:
+                        target_items.append(it)
+                        break
+        else:
+            target_items = list(self.discovered_items)
+
+        if not target_items:
+            messagebox.showinfo("Enrich Sellers", "No discovered listings to enrich.", parent=self)
+            return
+
+        items_to_enrich = [
+            it for it in target_items 
+            if not it.get("seller") or it.get("seller") in ("Printerval Creator", "Unknown", "Resolving...") or selected_iids
+        ]
+        if not items_to_enrich:
+            items_to_enrich = list(target_items)
+
+        is_printerval = "printerval" in self.target_item.get("url", "").lower() or "printerval" in str(self.target_item.get("marketplace", "")).lower()
+        is_meli = "mercadolibre" in self.target_item.get("url", "").lower() or "mercadolivre" in self.target_item.get("url", "").lower()
+
+        self.status_lbl.configure(text=f"🏪 Enriching real merchant/artist names for {len(items_to_enrich)} listing(s)...", fg=self.t["accent"])
+        self.pbar.pack(side="right", padx=(8, 0))
+        self.pbar.start(12)
+
+        def _w():
+            try:
+                if is_printerval:
+                    scraper = getattr(self.parent, "printerval_scraper", None)
+                    if not scraper:
+                        from printerval_scraper import PrintervalScraper
+                        scraper = PrintervalScraper(headless=True)
+                    
+                    def _prog(cur, tot, it):
+                        s_name = it.get("seller", "")
+                        self.after(0, lambda: self.status_lbl.configure(text=f"🏪 Enriching Sellers [{cur}/{tot}] -> '{s_name}'"))
+                        self.after(0, self._populate_tree)
+
+                    scraper.enrich_seller_info(items_to_enrich, progress_callback=_prog)
+                elif is_meli:
+                    scraper = getattr(self.parent, "mercadolibre_scraper", None)
+                    if not scraper:
+                        from mercadolibre_scraper import MercadoLibreScraper
+                        scraper = MercadoLibreScraper(headless=False)
+                    scraper.enrich_seller_info(items_to_enrich)
+                else:
+                    scraper = getattr(self.parent, "scraper", None)
+                    if scraper and hasattr(scraper, "enrich_ebay_seller_info"):
+                        scraper.enrich_ebay_seller_info(items_to_enrich)
+
+            except Exception as e:
+                logger.exception("Error enriching sellers in ConnectedNetworkModal")
+            
+            def _done():
+                self.pbar.stop()
+                self.pbar.pack_forget()
+                self._populate_tree()
+                unique_sellers = set(r["seller"] for r in self.discovered_items if r.get("seller") and r.get("seller") not in ("Printerval Creator", "Unknown"))
+                self.status_lbl.configure(text=f"✅ Enrichment Complete: {len(unique_sellers)} unique creators/merchants identified across discovered network.", fg=self.t["success"])
+            
+            self.after(0, _done)
+
+        threading.Thread(target=_w, daemon=True).start()
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
