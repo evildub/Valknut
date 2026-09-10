@@ -48,7 +48,8 @@ class WishScraper:
                 "original": raw
             }
 
-        if not raw or any(g == raw.lower().strip() for g in ("global", "marketplace", "all", "wish", "wish.com", "https://www.wish.com", "https://wish.com", "wish.com/")):
+        low = raw.lower()
+        if not raw or any(g in low for g in ("global", "marketplace", "all", "wish", "full search", "catalog")):
             return {
                 "store_id": "GLOBAL",
                 "store_name": "Wish Global Search",
@@ -111,16 +112,16 @@ class WishScraper:
         store_id = store_info.get("store_id", "")
         enc_kw = quote_plus(keyword)
 
-        if store_id == "GLOBAL" or not store_id:
+        if not store_id or store_id == "GLOBAL" or "global" in str(store_id).lower():
             # Standard Wish search query
             return f"https://www.wish.com/search/{enc_kw}"
 
         orig = store_info.get("original", "")
-        if "wish.com" in orig:
+        if "wish.com" in orig and "/merchant/" in orig:
             sep = "&" if "?" in orig else "?"
             return f"{orig}{sep}q={enc_kw}"
 
-        return f"https://www.wish.com/search/{enc_kw}"
+        return f"https://www.wish.com/merchant/{store_id}?q={enc_kw}"
 
     def _launch_browser_context(self, p, launch_args: list, ua: str):
         """Safely launch persistent Edge context with automatic stale lock cleanup and fallback temp profiles."""
