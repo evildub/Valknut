@@ -269,18 +269,23 @@ class MercadoLibreScraper:
         cleaned = (raw_text or "").strip()
         cleaned = re.sub(r'^(?:Vendido por|Vendido e entregue por|Por|Vendedor)\s+', '', cleaned, flags=re.IGNORECASE).strip()
         
+        noise_patterns = [
+            r'\b(?:ir para|ir a la)\b',
+            r'p[aá]gina d[eo] vendedor',
+            r'\b\+?\d+[\d.,]*\s*seguidores\b',
+            r'\bmercado\s+(?:livre|libre|pontos|envios|pago)\b',
+            r'\b(?:devolu[cç][aã]o|garant[ií]a|ver ma[ií]s)\b',
+            r'\b(?:comprar agora|adicionar ao carrinho|lojas oficiais)\b',
+            r'\b(?:sem juros|com juros)\b',
+            r'\b\d+%\s*off\b',
+            r'\b(?:cupom|cup[oó]n|desconto|frete gr[aá]tis)\b',
+            r'^\s*(?:r\$|usd|\$)\b',
+        ]
         is_noise = (
             not cleaned or
             len(cleaned) > 70 or
             bool(re.search(r'^\s*R?\$?\s*\d+[,.]\d+', cleaned, re.IGNORECASE)) or
-            any(b in cleaned.lower() for b in (
-                "ir para a p", "ir para", "ir a la p", "ir a la", "página do vendedor", "pagina do vendedor",
-                "página del vendedor", "pagina del vendedor", "seguidores", "produtos", "productos",
-                "mercado livre", "mercado libre", "mercado pontos", "devolução", "devolucao",
-                "garantía", "garantia", "ver mais", "ver más", "comprar agora", "adicionar ao carrinho",
-                "comprar", "agregar", "lojas oficiais", "cupom", "cupón", "desconto", "frete", "sem juros",
-                "com juros", "off", "r$", "usd"
-            ))
+            any(re.search(pat, cleaned, re.IGNORECASE) for pat in noise_patterns)
         )
         
         if not is_noise:
@@ -1153,13 +1158,15 @@ class MercadoLibreScraper:
                             let sLoc = '';
                             let sRep = '';
 
-                            // 1. Check direct seller trigger link
-                            const selNodes = document.querySelectorAll('.ui-pdp-seller__link-trigger, .ui-seller-info a, a.ui-pdp-seller__header__title, .ui-pdp-seller__link, .ui-seller-data-header__title-wrapper');
+                            // 1. Direct seller link or storefront link
+                            const selNodes = document.querySelectorAll(
+                                'a[href*="/pagina/"], a[href*="/loja/"], .ui-pdp-seller__link-trigger, .ui-seller-info a, a.ui-pdp-seller__header__title, .ui-pdp-seller__link, .ui-seller-data-header__title-wrapper'
+                            );
                             for (let n of selNodes) {
                                 const txt = n.innerText.trim();
                                 const isIgnored = (
                                     !txt ||
-                                    /r\$|\$|cupom|cupón|desconto|frete|mercado pontos|devolução|devolucao|garantía|garantia|medios de pago|ver mais|ver más/i.test(txt) ||
+                                    /r\$|\$|cupom|cupón|desconto|frete|mercado pontos|devolução|devolucao|garantía|garantia|medios de pago|ver mais|ver más|ir para|ir a la|seguidores|produtos/i.test(txt) ||
                                     /^\s*r?\$?\s*\d+[,.]\d+/i.test(txt)
                                 );
                                 if (!isIgnored) {
@@ -1168,7 +1175,24 @@ class MercadoLibreScraper:
                                 }
                             }
 
-                            // 2. Check multiline "Vendido por" (e.g. "Vendido por\nNocnoc Us Shop\n...")
+                            // 2. Extract handle from link href if text was generic (e.g. /pagina/anzaipet)
+                            if (!sName) {
+                                for (let n of selNodes) {
+                                    const href = n.getAttribute('href') || '';
+                                    const mPag = href.match(/\/pagina\/([^/?#]+)/i) || href.match(/\/loja\/([^/?#]+)/i);
+                                    if (mPag) {
+                                        sName = mPag[1].replace(/[-_]/g, ' ').toUpperCase();
+                                        break;
+                                    }
+                                    const mCust = href.match(/(?:_CustId_|seller_id=)(\d+)/i);
+                                    if (mCust) {
+                                        sName = `MeLi_Seller_${mCust[1]}`;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // 3. Check multiline "Vendido por" (e.g. "Vendido por\nNocnoc Us Shop\n...")
                             if (!sName) {
                                 const allNodes = document.querySelectorAll('p, span, div, a');
                                 for (let n of allNodes) {
@@ -1186,23 +1210,13 @@ class MercadoLibreScraper:
                                 }
                             }
 
-                            // 3. Check Storefront Page Header (e.g. /pagina/lojacdc or /loja/long-dog)
+                            // 4. Check dedicated store header
                             if (!sName) {
-                                const h1El = document.querySelector('h1.eshop-header__title, h1.store-header__title, h1');
+                                const h1El = document.querySelector('h1.eshop-header__title, h1.store-header__title, .ui-pdp-seller__header__title');
                                 if (h1El) {
                                     const h1Txt = h1El.innerText.trim();
-                                    if (h1Txt && h1Txt.length < 60 && !h1Txt.toLowerCase().includes('mercado') && !h1Txt.toLowerCase().includes('resultado') && !h1Txt.toLowerCase().includes('você') && !h1Txt.toLowerCase().includes('voce')) {
+                                    if (h1Txt && h1Txt.length < 60 && !h1Txt.toLowerCase().includes('mercado')) {
                                         sName = h1Txt;
-                                    }
-                                }
-                            }
-
-                            if (!sName) {
-                                const docTitle = document.title || '';
-                                if (docTitle.includes('|')) {
-                                    const parts = docTitle.split('|').map(x => x.trim().replace(/^\\(\\d+\\)\\s*/, ''));
-                                    if (parts.length >= 2 && (parts[1].toLowerCase().includes('página') || parts[1].toLowerCase().includes('pagina') || parts[1].toLowerCase().includes('tienda') || parts[1].toLowerCase().includes('loja'))) {
-                                        sName = parts[0];
                                     }
                                 }
                             }

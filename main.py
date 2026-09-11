@@ -6531,19 +6531,50 @@ class EbayTool(tk.Tk):
         target_items = []
 
         if selected_iids:
+            used_indices = set()
             for item_iid in selected_iids:
                 vals = self.result_tree.item(item_iid)["values"]
-                if len(vals) > 3:
+                if len(vals) > 5:
                     item_id = str(vals[3]).strip()
-                    title_val = str(vals[2]).strip() if len(vals) > 2 else ""
+                    title_val = str(vals[2]).strip()
+                    seller_val = str(vals[5]).strip()
+                    price_val = str(vals[4]).strip()
                     url_val = str(vals[10]).strip() if len(vals) > 10 else (str(vals[8]).strip() if len(vals) > 8 else "")
-                    for it in self.results:
-                        if (item_id and str(it.get("item_id", "")).strip() == item_id) or \
-                           (url_val and str(it.get("url", "")).strip() == url_val) or \
-                           (title_val and str(it.get("title", "")).strip() == title_val):
-                            if it not in target_items:
-                                target_items.append(it)
+
+                    matched_idx = None
+                    # 1. Exact match on id + title + seller + price
+                    for idx, it in enumerate(self.results):
+                        if idx in used_indices:
+                            continue
+                        if (str(it.get("item_id", "")).strip() == item_id and
+                            str(it.get("title", "")).strip() == title_val and
+                            str(it.get("seller", "")).strip() == seller_val and
+                            str(it.get("price", "")).strip() == price_val):
+                            matched_idx = idx
                             break
+                    # 2. Fallback match on id/url + title
+                    if matched_idx is None:
+                        for idx, it in enumerate(self.results):
+                            if idx in used_indices:
+                                continue
+                            if ((item_id and str(it.get("item_id", "")).strip() == item_id) or
+                                (url_val and str(it.get("url", "")).strip() == url_val)) and \
+                                (str(it.get("title", "")).strip() == title_val):
+                                matched_idx = idx
+                                break
+                    # 3. Fallback match on id or url
+                    if matched_idx is None:
+                        for idx, it in enumerate(self.results):
+                            if idx in used_indices:
+                                continue
+                            if (item_id and str(it.get("item_id", "")).strip() == item_id) or \
+                               (url_val and str(it.get("url", "")).strip() == url_val):
+                                matched_idx = idx
+                                break
+
+                    if matched_idx is not None:
+                        used_indices.add(matched_idx)
+                        target_items.append(self.results[matched_idx])
         else:
             # Check all items in session needing seller enrichment
             for it in self.results:
@@ -6584,7 +6615,7 @@ class EbayTool(tk.Tk):
                 if s_name and not any(g in s_name.lower() for g in ("ebay seller", "global search", "aliexpress global", "unknown", "tiktok shop merchant", "mercado libre seller", "ir para", "ir a la", "pagina do vendedor", "página do vendedor")):
                     enriched_count += 1
                     
-                    # Auto-update sibling listings in current results that share the same store/seller
+                    # Auto-update sibling listings in current results that share the same store/seller or identical standalone item
                     store_id = str(item.get("store_id", "")).strip()
                     store_url = str(item.get("store_url", "")).strip()
                     seller_origin = item.get("seller_origin")
@@ -6592,11 +6623,17 @@ class EbayTool(tk.Tk):
                     business_entity = item.get("business_entity")
                     threat_badge = item.get("threat_badge")
                     threat_score = item.get("threat_score")
+                    item_url_norm = str(item.get("url", "")).split("?")[0].strip().lower()
+                    item_id_val = str(item.get("item_id", "")).strip()
+                    is_catalog_item = "/p/" in item_url_norm
                     
                     for other in self.results:
                         if other is item:
                             continue
                         is_match = False
+                        other_url_norm = str(other.get("url", "")).split("?")[0].strip().lower()
+                        other_id_val = str(other.get("item_id", "")).strip()
+
                         if store_id and str(other.get("store_id", "")).strip() == store_id:
                             is_match = True
                         elif store_url and str(other.get("store_url", "")).strip() == store_url:
@@ -6620,6 +6657,12 @@ class EbayTool(tk.Tk):
                                     is_match = True
                         elif s_name and other.get("seller") == s_name:
                             is_match = True
+                        elif not is_catalog_item:
+                            # Standalone items sharing exact URL or Item ID
+                            if item_url_norm and other_url_norm and item_url_norm == other_url_norm:
+                                is_match = True
+                            elif item_id_val and other_id_val and item_id_val == other_id_val:
+                                is_match = True
 
                         if is_match:
                             other["seller"] = s_name
