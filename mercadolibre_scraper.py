@@ -320,6 +320,45 @@ class MercadoLibreScraper:
 
         return "Mercado Libre Seller"
 
+    def _construct_competitor_listing_url(self, href_val: str, catalog_url: str, c_item_id: str) -> tuple[str, str]:
+        """
+        Construct a direct, functional listing PDP URL for a catalog competitor,
+        and preserve the seller profile URL as store_url.
+        """
+        store_url = href_val if href_val and ("_CustId_" in href_val or "/pagina/" in href_val or "/loja/" in href_val or "seller_id=" in href_val) else ""
+        
+        # 1. If we have a specific Mercado Libre Item ID (e.g. MLB7069934198 or MLM123456)
+        if c_item_id and re.match(r'^ML[A-Z]\d+$', c_item_id, re.IGNORECASE):
+            clean_id = c_item_id.upper()
+            if catalog_url and "/p/" in catalog_url:
+                base_cat = catalog_url.split("?")[0].split("#")[0]
+                return f"{base_cat}?pdp_filters=item_id:{clean_id}", store_url
+            else:
+                site_prefix = clean_id[:3]
+                raw_num = clean_id[3:]
+                # Canonical regional direct product URL
+                if site_prefix == "MLB":
+                    return f"https://produto.mercadolivre.com.br/MLB-{raw_num}", store_url
+                elif site_prefix == "MLM":
+                    return f"https://articulo.mercadolibre.com.mx/MLM-{raw_num}", store_url
+                elif site_prefix == "MLA":
+                    return f"https://articulo.mercadolibre.com.ar/MLA-{raw_num}", store_url
+                elif site_prefix == "MCO":
+                    return f"https://articulo.mercadolibre.com.co/MCO-{raw_num}", store_url
+                elif site_prefix == "MLC":
+                    return f"https://articulo.mercadolibre.com.cl/MLC-{raw_num}", store_url
+                elif site_prefix == "MPE":
+                    return f"https://articulo.mercadolibre.com.pe/MPE-{raw_num}", store_url
+                elif site_prefix == "MLU":
+                    return f"https://articulo.mercadolibre.com.uy/MLU-{raw_num}", store_url
+
+        # 2. If catalog_url is available, link directly to the catalog product
+        if catalog_url:
+            return catalog_url.split("#")[0], store_url
+
+        # 3. Fallback to href_val
+        return href_val or "", store_url
+
     def _ensure_search_page_loaded(self, page, target_url: str, log_func) -> bool:
         """
         Handle cookie banners, Captcha walls, and mandatory Account Sign-In gates,
@@ -782,6 +821,7 @@ class MercadoLibreScraper:
             if s_name and s_name.lower() not in seen_sellers and s_name != "Mercado Libre Seller":
                 seen_sellers.add(s_name.lower())
                 p_disp, p_usd = self._convert_price_to_usd(c_price, currency)
+                direct_url, store_url = self._construct_competitor_listing_url(href_val, catalog_url, c_item_id)
                 results.append({
                     "brand": default_brand,
                     "product_type": "Consumer Product",
@@ -792,7 +832,8 @@ class MercadoLibreScraper:
                     "seller": s_name,
                     "location": country,
                     "image_url": img_url,
-                    "url": href_val or catalog_url,
+                    "url": direct_url,
+                    "store_url": store_url,
                     "marketplace": "Mercado Libre",
                     "condition": "Catalog Competitor",
                     "keyword": default_brand
@@ -1017,6 +1058,7 @@ class MercadoLibreScraper:
                                 safe_s = re.sub(r'[^a-zA-Z0-9]', '', s_name)
                                 c_item_id = f"{base_item_id}_{safe_s}" if safe_s else base_item_id
 
+                            direct_url, store_url = self._construct_competitor_listing_url(href_val, catalog_url, c_item_id)
                             catalog_items.append({
                                 "brand": default_brand,
                                 "product_type": "Consumer Product",
@@ -1027,7 +1069,8 @@ class MercadoLibreScraper:
                                 "seller": s_name,
                                 "location": country,
                                 "image_url": img_url,
-                                "url": href_val or catalog_url,
+                                "url": direct_url,
+                                "store_url": store_url,
                                 "marketplace": "Mercado Libre",
                                 "condition": s_info.get("condition", "Catalog Competitor"),
                                 "keyword": default_brand
@@ -1084,6 +1127,7 @@ class MercadoLibreScraper:
                             else:
                                 safe_s = re.sub(r'[^a-zA-Z0-9]', '', s_name)
                                 c_item_id = f"{base_item_id}_{safe_s}" if safe_s else base_item_id
+                            direct_url, store_url = self._construct_competitor_listing_url(href_val, catalog_url, c_item_id)
                             catalog_items.append({
                                 "brand": default_brand,
                                 "product_type": "Consumer Product",
@@ -1094,7 +1138,8 @@ class MercadoLibreScraper:
                                 "seller": s_name,
                                 "location": country,
                                 "image_url": img_url,
-                                "url": href_val or catalog_url,
+                                "url": direct_url,
+                                "store_url": store_url,
                                 "marketplace": "Mercado Libre",
                                 "condition": "Catalog Competitor",
                                 "keyword": default_brand
