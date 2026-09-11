@@ -4380,9 +4380,13 @@ class EbayTool(tk.Tk):
                             item["marketplace"] = mkt_tag
 
                         item_id = str(item.get("item_id", "")).strip()
+                        seller_str = str(item.get("seller", "")).strip().lower()
                         raw_url = str(item.get("url", "")).strip().lower()
                         norm_url = raw_url.split("?")[0] if raw_url else ""
-                        dedup_key = norm_url if norm_url else (f"{item.get('marketplace', '')}_{item_id}" if item_id else None)
+                        if seller_str and seller_str != "mercado libre seller":
+                            dedup_key = f"{item_id}::{seller_str}" if item_id else f"{norm_url}::{seller_str}"
+                        else:
+                            dedup_key = norm_url if norm_url else (f"{item.get('marketplace', '')}_{item_id}" if item_id else None)
                         if dedup_key and dedup_key not in self.seen_item_ids:
                             self.seen_item_ids.add(dedup_key)
                             self.results.append(item)
