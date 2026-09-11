@@ -5137,7 +5137,13 @@ class EbayTool(tk.Tk):
             elif item.get("visual_counterfeit"):
                 threat_display = item.get("threat_badge", "🚨 Visual Counterfeit")
             elif item.get("threat_badge"):
-                threat_display = item["threat_badge"]
+                raw_tb = str(item["threat_badge"]).strip()
+                if "\n" in raw_tb or len(raw_tb) > 60:
+                    # Clean up corrupted multiline breadcrumbs
+                    threat_display = assessment.get("badge", "Domestic / Verified") if orig_country != "Unknown" else "Unresolved"
+                    item["threat_badge"] = threat_display
+                else:
+                    threat_display = raw_tb
             else:
                 item["threat_badge"] = threat_display
 

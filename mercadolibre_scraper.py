@@ -269,13 +269,22 @@ class MercadoLibreScraper:
         cleaned = (raw_text or "").strip()
         cleaned = re.sub(r'^(?:Vendido por|Vendido e entregue por|Por|Vendedor)\s+', '', cleaned, flags=re.IGNORECASE).strip()
         
+        # Check if it's an Official Store / 1P Retailer
+        if "loja oficial" in cleaned.lower() or "tienda oficial" in cleaned.lower():
+            if "mercado livre" in cleaned.lower() or "mercado libre" in cleaned.lower():
+                return "Mercado Livre (Loja Oficial)"
+            return cleaned.title()
+        if cleaned.lower() in ("mercado livre (loja oficial)", "mercado libre (tienda oficial)"):
+            return cleaned
+
         noise_patterns = [
             r'\b(?:ir para|ir a la)\b',
             r'p[aá]gina d[eo] vendedor',
             r'\b\+?\d+[\d.,]*\s*seguidores\b',
-            r'\bmercado\s+(?:livre|libre|pontos|envios|pago)\b',
+            r'^\s*mercado\s+(?:livre|libre)\s*$',
+            r'^\s*mercado\s+(?:pontos|envios|pago)\b',
             r'\b(?:devolu[cç][aã]o|garant[ií]a|ver ma[ií]s)\b',
-            r'\b(?:comprar agora|adicionar ao carrinho|lojas oficiais)\b',
+            r'\b(?:comprar agora|adicionar ao carrinho|meios de pagamento|formas de pago)\b',
             r'\b(?:sem juros|com juros)\b',
             r'\b\d+%\s*off\b',
             r'\b(?:cupom|cup[oó]n|desconto|frete gr[aá]tis)\b',
@@ -1158,30 +1167,42 @@ class MercadoLibreScraper:
                             let sLoc = '';
                             let sRep = '';
 
-                            // 1. Direct seller link or storefront link
-                            const selNodes = document.querySelectorAll(
-                                'a[href*="/pagina/"], a[href*="/loja/"], .ui-pdp-seller__link-trigger, .ui-seller-info a, a.ui-pdp-seller__header__title, .ui-pdp-seller__link, .ui-seller-data-header__title-wrapper'
+                            // 1. Check direct seller link triggers and official store links
+                            const priorityNodes = document.querySelectorAll(
+                                'a.ui-pdp-seller-summary__link, a.ui-pdp-seller__link-trigger, a.ui-pdp-seller__header__title, a.ui-pdp-official-store-info, a[href*="/pagina/"], a[href*="/loja/"], .ui-seller-data-header__title-wrapper a'
                             );
-                            for (let n of selNodes) {
-                                const txt = n.innerText.trim();
+                            for (let n of priorityNodes) {
+                                const txt = (n.innerText || '').trim();
+                                const href = n.getAttribute('href') || '';
                                 const isIgnored = (
                                     !txt ||
-                                    /r\$|\$|cupom|cupón|desconto|frete|mercado pontos|devolução|devolucao|garantía|garantia|medios de pago|ver mais|ver más|ir para|ir a la|seguidores|produtos/i.test(txt) ||
+                                    /r\$|\$|cupom|cupón|desconto|frete|mercado pontos|devolução|devolucao|garantía|garantia|meios de pagamento|formas de pago|ver mais|ver más|ir para|ir a la|seguidores|produtos|saiba mais/i.test(txt) ||
                                     /^\s*r?\$?\s*\d+[,.]\d+/i.test(txt)
                                 );
                                 if (!isIgnored) {
-                                    sName = txt.replace(/^Vendido por\s+/i, '').replace(/^Por\s+/i, '').trim();
-                                    break;
+                                    let clean = txt.replace(/^Vendido por\s+/i, '').replace(/^Por\s+/i, '').trim();
+                                    if (clean.toLowerCase() === 'mercado livre' || clean.toLowerCase() === 'mercado libre' || href.includes('/loja/mercado-livre') || href.includes('/loja/mercado-libre')) {
+                                        sName = 'Mercado Livre (Loja Oficial)';
+                                        break;
+                                    } else if (clean) {
+                                        sName = clean;
+                                        break;
+                                    }
                                 }
                             }
 
-                            // 2. Extract handle from link href if text was generic (e.g. /pagina/anzaipet)
+                            // 2. Extract handle from link href if text was generic
                             if (!sName) {
-                                for (let n of selNodes) {
+                                for (let n of priorityNodes) {
                                     const href = n.getAttribute('href') || '';
                                     const mPag = href.match(/\/pagina\/([^/?#]+)/i) || href.match(/\/loja\/([^/?#]+)/i);
                                     if (mPag) {
-                                        sName = mPag[1].replace(/[-_]/g, ' ').toUpperCase();
+                                        let hName = mPag[1].replace(/[-_]/g, ' ').trim();
+                                        if (hName.toLowerCase() === 'mercado livre' || hName.toLowerCase() === 'mercado libre') {
+                                            sName = 'Mercado Livre (Loja Oficial)';
+                                        } else {
+                                            sName = hName.length <= 8 ? hName.toUpperCase() : hName.replace(/\b\w/g, l => l.toUpperCase());
+                                        }
                                         break;
                                     }
                                     const mCust = href.match(/(?:_CustId_|seller_id=)(\d+)/i);
@@ -1192,7 +1213,7 @@ class MercadoLibreScraper:
                                 }
                             }
 
-                            // 3. Check multiline "Vendido por" (e.g. "Vendido por\nNocnoc Us Shop\n...")
+                            // 3. Multiline "Vendido por" fallback
                             if (!sName) {
                                 const allNodes = document.querySelectorAll('p, span, div, a');
                                 for (let n of allNodes) {
@@ -1201,7 +1222,7 @@ class MercadoLibreScraper:
                                         const lines = text.split('\n').map(x => x.trim()).filter(x => x.length > 0);
                                         if (lines.length >= 2) {
                                             let candidate = lines[1].replace(/^por\s+/i, '').trim();
-                                            if (candidate && !['mercado libre', 'mercado livre', 'ir a la página', 'ir para a página', 'seguir', 'mercado pontos', 'cupom', 'cupón', 'r$'].some(b => candidate.toLowerCase().includes(b)) && !/^\s*r?\$?\s*\d+[,.]\d+/i.test(candidate)) {
+                                            if (candidate && !['mercado libre', 'mercado livre', 'ir a la página', 'ir para a página', 'seguir', 'mercado pontos', 'cupom', 'cupón', 'r$', 'meios de pagamento'].some(b => candidate.toLowerCase().includes(b)) && !/^\s*r?\$?\s*\d+[,.]\d+/i.test(candidate)) {
                                                 sName = candidate;
                                                 break;
                                             }
@@ -1210,7 +1231,7 @@ class MercadoLibreScraper:
                                 }
                             }
 
-                            // 4. Check dedicated store header
+                            // 4. Storefront Header
                             if (!sName) {
                                 const h1El = document.querySelector('h1.eshop-header__title, h1.store-header__title, .ui-pdp-seller__header__title');
                                 if (h1El) {
@@ -1221,6 +1242,7 @@ class MercadoLibreScraper:
                                 }
                             }
 
+                            // 5. Seller Location
                             const locEl = document.querySelector('.ui-seller-info__location, .ui-pdp-seller__location, .poly-component__location');
                             if (locEl) sLoc = locEl.innerText.trim();
 
@@ -1239,17 +1261,22 @@ class MercadoLibreScraper:
                                 }
                             }
 
-                            const repEl = document.querySelector('.ui-seller-info__status-info, .ui-pdp-seller__reputation, .ui-seller-info__subtitle');
-                            if (repEl) sRep = repEl.innerText.trim();
-
-                            if (!sRep) {
-                                const repNodes = document.querySelectorAll('span, p, div, h3');
-                                for (let n of repNodes) {
-                                    const txt = n.innerText ? n.innerText.trim() : '';
-                                    if (txt.includes('MercadoLíder') || txt.includes('MercadoLider') || txt.includes('Tienda oficial') || txt.includes('Uno de los mejores')) {
-                                        sRep = txt.split('\\n')[0].trim();
-                                        break;
-                                    }
+                            // 6. Seller Reputation (strictly single-line MercadoLíder tier or Official status)
+                            const sellerBlocks = document.querySelectorAll('.ui-seller-data, .ui-seller-info, .ui-pdp-seller');
+                            for (let b of sellerBlocks) {
+                                const txt = b.innerText || '';
+                                if (/mercadol[ií]der\s+platinum/i.test(txt)) {
+                                    sRep = 'MercadoLíder Platinum';
+                                    break;
+                                } else if (/mercadol[ií]der\s+gold/i.test(txt)) {
+                                    sRep = 'MercadoLíder Gold';
+                                    break;
+                                } else if (/mercadol[ií]der/i.test(txt)) {
+                                    sRep = 'MercadoLíder';
+                                    break;
+                                } else if (/loja oficial|tienda oficial/i.test(txt)) {
+                                    sRep = 'Loja Oficial';
+                                    break;
                                 }
                             }
 
@@ -1264,8 +1291,12 @@ class MercadoLibreScraper:
                     if info.get("location"):
                         it["seller_origin"] = info["location"]
                         it["location"] = info["location"]
-                    if info.get("reputation"):
-                        it["threat_badge"] = f"MeLi: {info['reputation']}"
+
+                    rep_str = (info.get("reputation") or "").strip()
+                    if rep_str and any(k in rep_str.lower() for k in ("mercadolíder", "mercadolider", "loja oficial", "tienda oficial")):
+                        it["threat_badge"] = f"MeLi: {rep_str}"
+                    elif "threat_badge" in it and (str(it["threat_badge"]).startswith("MeLi:") or "\n" in str(it.get("threat_badge", ""))):
+                        del it["threat_badge"]
 
                 except Exception as e:
                     logger.debug(f"Error enriching Mercado Libre item {url}: {e}")
