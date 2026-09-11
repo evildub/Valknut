@@ -359,6 +359,42 @@ class MercadoLibreScraper:
         # 3. Fallback to href_val
         return href_val or "", store_url
 
+    def _is_relevant_search_card(self, title: str, url: str, query: str) -> bool:
+        """
+        Check if a search card title or URL is reasonably relevant to the search query,
+        preventing off-target competitor ad bleed (e.g. Nexgard/Simparic ads during a Bravecto search).
+        """
+        if not query or query.strip() in ("*", "All", "all", "Full Search", "Full Store Sweep"):
+            return True
+        
+        clean_q = query.strip().lower()
+        t_lower = (title or "").lower()
+        u_lower = (url or "").lower()
+        
+        # 1. Exact phrase match in title or URL
+        if clean_q in t_lower or clean_q in u_lower:
+            return True
+        
+        # 2. Extract meaningful tokens (>= 3 chars, skip common stopwords)
+        STOPWORDS = {"para", "com", "sem", "por", "dos", "das", "de", "do", "da", "em", "um", "uma", "the", "and", "for", "with"}
+        q_tokens = [w for w in re.findall(r'[a-zA-Z0-9]+', clean_q) if len(w) >= 3 and w not in STOPWORDS]
+        if not q_tokens:
+            return True
+        
+        # Primary / Anchor token (the brand or first main keyword)
+        anchor_token = q_tokens[0]
+        if anchor_token in t_lower or anchor_token in u_lower:
+            return True
+        
+        # Any match on >= 2 tokens for multi-word queries
+        matched_tokens = sum(1 for tok in q_tokens if tok in t_lower or tok in u_lower)
+        if matched_tokens >= 1 and len(q_tokens) == 1:
+            return True
+        if matched_tokens >= 2:
+            return True
+            
+        return False
+
     def _ensure_search_page_loaded(self, page, target_url: str, log_func) -> bool:
         """
         Handle cookie banners, Captcha walls, and mandatory Account Sign-In gates,
@@ -627,6 +663,13 @@ class MercadoLibreScraper:
                     item_url = raw_it.get("url", "").split("?")[0]
                     if not item_url or item_url in seen_urls:
                         continue
+
+                    # Filter out off-target search cards / competitor ad bleed
+                    card_title = raw_it.get("title", "")
+                    if not self._is_relevant_search_card(card_title, raw_it.get("url", ""), query):
+                        logger.debug(f"[Mercado Libre] Skipping off-target search card: '{card_title[:40]}' (query: '{query}')")
+                        continue
+
                     seen_urls.add(item_url)
 
                     is_catalog = "/p/" in item_url
