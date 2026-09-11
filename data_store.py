@@ -536,14 +536,16 @@ class DataStore:
         loc_clean = str(location or "").strip().lower()
         s_name = str(seller_name or "").strip()
 
-        # Burner / disposable machine-generated handle detection (e.g. F20250910190122, HR20260520144654)
+        # Burner / disposable machine-generated handle detection (e.g. F20250910190122, ELITEELITE20220923105415, NASCIMENTOANDRE20231123084227)
         is_burner_handle = False
-        if s_name and s_name != "Mercado Libre Seller" and not s_name.startswith("MeLi_Seller_"):
+        if s_name and s_name not in ("Mercado Libre Seller", "Unknown", "Unresolved") and not s_name.startswith("MeLi_Seller_"):
+            digit_count = sum(c.isdigit() for c in s_name)
             is_burner_handle = bool(
-                re.search(r'^[a-zA-Z]{1,4}\d{10,}$', s_name) or
-                re.search(r'^(?:user|usuario|vendedor|cliente)[_\d-]+$', s_name.lower()) or
+                re.search(r'\d{8,}$', s_name) or
+                re.search(r'(?:201\d|202\d|203\d)(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{2,}', s_name) or
                 re.search(r'^[a-zA-Z]{1,6}\d{6,}$', s_name) or
-                (len(s_name) >= 12 and sum(c.isdigit() for c in s_name) / len(s_name) >= 0.6)
+                re.search(r'^(?:user|usuario|vendedor|cliente)[_\d-]+$', s_name.lower()) or
+                (len(s_name) >= 8 and digit_count >= 6 and (digit_count / len(s_name)) >= 0.45)
             )
 
         # Foreign high-risk manufacturing / counterfeit syndication hubs
